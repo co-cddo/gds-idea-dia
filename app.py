@@ -7,6 +7,8 @@ from config import AppConfig
 
 app = cdk.App()
 
+# Phase is determined by CI/CD (from branch name via --context phase=dev|prod).
+# Defaults to "dev" for local development.
 phase = app.node.try_get_context("phase") or "dev"
 config = AppConfig(phase=phase)
 
