@@ -16,9 +16,8 @@ cdk_env = cdk.Environment(
 )
 
 # Phase is resolved automatically from the authenticated AWS account.
-# No --context flag needed — DeploymentEnvironment maps account → phase.
 environment = DeploymentEnvironment.from_cdk_env(cdk_env)
-config = AppConfig(phase=environment.short_name)
+config = AppConfig(environment=environment)
 
 # Stacks will be added here as they are implemented
 # e.g. StorageStack(app, config.resource_name("storage"), config=config, env=env)
