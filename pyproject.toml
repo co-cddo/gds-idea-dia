@@ -1,0 +1,85 @@
+[build-system]
+requires = ["uv-build>=0.6,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "dia"
+source-dir = "src"
+
+[project]
+name = "dia"
+version = "0.1.0"
+description = "Department Intelligence Agent - knowledge graph extraction pipeline for government documents"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+dependencies = [
+    "boto3>=1.35.0",
+    "graphrag-toolkit-lexical-graph",
+    "llama-index-vector-stores-opensearch>=0.6.2",
+    "numpy<2",                          # pinned: graphrag-toolkit incompatible with numpy 2.x
+    "pdfplumber>=0.11.9",
+    "pydantic>=2.9.0",
+    "pypdf>=6.4.2",
+    "python-docx>=1.2.0",
+    "rapidfuzz>=3.14.3",
+    "sentence-transformers>=5.2.0",
+    "typer>=0.15.0",
+]
+
+[project.optional-dependencies]
+cdk = [
+    "aws-cdk-lib>=2.252.0",
+    "constructs>=10.0.0,<11.0.0",
+    "gds-idea-cdk-constructs>=0.3.0",
+]
+
+[project.scripts]
+dia = "dia.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/co-cddo/gds-idea-dia"
+Repository = "https://github.com/co-cddo/gds-idea-dia"
+Issues = "https://github.com/co-cddo/gds-idea-dia/issues"
+
+[[tool.uv.index]]
+name = "gds-idea"
+url = "https://co-cddo.github.io/gds-idea-pypi/simple/"
+
+[tool.uv.sources]
+graphrag-toolkit-lexical-graph = { url = "https://github.com/awslabs/graphrag-toolkit/archive/refs/tags/v3.17.0.zip", subdirectory = "lexical-graph" }
+gds-idea-cdk-constructs = { index = "gds-idea" }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-cov>=6.0",
+    "ruff>=0.11.0",
+    "moto[s3]>=5.0.0",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["dia"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: marks tests that run the full pipeline with mocks",
+]
