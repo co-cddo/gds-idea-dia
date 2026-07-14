@@ -6,6 +6,22 @@ build-backend = "uv_build"
 module-name = "dia"
 source-dir = "src"
 
+
+[tool.webapp]
+app_name = "dia"
+framework = "infra"
+
+[tool.gds-idea-app-kit]
+framework = "infra"
+app_name = "dia"
+tool_version = "0.5.4"
+
+[tool.gds-idea-app-kit.files]
+".github/CODEOWNERS" = "sha256:56d5fd290e2cb6761e90c0aed4ea903ea99526250fb86e9384fe424e0945727d"
+LICENCE = "sha256:21cc325b3181cb748845827425d37ce04b3dc563835bbf50fafbc56a5eb68c48"
+".github/workflows/ci_cd_cdk_app.yml" = "sha256:46202692b6be60616364f177be030d8ba760c10717c97a69b0723c6c0e85b7b3"
+".github/workflows/ci_pr_cdk_app.yml" = "sha256:40662f487f20b93f80ab0cf903c3c59a2d1806ba2ea9081bdb5076b7b1d576fc"
+".github/dependabot.yml" = "sha256:46db4f8808d2d40d4a11e915ff38f0c5ebf837505d60442b228cab20a18014ea"
 [project]
 name = "dia"
 version = "0.1.0"
@@ -15,6 +31,7 @@ requires-python = ">=3.12"
 license = {text = "MIT"}
 dependencies = [
     "boto3>=1.35.0",
+    "gds-idea-cdk-constructs>=0.3.0",
     "graphrag-toolkit-lexical-graph",
     "llama-index-vector-stores-opensearch>=0.6.2",
     "numpy<2",                          # pinned: graphrag-toolkit incompatible with numpy 2.x
@@ -26,6 +43,10 @@ dependencies = [
     "sentence-transformers>=5.2.0",
     "typer>=0.15.0",
 ]
+
+[[tool.uv.index]]
+name = "gds-idea"
+url = "https://co-cddo.github.io/gds-idea-pypi/simple/"
 
 [project.optional-dependencies]
 cdk = [
@@ -41,10 +62,6 @@ dia = "dia.cli:app"
 Homepage = "https://github.com/co-cddo/gds-idea-dia"
 Repository = "https://github.com/co-cddo/gds-idea-dia"
 Issues = "https://github.com/co-cddo/gds-idea-dia/issues"
-
-[[tool.uv.index]]
-name = "gds-idea"
-url = "https://co-cddo.github.io/gds-idea-pypi/simple/"
 
 [tool.uv.sources]
 graphrag-toolkit-lexical-graph = { url = "https://github.com/awslabs/graphrag-toolkit/archive/refs/tags/v3.17.0.zip", subdirectory = "lexical-graph" }

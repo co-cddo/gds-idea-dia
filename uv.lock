@@ -968,6 +968,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "boto3" },
+    { name = "gds-idea-cdk-constructs" },
     { name = "graphrag-toolkit-lexical-graph" },
     { name = "llama-index-vector-stores-opensearch" },
     { name = "numpy" },
@@ -1000,6 +1001,7 @@ requires-dist = [
     { name = "aws-cdk-lib", marker = "extra == 'cdk'", specifier = ">=2.252.0" },
     { name = "boto3", specifier = ">=1.35.0" },
     { name = "constructs", marker = "extra == 'cdk'", specifier = ">=10.0.0,<11.0.0" },
+    { name = "gds-idea-cdk-constructs", specifier = ">=0.3.0", index = "https://co-cddo.github.io/gds-idea-pypi/simple/" },
     { name = "gds-idea-cdk-constructs", marker = "extra == 'cdk'", specifier = ">=0.3.0", index = "https://co-cddo.github.io/gds-idea-pypi/simple/" },
     { name = "graphrag-toolkit-lexical-graph", url = "https://github.com/awslabs/graphrag-toolkit/archive/refs/tags/v3.17.0.zip", subdirectory = "lexical-graph" },
     { name = "llama-index-vector-stores-opensearch", specifier = ">=0.6.2" },
