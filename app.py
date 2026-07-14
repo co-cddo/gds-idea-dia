@@ -7,6 +7,7 @@ import aws_cdk as cdk
 from gds_idea_cdk_constructs import DeploymentEnvironment
 
 from config import AppConfig
+from stacks.storage import StorageStack
 
 app = cdk.App()
 
@@ -19,7 +20,6 @@ cdk_env = cdk.Environment(
 environment = DeploymentEnvironment.from_cdk_env(cdk_env)
 config = AppConfig(environment=environment)
 
-# Stacks will be added here as they are implemented
-# e.g. StorageStack(app, config.resource_name("storage"), config=config, env=env)
+StorageStack(app, config.resource_name("storage"), config=config, env=cdk_env)
 
 app.synth()
