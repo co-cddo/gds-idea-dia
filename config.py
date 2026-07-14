@@ -1,7 +1,7 @@
 """CDK configuration for DIA.
 
-Phase-resolved infrastructure config. Phase is determined by the
-gds-idea-cdk-constructs DeploymentConfig mechanism, not cdk.json context.
+Phase-resolved infrastructure config. Phase is resolved automatically
+from the authenticated AWS account via DeploymentEnvironment.
 """
 
 from __future__ import annotations
@@ -14,13 +14,16 @@ from pydantic import BaseModel, computed_field
 class AppConfig(BaseModel):
     """Root CDK configuration.
 
+    Phase is resolved automatically from the authenticated AWS account
+    by DeploymentEnvironment in app.py — not from cdk.json context.
+
     Usage:
         config = AppConfig(phase="dev")
         config.bucket("graph-raw")  # -> "gds-idea-dia-graph-raw-dev"
         config.account_number       # -> resolved from DeploymentEnvironment
     """
 
-    phase: Literal["dev"] = "dev"
+    phase: Literal["dev", "prod"] = "dev"
     project: str = "dia"
     team: str = "gds-idea"
     region: str = "eu-west-2"
