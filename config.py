@@ -1,44 +1,44 @@
 """CDK configuration for DIA.
 
-Phase-resolved infrastructure config. Phase is determined by the
-gds-idea-cdk-constructs DeploymentConfig mechanism, not cdk.json context.
+Phase-resolved infrastructure config. Phase is resolved automatically
+from the authenticated AWS account via DeploymentEnvironment.
 """
 
 from __future__ import annotations
 
-from typing import Literal
-
+from gds_idea_cdk_constructs import DeploymentEnvironment
 from pydantic import BaseModel, computed_field
 
 
 class AppConfig(BaseModel):
     """Root CDK configuration.
 
+    Takes a DeploymentEnvironment enum directly — resolved in app.py
+    from the authenticated AWS account.
+
     Usage:
-        config = AppConfig(phase="dev")
+        from gds_idea_cdk_constructs import DeploymentEnvironment
+        config = AppConfig(environment=DeploymentEnvironment.DEVELOPMENT)
         config.bucket("graph-raw")  # -> "gds-idea-dia-graph-raw-dev"
-        config.account_number       # -> resolved from DeploymentEnvironment
+        config.account_number       # -> "992382722318"
     """
 
-    phase: Literal["dev"] = "dev"
+    environment: DeploymentEnvironment = DeploymentEnvironment.DEVELOPMENT
     project: str = "dia"
     team: str = "gds-idea"
     region: str = "eu-west-2"
 
     @computed_field
     @property
+    def phase(self) -> str:
+        """Short phase name (dev/prod) derived from environment."""
+        return self.environment.short_name
+
+    @computed_field
+    @property
     def account_number(self) -> str:
-        """AWS account number for the current phase.
-
-        Resolved via gds-idea-cdk-constructs DeploymentEnvironment.
-        """
-        from gds_idea_cdk_constructs import DeploymentEnvironment
-
-        mapping = {
-            "dev": DeploymentEnvironment.DEVELOPMENT,
-            "prod": DeploymentEnvironment.PRODUCTION,
-        }
-        return mapping[self.phase].value
+        """AWS account number for the current environment."""
+        return self.environment.value
 
     def bucket(self, purpose: str) -> str:
         """Generate a consistent S3 bucket name.
