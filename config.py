@@ -23,8 +23,6 @@ class AppConfig(BaseModel):
         config.account_number       # -> "992382722318"
     """
 
-    model_config = {"arbitrary_types_allowed": True}
-
     environment: DeploymentEnvironment = DeploymentEnvironment.DEVELOPMENT
     project: str = "dia"
     team: str = "gds-idea"
