@@ -2,7 +2,11 @@
 
 from importlib.metadata import version
 
-from dia.ledger import InMemoryLedger
+import boto3
+import pytest
+from moto import mock_aws
+
+from dia.ledger import DynamoDBLedger, InMemoryLedger
 from dia.types import DocumentReference
 
 
@@ -107,3 +111,86 @@ def test_mark_processed_stores_code_version():
     record = ledger.records[key]
     # Should be a valid semver-like string
     assert "." in record.code_version
+
+
+# --- DynamoDBLedger ---
+
+TABLE_NAME = "test-processing-ledger"
+
+
+@pytest.fixture
+def dynamodb_ledger():
+    with mock_aws():
+        dynamodb = boto3.resource("dynamodb", region_name="eu-west-2")
+        dynamodb.create_table(
+            TableName=TABLE_NAME,
+            KeySchema=[{"AttributeName": "document_key", "KeyType": "HASH"}],
+            AttributeDefinitions=[{"AttributeName": "document_key", "AttributeType": "S"}],
+            BillingMode="PAY_PER_REQUEST",
+        )
+        yield DynamoDBLedger(table_name=TABLE_NAME, dynamodb_resource=dynamodb)
+
+
+def test_dynamo_new_refs_are_unprocessed(dynamodb_ledger):
+    refs = [_ref("a.pdf", "v1"), _ref("b.pdf", "v2")]
+
+    result = dynamodb_ledger.get_unprocessed(refs, "test-source")
+
+    assert result == refs
+
+
+def test_dynamo_processed_refs_are_filtered(dynamodb_ledger):
+    ref = _ref("a.pdf", "v1")
+    dynamodb_ledger.mark_processed(ref, "test-source")
+
+    result = dynamodb_ledger.get_unprocessed([ref], "test-source")
+
+    assert result == []
+
+
+def test_dynamo_changed_version_is_unprocessed(dynamodb_ledger):
+    ref_v1 = _ref("a.pdf", "v1")
+    dynamodb_ledger.mark_processed(ref_v1, "test-source")
+
+    ref_v2 = _ref("a.pdf", "v2")
+    result = dynamodb_ledger.get_unprocessed([ref_v2], "test-source")
+
+    assert result == [ref_v2]
+
+
+def test_dynamo_same_file_different_source(dynamodb_ledger):
+    ref = _ref("files/report.pdf", "v1")
+    dynamodb_ledger.mark_processed(ref, "source-a")
+
+    result = dynamodb_ledger.get_unprocessed([ref], "source-b")
+
+    assert result == [ref]
+
+
+def test_dynamo_empty_list_returns_empty(dynamodb_ledger):
+    result = dynamodb_ledger.get_unprocessed([], "source")
+
+    assert result == []
+
+
+def test_dynamo_stores_code_version(dynamodb_ledger):
+    ref = _ref("a.pdf", "v1")
+    dynamodb_ledger.mark_processed(ref, "source")
+
+    # Read back the item directly to verify attributes
+    table = dynamodb_ledger._table
+    response = table.get_item(Key={"document_key": "source#a.pdf#v1"})
+    item = response["Item"]
+
+    assert item["code_version"] == version("dia")
+    assert item["source_name"] == "source"
+    assert "processed_at" in item
+
+
+def test_dynamo_large_batch(dynamodb_ledger):
+    """Test that lookups work for >100 items."""
+    refs = [_ref(f"file_{i}.pdf", "v1") for i in range(150)]
+
+    result = dynamodb_ledger.get_unprocessed(refs, "source")
+
+    assert len(result) == 150
