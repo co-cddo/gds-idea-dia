@@ -5,7 +5,7 @@ Knowledge graph extraction pipeline for UK government documents. Extracts struct
 ## Setup
 
 ```bash
-uv sync
+uv sync --all-extras
 uv run dia --version
 ```
 
@@ -23,10 +23,9 @@ Infrastructure is deployed automatically via CI/CD:
 - Merge to `dev` → deploys to development account
 - Merge to `prod` → deploys to production account
 
-For local CDK operations (e.g. checking a diff):
+For local CDK operations:
 
 ```bash
-uv sync --all-extras
 cdk diff
 cdk synth
 ```
