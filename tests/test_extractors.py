@@ -1,6 +1,7 @@
 """Tests for dia.extractors — PDF and DOCX text extraction."""
 
 from pathlib import Path
+from unittest.mock import MagicMock, PropertyMock
 
 import pytest
 
@@ -120,3 +121,59 @@ def test_factory_docx_extracts(docx_bytes):
 
     assert "sample document" in result
     assert "Alpha" in result
+
+
+# --- Edge cases: PdfExtractor ---
+
+
+def test_pdf_format_row_all_empty_cells():
+    """A row where all cells are None/empty should return empty string."""
+    extractor = PdfExtractor()
+    result = extractor._format_row([None, None, ""])
+
+    assert result == ""
+
+
+def test_pdf_format_row_some_none_cells():
+    """A row with some None cells should still format."""
+    extractor = PdfExtractor()
+    result = extractor._format_row([None, "value", None])
+
+    assert result == "|  | value |  |"
+
+
+def test_pdf_process_page_tables_no_tables():
+    """A page with no tables should return empty list."""
+    extractor = PdfExtractor()
+    mock_page = MagicMock()
+    mock_page.extract_tables.return_value = []
+
+    result = extractor._process_page_tables(mock_page)
+
+    assert result == []
+
+
+# --- Edge cases: DocxExtractor ---
+
+
+def test_docx_format_table_malformed_row_is_skipped():
+    """A row that raises an exception should be skipped, not crash."""
+    extractor = DocxExtractor()
+
+    good_row = MagicMock()
+    good_cell = MagicMock()
+    good_cell.text = "hello"
+    good_row.cells = [good_cell]
+
+    bad_row = MagicMock()
+    bad_cell = MagicMock()
+    type(bad_cell).text = PropertyMock(side_effect=AttributeError("malformed"))
+    bad_row.cells = [bad_cell]
+
+    mock_table = MagicMock()
+    mock_table.rows = [good_row, bad_row]
+
+    result = extractor._format_table(mock_table)
+
+    assert "| hello |" in result
+    assert result.strip() == "| hello |"
