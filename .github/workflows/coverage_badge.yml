@@ -1,0 +1,43 @@
+name: Coverage Badge
+
+on:
+  push:
+    branches: [dev]
+
+permissions:
+  contents: write
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+
+      - run: uv sync --all-extras
+
+      - name: Run tests with coverage
+        run: uv run pytest --cov=dia --cov-report=json --cov-report=term
+
+      - name: Generate badge JSON
+        run: |
+          COVERAGE=$(python -c "import json; print(int(json.load(open('coverage.json'))['totals']['percent_covered']))")
+          if [ $COVERAGE -ge 90 ]; then COLOR="brightgreen"
+          elif [ $COVERAGE -ge 75 ]; then COLOR="green"
+          elif [ $COVERAGE -ge 60 ]; then COLOR="yellow"
+          else COLOR="red"; fi
+          echo "{\"schemaVersion\":1,\"label\":\"coverage\",\"message\":\"${COVERAGE}%\",\"color\":\"${COLOR}\"}" > badge.json
+
+      - name: Push to badges branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan badges-temp
+          git rm -rf .
+          mv badge.json coverage.json
+          git add coverage.json
+          git commit -m "Update coverage badge"
+          git push -f origin badges-temp:badges
