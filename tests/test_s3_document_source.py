@@ -104,6 +104,14 @@ def test_list_documents_correct_content_types(populated_bucket, data_source):
     assert by_key["docs/memo.docx"] == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
+def test_list_documents_populates_version_from_etag(populated_bucket, data_source):
+    source = S3DocumentSource(data_source=data_source, s3_client=populated_bucket)
+    refs = source.list_documents()
+
+    for ref in refs:
+        assert ref.version != "", f"{ref.key} should have a version (ETag)"
+
+
 def test_list_documents_custom_extensions(s3_client):
     data_source = DataSource(
         document_type=DocumentType.CONTRACT_FINDER,
@@ -130,7 +138,7 @@ def test_list_documents_custom_extensions(s3_client):
 
 def test_load_document_returns_bytes(populated_bucket, data_source):
     source = S3DocumentSource(data_source=data_source, s3_client=populated_bucket)
-    ref = DocumentReference(key="docs/report.pdf", content_type="application/pdf")
+    ref = DocumentReference(key="docs/report.pdf", content_type="application/pdf", version="")
 
     content = source.load_document(ref)
 
@@ -142,6 +150,7 @@ def test_load_document_different_file(populated_bucket, data_source):
     ref = DocumentReference(
         key="docs/memo.docx",
         content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        version="",
     )
 
     content = source.load_document(ref)

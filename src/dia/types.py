@@ -25,7 +25,13 @@ class DataSource:
 
 @dataclass(frozen=True)
 class DocumentReference:
-    """A lightweight reference to a document in S3 (no content loaded)."""
+    """A lightweight reference to a document (no content loaded).
+
+    The version field is an opaque change-detection signal provided by the
+    source (e.g. S3 ETag, file mtime+size). The ledger uses it to detect
+    when a file at the same key has been updated.
+    """
 
     key: str
     content_type: str
+    version: str
