@@ -1,15 +1,10 @@
 """Shared type definitions for DIA."""
 
 from dataclasses import dataclass
-from enum import StrEnum
 
+from dia.document_types import DocumentType
 
-class DocumentType(StrEnum):
-    """Document types supported by the extraction pipeline."""
-
-    BUSINESS_CASE = "business_case"
-    SR_BIDS = "sr_bids"
-    CONTRACT_FINDER = "contract_finder"
+__all__ = ["DataSource", "DocumentReference", "DocumentType"]
 
 
 @dataclass(frozen=True)
