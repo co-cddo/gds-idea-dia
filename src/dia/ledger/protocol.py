@@ -24,6 +24,6 @@ class ProcessingLedger(Protocol):
         """
         ...
 
-    def mark_processed(self, ref: DocumentReference, source_name: str) -> None:
+    def mark_processed(self, ref: DocumentReference, source_name: str, department: str | None = None) -> None:
         """Record that a document has been successfully processed."""
         ...

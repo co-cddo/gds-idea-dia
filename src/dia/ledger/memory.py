@@ -25,13 +25,14 @@ class InMemoryLedger:
         """Return refs whose composite key is not in the ledger."""
         return [ref for ref in refs if _composite_key(source_name, ref) not in self._records]
 
-    def mark_processed(self, ref: DocumentReference, source_name: str) -> None:
+    def mark_processed(self, ref: DocumentReference, source_name: str, department: str | None = None) -> None:
         """Record a document as successfully processed."""
         key = _composite_key(source_name, ref)
         self._records[key] = LedgerRecord(
             source_name=source_name,
             processed_at=datetime.now(UTC),
             code_version=version("dia"),
+            department=department,
         )
 
     @property

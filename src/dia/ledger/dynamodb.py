@@ -43,13 +43,14 @@ class DynamoDBLedger:
 
         return unprocessed
 
-    def mark_processed(self, ref: DocumentReference, source_name: str) -> None:
+    def mark_processed(self, ref: DocumentReference, source_name: str, department: str | None = None) -> None:
         """Record a document as successfully processed."""
         key = _composite_key(source_name, ref)
         record = LedgerRecord(
             source_name=source_name,
             processed_at=datetime.now(UTC),
             code_version=version("dia"),
+            department=department,
         )
         self._table.put_item(
             Item={

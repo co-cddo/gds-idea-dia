@@ -99,6 +99,18 @@ def test_mark_processed_stores_record():
     assert record.source_name == "gats-business-cases"
     assert record.processed_at is not None
     assert record.code_version == version("dia")
+    assert record.department is None
+
+
+def test_mark_processed_stores_department():
+    ledger = InMemoryLedger()
+    ref = _ref("a.pdf", "v1")
+
+    ledger.mark_processed(ref, "source", department="HMRC")
+
+    key = "source#a.pdf#v1"
+    record = ledger.records[key]
+    assert record.department == "HMRC"
 
 
 def test_mark_processed_stores_code_version():

@@ -11,3 +11,4 @@ class LedgerRecord(BaseModel):
     source_name: str
     processed_at: datetime
     code_version: str
+    department: str | None = None
