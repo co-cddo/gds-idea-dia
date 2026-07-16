@@ -48,7 +48,13 @@ class S3DocumentSource:
             for obj in page.get("Contents", []):
                 key: str = obj["Key"]
                 if self._matches_extension(key):
-                    refs.append(DocumentReference(key=key, content_type=_content_type_for(key)))
+                    refs.append(
+                        DocumentReference(
+                            key=key,
+                            content_type=_content_type_for(key),
+                            version=obj.get("ETag", ""),
+                        )
+                    )
 
         return refs
 
