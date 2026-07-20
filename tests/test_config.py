@@ -66,12 +66,17 @@ def test_extraction_config_defaults():
 
 def test_extraction_config_override():
     config = ExtractionConfig(
-        extraction_model="eu.anthropic.claude-haiku-4-5-20251001-v1:0",
+        extraction_model="anthropic.claude-sonnet-4-5-20250929-v1:0",
         extraction_batch_size=5000,
     )
 
-    assert config.extraction_model == "eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+    assert config.extraction_model == "anthropic.claude-sonnet-4-5-20250929-v1:0"
     assert config.extraction_batch_size == 5000
+
+
+def test_extraction_config_rejects_unapproved_model():
+    with pytest.raises(ValidationError):
+        ExtractionConfig(extraction_model="eu.anthropic.claude-haiku-4-5-20251001-v1:0")
 
 
 def test_extraction_config_rejects_zero_batch_size():
@@ -92,6 +97,11 @@ def test_extraction_config_rejects_negative_temperature():
 def test_extraction_config_rejects_temperature_over_1():
     with pytest.raises(ValidationError):
         ExtractionConfig(temperature=1.1)
+
+
+def test_extraction_config_temperature_none():
+    config = ExtractionConfig(temperature=None)
+    assert config.temperature is None
 
 
 def test_extraction_config_is_frozen():

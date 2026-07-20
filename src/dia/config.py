@@ -7,7 +7,14 @@ ChunkingConfig holds the text splitting strategy. Per-document-type chunking is
 derived from DocumentType, not configured globally.
 """
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+ApprovedModel = Literal[
+    "eu.anthropic.claude-sonnet-4-6",
+    "anthropic.claude-sonnet-4-5-20250929-v1:0",
+]
 
 
 class ChunkingConfig(BaseModel, frozen=True):
@@ -37,13 +44,13 @@ class ExtractionConfig(BaseModel, frozen=True):
     classifications) are derived from DocumentType, not from this config.
     """
 
-    extraction_model: str = "eu.anthropic.claude-sonnet-4-6"
+    extraction_model: ApprovedModel = "eu.anthropic.claude-sonnet-4-6"
     embeddings_model: str = "amazon.titan-embed-text-v2:0"
     region: str = "eu-west-2"
     extraction_batch_size: int = Field(default=20000, gt=0)
     extraction_num_workers: int = Field(default=1, gt=0)
     extraction_num_threads_per_worker: int = Field(default=2, gt=0)
     max_tokens: int = Field(default=42768, gt=0)
-    temperature: float = Field(default=0.0, ge=0.0, le=1.0)
+    temperature: float | None = Field(default=0.0, ge=0.0, le=1.0)
     read_timeout: int = Field(default=600, gt=0)
     enable_cache: bool = True
