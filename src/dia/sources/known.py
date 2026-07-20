@@ -1,6 +1,7 @@
 """Known data sources for the DIA pipeline."""
 
-from dia.types import DataSource, DocumentType
+from dia.document_types import DocumentType
+from dia.types import DataSource
 
 KNOWN_SOURCES: dict[str, DataSource] = {
     "gats-business-cases": DataSource(

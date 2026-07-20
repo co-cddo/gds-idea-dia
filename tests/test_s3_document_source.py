@@ -4,9 +4,10 @@ import boto3
 import pytest
 from moto import mock_aws
 
+from dia.document_types import DocumentType
 from dia.sources import KNOWN_SOURCES, S3DocumentSource, get_source
 from dia.sources.protocol import DocumentSource
-from dia.types import DataSource, DocumentReference, DocumentType
+from dia.types import DataSource, DocumentReference
 
 
 @pytest.fixture
