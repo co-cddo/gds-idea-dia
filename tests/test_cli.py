@@ -152,3 +152,159 @@ def test_ledger_clear_requires_source_or_all():
 
     assert result.exit_code == 1
     assert "Provide --source" in result.output
+
+
+# ---------------------------------------------------------------------------
+# extract-text
+# ---------------------------------------------------------------------------
+
+
+def test_extract_text_unknown_source():
+    result = runner.invoke(app, ["extract-text", "--source", "nonexistent"])
+
+    assert result.exit_code == 1
+    assert "Unknown source" in result.output
+
+
+def test_extract_text_output_and_live_both_set_errors():
+    with patch("dia.sources.known.get_source"), patch("dia.sources.s3.S3DocumentSource"):
+        result = runner.invoke(app, ["extract-text", "--source", "test", "--output", "./x", "--live"])
+
+    assert result.exit_code == 1
+    assert "not both" in result.output
+
+
+def test_extract_text_dry_run_reports_counts(tmp_path):
+    """No --output, no --live: dry run against the DynamoDB ledger."""
+    from dia.types import DocumentReference
+
+    refs = [
+        DocumentReference(key="a.pdf", content_type="application/pdf", version="v1"),
+        DocumentReference(key="b.pdf", content_type="application/pdf", version="v1"),
+        DocumentReference(key="c.pdf", content_type="application/pdf", version="v1"),
+    ]
+
+    with (
+        patch("dia.sources.known.get_source"),
+        patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
+        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-dev"),
+        patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_ledger_cls,
+    ):
+        mock_source = mock_source_cls.return_value
+        mock_source.list_documents.return_value = refs
+        mock_source.data_source.document_type = "business_case"
+        mock_source.data_source.bucket = "test-bucket"
+
+        mock_ledger_cls.return_value.get_unprocessed.return_value = refs[:1]
+
+        result = runner.invoke(app, ["extract-text", "--source", "test-source"])
+
+    assert result.exit_code == 0
+    assert "Total documents:    3" in result.output
+    assert "Already processed:  2" in result.output
+    assert "Would process:      1" in result.output
+    # Dry run must not import the runner or touch output/ledger writes
+    mock_source.load_document.assert_not_called()
+
+
+def test_extract_text_local_mode_uses_json_file_ledger(tmp_path):
+    from dia.pipeline import TextExtractionResult
+
+    mock_result = TextExtractionResult(total=5, processed=3, skipped=2, failed=0, filtered_out=0, duration_seconds=1.2)
+    output_dir = tmp_path / "output"
+
+    with (
+        patch("dia.sources.known.get_source"),
+        patch("dia.sources.s3.S3DocumentSource"),
+        patch("dia.pipeline.TextExtractionRunner") as mock_runner_cls,
+    ):
+        mock_runner_cls.return_value.run.return_value = mock_result
+
+        result = runner.invoke(
+            app,
+            [
+                "extract-text",
+                "--source",
+                "test",
+                "--output",
+                str(output_dir),
+                "--log-dir",
+                str(tmp_path / "logs"),
+            ],
+        )
+
+    assert result.exit_code == 0
+    assert f"ledger={output_dir / '.ledger.json'}" in result.output
+    assert "Processed:        3" in result.output
+
+    # Runner constructed with output_dir, not output_bucket
+    call_kwargs = mock_runner_cls.call_args.kwargs
+    assert call_kwargs["output_dir"] == output_dir
+    assert "output_bucket" not in call_kwargs
+
+
+def test_extract_text_live_mode_uses_dynamodb_and_s3(tmp_path):
+    from dia.pipeline import TextExtractionResult
+
+    mock_result = TextExtractionResult(total=0, processed=0, skipped=0, failed=0, filtered_out=0, duration_seconds=0.1)
+
+    with (
+        patch("dia.sources.known.get_source"),
+        patch("dia.sources.s3.S3DocumentSource"),
+        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-dev"),
+        patch(
+            "dia.cli_helpers.resolve_text_output_bucket",
+            return_value="gds-idea-dia-text-extracted-dev",
+        ),
+        patch("dia.ledger.dynamodb.DynamoDBLedger"),
+        patch("dia.pipeline.TextExtractionRunner") as mock_runner_cls,
+    ):
+        mock_runner_cls.return_value.run.return_value = mock_result
+
+        result = runner.invoke(app, ["extract-text", "--source", "test", "--live", "--log-dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    assert "output=gds-idea-dia-text-extracted-dev" in result.output
+    assert "ledger=dia-ledger-dev" in result.output
+
+    call_kwargs = mock_runner_cls.call_args.kwargs
+    assert call_kwargs["output_bucket"] == "gds-idea-dia-text-extracted-dev"
+    assert "output_dir" not in call_kwargs
+
+
+def test_extract_text_local_mode_failure_exits_nonzero(tmp_path):
+    from dia.pipeline import TextExtractionResult
+
+    mock_result = TextExtractionResult(
+        total=2,
+        processed=1,
+        skipped=0,
+        failed=1,
+        filtered_out=0,
+        failed_keys=["docs/bad.pdf"],
+        duration_seconds=0.5,
+    )
+
+    with (
+        patch("dia.sources.known.get_source"),
+        patch("dia.sources.s3.S3DocumentSource"),
+        patch("dia.pipeline.TextExtractionRunner") as mock_runner_cls,
+    ):
+        mock_runner_cls.return_value.run.return_value = mock_result
+
+        result = runner.invoke(
+            app,
+            [
+                "extract-text",
+                "--source",
+                "test",
+                "--output",
+                str(tmp_path / "output"),
+                "--log-dir",
+                str(tmp_path / "logs"),
+            ],
+        )
+
+    assert result.exit_code == 1
+    assert "Failed documents:" in result.output
+    assert "docs/bad.pdf" in result.output

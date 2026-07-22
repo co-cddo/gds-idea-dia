@@ -26,6 +26,158 @@ def main(
         raise typer.Exit()
 
 
+@app.command("extract-text")
+def extract_text(
+    source: Annotated[str, typer.Option("--source", "-s", help="Source name from KNOWN_SOURCES.")],
+    output: Annotated[
+        str | None,
+        typer.Option("--output", "-o", help="Local directory to write extracted text to."),
+    ] = None,
+    live: Annotated[
+        bool,
+        typer.Option("--live", help="Write to the production S3 bucket + DynamoDB ledger."),
+    ] = False,
+    log_dir: Annotated[
+        str | None,
+        typer.Option("--log-dir", help="Directory for log files. Defaults to ./logs/."),
+    ] = None,
+):
+    """Run Stage 1: extract text from documents.
+
+    Three modes:
+
+    \b
+    - No --output, no --live: dry run. Reports how many documents would be
+      processed (checked against the DynamoDB ledger) without downloading
+      or writing anything.
+    - --output <path>: local extraction. Downloads, extracts, and writes
+      JSON to disk. Ledger is always a local file at <path>/.ledger.json —
+      never touches the production ledger. Use `dia ledger clone` first if
+      you want to test against real processed state.
+    - --live: production extraction. Writes to the text-extracted S3
+      bucket and the DynamoDB ledger, both resolved from your AWS account.
+    """
+    from dia.sources.known import get_source
+    from dia.sources.s3 import S3DocumentSource
+
+    if output and live:
+        typer.echo("Error: Provide --output or --live, not both.")
+        raise typer.Exit(code=1)
+
+    try:
+        data_source = get_source(source)
+    except KeyError:
+        typer.echo(f"Error: Unknown source {source!r}. Use --help to see available sources.")
+        raise typer.Exit(code=1) from None
+
+    document_source = S3DocumentSource(data_source=data_source)
+
+    if not output and not live:
+        _dry_run(source, document_source)
+        return
+
+    if live:
+        _run_live(source, document_source, log_dir)
+    else:
+        _run_local(document_source, output, log_dir)
+
+
+def _dry_run(source_name: str, document_source) -> None:
+    """Report what --live would process, without downloading or writing anything."""
+    from dia.cli_helpers import resolve_ledger_table
+    from dia.ledger.dynamodb import DynamoDBLedger
+
+    refs = document_source.list_documents()
+    total = len(refs)
+
+    table_name = resolve_ledger_table()
+    ledger = DynamoDBLedger(table_name=table_name)
+    pending = ledger.get_unprocessed(refs, source_name, "text")
+
+    typer.echo(f"Source: {source_name} ({document_source.data_source.document_type})")
+    typer.echo(f"Bucket: {document_source.data_source.bucket}")
+    typer.echo(f"Total documents:    {total}")
+    typer.echo(f"Already processed:  {total - len(pending)}")
+    typer.echo(f"Would process:      {len(pending)}")
+    typer.echo("")
+    typer.echo("Use --output <path> for local extraction, or --live for production.")
+
+
+def _run_live(source_name: str, document_source, log_dir: str | None) -> None:
+    """Production mode: S3 output + DynamoDB ledger, both resolved from AWS account."""
+    from dia.cli_helpers import resolve_ledger_table, resolve_text_output_bucket
+    from dia.config import TextExtractionConfig
+    from dia.ledger.dynamodb import DynamoDBLedger
+    from dia.pipeline import TextExtractionRunner
+
+    table_name = resolve_ledger_table()
+    output_bucket = resolve_text_output_bucket()
+    ledger = DynamoDBLedger(table_name=table_name)
+
+    typer.echo(f"Live mode: output={output_bucket} ledger={table_name}")
+
+    runner = TextExtractionRunner(
+        source=document_source,
+        ledger=ledger,
+        config=TextExtractionConfig(),
+        output_bucket=output_bucket,
+        log_dir=log_dir,
+    )
+    _run_and_report(runner)
+
+
+def _run_local(document_source, output: str, log_dir: str | None) -> None:
+    """Local mode: writes to disk, always uses a local file ledger.
+
+    Never touches the production ledger — safe to run repeatedly without
+    affecting --live state. Use `dia ledger clone` to seed the local
+    ledger with real processed state if needed.
+    """
+    from pathlib import Path
+
+    from dia.config import TextExtractionConfig
+    from dia.ledger.file import JsonFileLedger
+    from dia.pipeline import TextExtractionRunner
+
+    output_dir = Path(output)
+    ledger_path = output_dir / ".ledger.json"
+    ledger = JsonFileLedger(ledger_path)
+
+    typer.echo(f"Local mode: output={output_dir} ledger={ledger_path}")
+
+    runner = TextExtractionRunner(
+        source=document_source,
+        ledger=ledger,
+        config=TextExtractionConfig(),
+        output_dir=output_dir,
+        log_dir=log_dir,
+    )
+    _run_and_report(runner)
+
+
+def _run_and_report(runner) -> None:
+    """Run the pipeline and print the result summary."""
+    result = runner.run()
+
+    typer.echo("")
+    typer.echo("--- Text Extraction Result ---")
+    typer.echo(f"  Total documents:  {result.total}")
+    typer.echo(f"  Processed:        {result.processed}")
+    typer.echo(f"  Skipped:          {result.skipped}")
+    typer.echo(f"  Filtered out:     {result.filtered_out}")
+    typer.echo(f"  Failed:           {result.failed}")
+    typer.echo(f"  Duration:         {result.duration_seconds:.1f}s")
+
+    if result.failed_keys:
+        typer.echo("")
+        typer.echo("Failed documents:")
+        for key in result.failed_keys:
+            typer.echo(f"  - {key}")
+
+    if result.failed > 0:
+        raise typer.Exit(code=1)
+
+
 @ledger_app.command("list")
 def ledger_list(
     source: Annotated[str, typer.Option("--source", "-s", help="Source name to list records for.")],
