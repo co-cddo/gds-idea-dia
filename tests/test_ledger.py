@@ -206,3 +206,127 @@ def test_dynamo_large_batch(dynamodb_ledger):
     result = dynamodb_ledger.get_unprocessed(refs, "source")
 
     assert len(result) == 150
+
+
+# --- InMemoryLedger: list_records ---
+
+
+def test_list_records_returns_matching_source():
+    ledger = InMemoryLedger()
+    ledger.mark_processed(_ref("a.pdf", "v1"), "source-a")
+    ledger.mark_processed(_ref("b.pdf", "v1"), "source-a")
+    ledger.mark_processed(_ref("c.pdf", "v1"), "source-b")
+
+    records = ledger.list_records("source-a")
+
+    assert len(records) == 2
+    assert all(r["source_name"] == "source-a" for r in records)
+
+
+def test_list_records_empty_source():
+    ledger = InMemoryLedger()
+    ledger.mark_processed(_ref("a.pdf", "v1"), "source-a")
+
+    records = ledger.list_records("source-b")
+
+    assert records == []
+
+
+# --- InMemoryLedger: clear ---
+
+
+def test_clear_removes_source_records():
+    ledger = InMemoryLedger()
+    ledger.mark_processed(_ref("a.pdf", "v1"), "source-a")
+    ledger.mark_processed(_ref("b.pdf", "v1"), "source-a")
+    ledger.mark_processed(_ref("c.pdf", "v1"), "source-b")
+
+    deleted = ledger.clear("source-a")
+
+    assert deleted == 2
+    assert len(ledger.records) == 1
+    assert ledger.list_records("source-a") == []
+    assert len(ledger.list_records("source-b")) == 1
+
+
+def test_clear_nonexistent_source_returns_zero():
+    ledger = InMemoryLedger()
+    ledger.mark_processed(_ref("a.pdf", "v1"), "source-a")
+
+    deleted = ledger.clear("source-b")
+
+    assert deleted == 0
+    assert len(ledger.records) == 1
+
+
+# --- InMemoryLedger: clear_all ---
+
+
+def test_clear_all_removes_everything():
+    ledger = InMemoryLedger()
+    ledger.mark_processed(_ref("a.pdf", "v1"), "source-a")
+    ledger.mark_processed(_ref("b.pdf", "v1"), "source-b")
+
+    deleted = ledger.clear_all()
+
+    assert deleted == 2
+    assert len(ledger.records) == 0
+
+
+def test_clear_all_empty_ledger_returns_zero():
+    ledger = InMemoryLedger()
+
+    deleted = ledger.clear_all()
+
+    assert deleted == 0
+
+
+# --- DynamoDBLedger: list_records ---
+
+
+def test_dynamo_list_records_returns_matching_source(dynamodb_ledger):
+    dynamodb_ledger.mark_processed(_ref("a.pdf", "v1"), "source-a")
+    dynamodb_ledger.mark_processed(_ref("b.pdf", "v1"), "source-a")
+    dynamodb_ledger.mark_processed(_ref("c.pdf", "v1"), "source-b")
+
+    records = dynamodb_ledger.list_records("source-a")
+
+    assert len(records) == 2
+    assert all(r["source_name"] == "source-a" for r in records)
+
+
+def test_dynamo_list_records_empty_source(dynamodb_ledger):
+    dynamodb_ledger.mark_processed(_ref("a.pdf", "v1"), "source-a")
+
+    records = dynamodb_ledger.list_records("source-b")
+
+    assert records == []
+
+
+# --- DynamoDBLedger: clear ---
+
+
+def test_dynamo_clear_removes_source_records(dynamodb_ledger):
+    dynamodb_ledger.mark_processed(_ref("a.pdf", "v1"), "source-a")
+    dynamodb_ledger.mark_processed(_ref("b.pdf", "v1"), "source-a")
+    dynamodb_ledger.mark_processed(_ref("c.pdf", "v1"), "source-b")
+
+    deleted = dynamodb_ledger.clear("source-a")
+
+    assert deleted == 2
+    assert dynamodb_ledger.list_records("source-a") == []
+    assert len(dynamodb_ledger.list_records("source-b")) == 1
+
+
+# --- DynamoDBLedger: clear_all ---
+
+
+def test_dynamo_clear_all_removes_everything(dynamodb_ledger):
+    dynamodb_ledger.mark_processed(_ref("a.pdf", "v1"), "source-a")
+    dynamodb_ledger.mark_processed(_ref("b.pdf", "v1"), "source-b")
+
+    deleted = dynamodb_ledger.clear_all()
+
+    assert deleted == 2
+    assert dynamodb_ledger.list_records("source-a") == []
+    assert dynamodb_ledger.list_records("source-b") == []

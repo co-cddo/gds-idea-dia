@@ -1,8 +1,9 @@
-"""CDK stack for DIA S3 storage buckets."""
+"""CDK stack for DIA storage resources."""
 
 from __future__ import annotations
 
 import aws_cdk as cdk
+from aws_cdk import aws_dynamodb as dynamodb
 from aws_cdk import aws_s3 as s3
 from constructs import Construct
 
@@ -10,12 +11,15 @@ from config import AppConfig
 
 
 class StorageStack(cdk.Stack):
-    """Creates S3 buckets for the DIA extraction pipeline.
+    """Creates storage resources for the DIA extraction pipeline.
 
-    Buckets:
-        - graph-raw: Raw extraction JSON output
-        - graph-validated: Normalised/validated output ready for Neptune/AOSS
-        - batch: Bedrock batch inference working area (transient)
+    Resources:
+        S3 Buckets:
+            - graph-raw: Raw extraction JSON output
+            - graph-validated: Normalised/validated output ready for Neptune/AOSS
+            - batch: Bedrock batch inference working area (transient)
+        DynamoDB Tables:
+            - ledger: Tracks which documents have been successfully processed
     """
 
     def __init__(self, scope: Construct, construct_id: str, *, config: AppConfig, **kwargs) -> None:
@@ -64,4 +68,17 @@ class StorageStack(cdk.Stack):
                     expiration=cdk.Duration.days(90),
                 ),
             ],
+        )
+
+        self.ledger_table = dynamodb.Table(
+            self,
+            "Ledger",
+            table_name=config.resource_name("ledger"),
+            partition_key=dynamodb.Attribute(
+                name="document_key",
+                type=dynamodb.AttributeType.STRING,
+            ),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            point_in_time_recovery=True,
+            removal_policy=cdk.RemovalPolicy.RETAIN,
         )
