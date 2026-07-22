@@ -35,6 +35,32 @@ class InMemoryLedger:
             department=department,
         )
 
+    def list_records(self, source_name: str) -> list[dict]:
+        """List all records for a source.
+
+        Returns a list of dicts with document_key + record fields.
+        """
+        results = []
+        prefix = f"{source_name}#"
+        for key, record in self._records.items():
+            if key.startswith(prefix):
+                results.append({"document_key": key, **record.model_dump(mode="json")})
+        return results
+
+    def clear(self, source_name: str) -> int:
+        """Delete all records for a source. Returns count deleted."""
+        prefix = f"{source_name}#"
+        keys_to_delete = [k for k in self._records if k.startswith(prefix)]
+        for key in keys_to_delete:
+            del self._records[key]
+        return len(keys_to_delete)
+
+    def clear_all(self) -> int:
+        """Delete all records. Returns count deleted."""
+        count = len(self._records)
+        self._records.clear()
+        return count
+
     @property
     def records(self) -> dict[str, LedgerRecord]:
         """Access the internal records (useful for test assertions)."""

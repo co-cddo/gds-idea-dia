@@ -58,3 +58,53 @@ class DynamoDBLedger:
                 **record.model_dump(mode="json"),
             }
         )
+
+    def list_records(self, source_name: str) -> list[dict]:
+        """List all records for a source.
+
+        Scans for items whose document_key starts with the source name prefix.
+        Fine at our volume (hundreds/low thousands of records).
+        """
+        from boto3.dynamodb.conditions import Attr
+
+        results = []
+        prefix = f"{source_name}#"
+        scan_kwargs = {
+            "FilterExpression": Attr("document_key").begins_with(prefix),
+        }
+
+        while True:
+            response = self._table.scan(**scan_kwargs)
+            results.extend(response.get("Items", []))
+            if "LastEvaluatedKey" not in response:
+                break
+            scan_kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
+
+        return results
+
+    def clear(self, source_name: str) -> int:
+        """Delete all records for a source. Returns count deleted."""
+        records = self.list_records(source_name)
+        for item in records:
+            self._table.delete_item(Key={"document_key": item["document_key"]})
+        return len(records)
+
+    def clear_all(self) -> int:
+        """Delete all records. Returns count deleted."""
+        count = 0
+        scan_kwargs: dict = {}
+
+        while True:
+            response = self._table.scan(
+                ProjectionExpression="document_key",
+                **scan_kwargs,
+            )
+            items = response.get("Items", [])
+            for item in items:
+                self._table.delete_item(Key={"document_key": item["document_key"]})
+                count += 1
+            if "LastEvaluatedKey" not in response:
+                break
+            scan_kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
+
+        return count
