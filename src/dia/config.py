@@ -54,3 +54,15 @@ class ExtractionConfig(BaseModel, frozen=True):
     temperature: float | None = Field(default=0.0, ge=0.0, le=1.0)
     read_timeout: int = Field(default=600, gt=0)
     enable_cache: bool = True
+
+
+class TextExtractionConfig(BaseModel, frozen=True):
+    """Configuration for Stage 1: text extraction from documents.
+
+    Controls how documents are downloaded and extracted in batches.
+    The pipeline checkpoints after each batch (writes to text bucket +
+    updates ledger), so if the process dies, at most one batch is lost.
+    """
+
+    batch_size: int = Field(default=100, gt=0)
+    max_concurrency: int = Field(default=10, gt=0)

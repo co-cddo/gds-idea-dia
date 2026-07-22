@@ -108,3 +108,46 @@ def test_extraction_config_is_frozen():
     config = ExtractionConfig()
     with pytest.raises(ValidationError):
         config.extraction_model = "something"
+
+
+# --- TextExtractionConfig ---
+
+
+def test_text_extraction_config_defaults():
+    from dia.config import TextExtractionConfig
+
+    config = TextExtractionConfig()
+
+    assert config.batch_size == 100
+    assert config.max_concurrency == 10
+
+
+def test_text_extraction_config_override():
+    from dia.config import TextExtractionConfig
+
+    config = TextExtractionConfig(batch_size=50, max_concurrency=20)
+
+    assert config.batch_size == 50
+    assert config.max_concurrency == 20
+
+
+def test_text_extraction_config_rejects_zero_batch_size():
+    from dia.config import TextExtractionConfig
+
+    with pytest.raises(ValidationError):
+        TextExtractionConfig(batch_size=0)
+
+
+def test_text_extraction_config_rejects_zero_concurrency():
+    from dia.config import TextExtractionConfig
+
+    with pytest.raises(ValidationError):
+        TextExtractionConfig(max_concurrency=0)
+
+
+def test_text_extraction_config_is_frozen():
+    from dia.config import TextExtractionConfig
+
+    config = TextExtractionConfig()
+    with pytest.raises(ValidationError):
+        config.batch_size = 50
