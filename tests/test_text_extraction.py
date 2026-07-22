@@ -173,6 +173,55 @@ def test_writes_json_to_output_bucket(source_with_fakes, ledger, config, mock_ex
     assert "code_version" in payload
 
 
+# ---------------------------------------------------------------------------
+# Tests: local output
+# ---------------------------------------------------------------------------
+
+
+def test_writes_json_to_local_output_dir(source_with_fakes, ledger, config, mock_extractor, tmp_path):
+    output_dir = tmp_path / "output"
+    runner = TextExtractionRunner(
+        source=source_with_fakes,
+        ledger=ledger,
+        config=config,
+        output_dir=output_dir,
+        log_dir=str(tmp_path / "logs"),
+    )
+    result = runner.run()
+
+    assert result.processed == 3
+
+    output_file = output_dir / "test-source" / "docs" / "a.pdf.json"
+    assert output_file.exists()
+
+    payload = json.loads(output_file.read_text())
+    assert payload["key"] == "docs/a.pdf"
+    assert payload["source_name"] == "test-source"
+    assert payload["text"] == "extracted:fake pdf a"
+
+
+def test_output_bucket_and_output_dir_both_set_raises(source_with_fakes, ledger, config, tmp_path):
+    with pytest.raises(ValueError, match="exactly one"):
+        TextExtractionRunner(
+            source=source_with_fakes,
+            ledger=ledger,
+            config=config,
+            output_bucket=OUTPUT_BUCKET,
+            output_dir=tmp_path / "output",
+            log_dir=str(tmp_path / "logs"),
+        )
+
+
+def test_neither_output_bucket_nor_output_dir_raises(source_with_fakes, ledger, config, tmp_path):
+    with pytest.raises(ValueError, match="exactly one"):
+        TextExtractionRunner(
+            source=source_with_fakes,
+            ledger=ledger,
+            config=config,
+            log_dir=str(tmp_path / "logs"),
+        )
+
+
 def test_updates_ledger(source_with_fakes, ledger, config, mock_extractor, s3_setup, tmp_path):
     runner = TextExtractionRunner(
         source=source_with_fakes,

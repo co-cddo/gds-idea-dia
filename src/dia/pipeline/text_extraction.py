@@ -16,6 +16,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from importlib.metadata import version
+from pathlib import Path
 
 import aioboto3
 
@@ -57,15 +58,21 @@ class TextExtractionRunner:
         source: DocumentSource,
         ledger: ProcessingLedger,
         config: TextExtractionConfig,
-        output_bucket: str,
+        output_bucket: str | None = None,
+        output_dir: Path | str | None = None,
         output_s3_client=None,
         filters: list[DocumentFilter] | None = None,
         log_dir: str | None = None,
     ) -> None:
+        if bool(output_bucket) == bool(output_dir):
+            msg = "Provide exactly one of output_bucket or output_dir"
+            raise ValueError(msg)
+
         self._source = source
         self._ledger = ledger
         self._config = config
         self._output_bucket = output_bucket
+        self._output_dir = Path(output_dir) if output_dir else None
         self._output_s3_client = output_s3_client
         self._filters = filters or []
         self._source_name = source.data_source.name
@@ -204,7 +211,7 @@ class TextExtractionRunner:
         return extractor.extract(content)
 
     async def _write_output(self, session: aioboto3.Session, ref: DocumentReference, text: str) -> None:
-        """Write extracted text as JSON to the output bucket."""
+        """Write extracted text as JSON to the configured output (local disk or S3)."""
         output_key = f"{self._source_name}/{ref.key}.json"
         payload = {
             "key": ref.key,
@@ -218,7 +225,9 @@ class TextExtractionRunner:
         }
         body = json.dumps(payload, ensure_ascii=False)
 
-        if self._output_s3_client:
+        if self._output_dir is not None:
+            await asyncio.to_thread(self._write_local, output_key, body)
+        elif self._output_s3_client:
             # Sync client injected for testing — run in thread
             await asyncio.to_thread(
                 self._output_s3_client.put_object,
@@ -235,3 +244,9 @@ class TextExtractionRunner:
                     Body=body.encode(),
                     ContentType="application/json",
                 )
+
+    def _write_local(self, output_key: str, body: str) -> None:
+        """Write JSON output to local disk, mirroring the S3 key structure."""
+        output_path = self._output_dir / output_key
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(body, encoding="utf-8")
