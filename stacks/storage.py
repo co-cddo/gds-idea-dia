@@ -15,7 +15,8 @@ class StorageStack(cdk.Stack):
 
     Resources:
         S3 Buckets:
-            - graph-raw: Raw extraction JSON output
+            - text-extracted: Extracted text JSON (staging area between text and graph extraction)
+            - graph-raw: Raw graph extraction JSON output
             - graph-validated: Normalised/validated output ready for Neptune/AOSS
             - batch: Bedrock batch inference working area (transient)
         DynamoDB Tables:
@@ -24,6 +25,17 @@ class StorageStack(cdk.Stack):
 
     def __init__(self, scope: Construct, construct_id: str, *, config: AppConfig, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
+
+        self.text_extracted_bucket = s3.Bucket(
+            self,
+            "TextExtracted",
+            bucket_name=config.bucket("text-extracted"),
+            versioned=True,
+            encryption=s3.BucketEncryption.S3_MANAGED,
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            enforce_ssl=True,
+            removal_policy=cdk.RemovalPolicy.RETAIN,
+        )
 
         self.graph_raw_bucket = s3.Bucket(
             self,
