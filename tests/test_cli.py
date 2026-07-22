@@ -155,6 +155,120 @@ def test_ledger_clear_requires_source_or_all():
 
 
 # ---------------------------------------------------------------------------
+# ledger clone
+# ---------------------------------------------------------------------------
+
+
+def test_ledger_clone_writes_local_file(tmp_path):
+    mock_records = [
+        {
+            "document_key": "text#gats-business-cases#docs/a.pdf#v1",
+            "source_name": "gats-business-cases",
+            "processed_at": "2026-07-20T10:00:00+00:00",
+            "code_version": "0.1.13",
+            "department": None,
+        },
+        {
+            "document_key": "text#gats-business-cases#docs/b.pdf#v1",
+            "source_name": "gats-business-cases",
+            "processed_at": "2026-07-20T10:01:00+00:00",
+            "code_version": "0.1.13",
+            "department": None,
+        },
+    ]
+    to_path = tmp_path / "cloned.ledger.json"
+
+    with (
+        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-dev"),
+        patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_cls,
+    ):
+        mock_cls.return_value.list_records.return_value = mock_records
+
+        result = runner.invoke(
+            app,
+            ["ledger", "clone", "--source", "gats-business-cases", "--to", str(to_path)],
+        )
+
+    assert result.exit_code == 0
+    assert "Cloned 2 records" in result.output
+    assert to_path.exists()
+
+    import json
+
+    data = json.loads(to_path.read_text())
+    assert "text#gats-business-cases#docs/a.pdf#v1" in data
+    assert data["text#gats-business-cases#docs/a.pdf#v1"]["source_name"] == "gats-business-cases"
+    assert "document_key" not in data["text#gats-business-cases#docs/a.pdf#v1"]
+
+
+def test_ledger_clone_creates_parent_directories(tmp_path):
+    mock_records = [
+        {
+            "document_key": "text#src#a.pdf#v1",
+            "source_name": "src",
+            "processed_at": "2026-07-20T10:00:00+00:00",
+            "code_version": "0.1.13",
+        },
+    ]
+    to_path = tmp_path / "nested" / "dir" / "ledger.json"
+
+    with (
+        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-dev"),
+        patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_cls,
+    ):
+        mock_cls.return_value.list_records.return_value = mock_records
+
+        result = runner.invoke(app, ["ledger", "clone", "--source", "src", "--to", str(to_path)])
+
+    assert result.exit_code == 0
+    assert to_path.exists()
+
+
+def test_ledger_clone_no_records():
+    with (
+        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-dev"),
+        patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_cls,
+    ):
+        mock_cls.return_value.list_records.return_value = []
+
+        result = runner.invoke(app, ["ledger", "clone", "--source", "empty-source", "--to", "./nowhere.json"])
+
+    assert result.exit_code == 0
+    assert "No records found" in result.output
+
+
+def test_ledger_clone_output_can_be_used_by_json_file_ledger(tmp_path):
+    """The cloned file should be directly loadable by JsonFileLedger."""
+    mock_records = [
+        {
+            "document_key": "text#src#a.pdf#v1",
+            "source_name": "src",
+            "processed_at": "2026-07-20T10:00:00+00:00",
+            "code_version": "0.1.13",
+            "department": None,
+        },
+    ]
+    to_path = tmp_path / "ledger.json"
+
+    with (
+        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-dev"),
+        patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_cls,
+    ):
+        mock_cls.return_value.list_records.return_value = mock_records
+
+        runner.invoke(app, ["ledger", "clone", "--source", "src", "--to", str(to_path)])
+
+    from dia.ledger.file import JsonFileLedger
+    from dia.types import DocumentReference
+
+    loaded = JsonFileLedger(to_path)
+    ref = DocumentReference(key="a.pdf", content_type="application/pdf", version="v1")
+    result = loaded.get_unprocessed([ref], "src", "text")
+
+    assert result == []  # already marked processed via the clone
+
+
+# ---------------------------------------------------------------------------
 # extract-text
 # ---------------------------------------------------------------------------
 

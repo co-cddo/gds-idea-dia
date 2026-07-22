@@ -253,6 +253,45 @@ def ledger_clear(
         typer.echo(f"Deleted {deleted} records for source {source!r} from table {table_name}")
 
 
+@ledger_app.command("clone")
+def ledger_clone(
+    source: Annotated[str, typer.Option("--source", "-s", help="Source name to clone records for.")],
+    to: Annotated[str, typer.Option("--to", help="Local path to write the cloned ledger file to.")],
+):
+    """Clone DynamoDB ledger records for a source into a local JSON file.
+
+    Useful for seeding a local ledger with real processed state before
+    running `dia extract-text --output <path>` — lets you test extraction
+    locally without reprocessing documents already handled in production.
+    """
+    import json
+    from pathlib import Path
+
+    from dia.cli_helpers import resolve_ledger_table
+    from dia.ledger.dynamodb import DynamoDBLedger
+
+    table_name = resolve_ledger_table()
+    ledger = DynamoDBLedger(table_name=table_name)
+    records = ledger.list_records(source)
+
+    if not records:
+        typer.echo(f"No records found for source {source!r} in table {table_name}")
+        raise typer.Exit()
+
+    # Transform into JsonFileLedger's format: {document_key: {record fields}}
+    cloned = {}
+    for record in records:
+        item = dict(record)
+        document_key = item.pop("document_key")
+        cloned[document_key] = item
+
+    output_path = Path(to)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(cloned, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    typer.echo(f"Cloned {len(cloned)} records for source {source!r} to {output_path}")
+
+
 def _discover_sources(ledger) -> set[str]:
     """Scan the ledger to find all unique source names."""
     sources: set[str] = set()
