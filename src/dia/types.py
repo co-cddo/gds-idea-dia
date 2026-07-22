@@ -11,6 +11,7 @@ __all__ = ["DataSource", "DocumentReference", "DocumentType"]
 class DataSource:
     """A location where documents of a specific type can be found."""
 
+    name: str
     document_type: DocumentType
     bucket: str
     prefix: str = ""
