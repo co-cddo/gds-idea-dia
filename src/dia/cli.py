@@ -101,20 +101,44 @@ def ledger_clear(
         typer.echo(f"Deleted {deleted} records for source {source!r} from table {table_name}")
 
 
+@ledger_app.command("clone")
+def ledger_clone(
+    to: Annotated[
+        str, typer.Option("--to", "-t", help="Path to write the local ledger JSON file.")
+    ] = "output/ledger.json",
+):
+    """Clone the entire ledger from DynamoDB to a local JSON file.
+
+    Copies every record from the production DynamoDB ledger into a local
+    file compatible with JsonFileLedger. Use this to seed a local run so
+    it skips already-processed documents.
+
+    Overwrites the target file if it already exists.
+    """
+    import json
+    from pathlib import Path
+
+    from dia.cli_helpers import resolve_ledger_table
+    from dia.ledger.dynamodb import DynamoDBLedger
+
+    table_name = resolve_ledger_table()
+    remote = DynamoDBLedger(table_name=table_name)
+
+    records = remote.list_all_records()
+    if not records:
+        typer.echo(f"No records found in table {table_name}")
+        raise typer.Exit()
+
+    # Build the local ledger dict (same format JsonFileLedger uses on disk)
+    data = {record["document_key"]: {k: v for k, v in record.items() if k != "document_key"} for record in records}
+
+    target_path = Path(to)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    target_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    typer.echo(f"Cloned {len(records)} records from {table_name} → {target_path}")
+
+
 def _discover_sources(ledger) -> set[str]:
-    """Scan the ledger to find all unique source names."""
-    sources: set[str] = set()
-    scan_kwargs: dict = {"ProjectionExpression": "document_key"}
-
-    while True:
-        response = ledger._table.scan(**scan_kwargs)
-        for item in response.get("Items", []):
-            key = item.get("document_key", "")
-            source_name = key.split("#", 1)[0]
-            if source_name:
-                sources.add(source_name)
-        if "LastEvaluatedKey" not in response:
-            break
-        scan_kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
-
-    return sources
+    """Find all unique source names present in the ledger."""
+    return {record["source_name"] for record in ledger.list_all_records() if record.get("source_name")}

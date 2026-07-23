@@ -326,6 +326,27 @@ def test_dynamo_list_records_empty_source(dynamodb_ledger):
     assert records == []
 
 
+# --- DynamoDBLedger: list_all_records ---
+
+
+def test_dynamo_list_all_records_returns_everything(dynamodb_ledger):
+    dynamodb_ledger.mark_processed(_ref("a.pdf", "v1"), "source-a", "text")
+    dynamodb_ledger.mark_processed(_ref("b.pdf", "v1"), "source-a", "graph")
+    dynamodb_ledger.mark_processed(_ref("c.pdf", "v1"), "source-b", "text")
+
+    records = dynamodb_ledger.list_all_records()
+
+    assert len(records) == 3
+    source_names = {r["source_name"] for r in records}
+    assert source_names == {"source-a", "source-b"}
+
+
+def test_dynamo_list_all_records_empty_table(dynamodb_ledger):
+    records = dynamodb_ledger.list_all_records()
+
+    assert records == []
+
+
 # --- DynamoDBLedger: clear ---
 
 
