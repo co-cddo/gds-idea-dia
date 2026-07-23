@@ -226,9 +226,8 @@ def test_extract_text_preview_shows_counts():
         result = runner.invoke(app, ["extract-text", "--source", "test-source"])
 
     assert result.exit_code == 0
-    assert "Total docs:  5" in result.output
-    assert "Already done: 3" in result.output
-    assert "To extract:   2" in result.output
+    assert "Listing documents... 5 found" in result.output
+    assert "Checking ledger... 3 already done, 2 to extract" in result.output
     assert "--execute" in result.output
     assert "--live" in result.output
 
@@ -249,7 +248,7 @@ def test_extract_text_preview_with_force_ignores_ledger():
         result = runner.invoke(app, ["extract-text", "--source", "test-source", "--force"])
 
     assert result.exit_code == 0
-    assert "To extract:  4 (--force: ignoring ledger)" in result.output
+    assert "To extract: 4 (--force: ignoring ledger)" in result.output
     # Ledger should never be consulted when --force is set
     mock_ledger_cls.return_value.get_unprocessed.assert_not_called()
 
@@ -296,8 +295,52 @@ def test_extract_text_departments_filters_refs():
         result = runner.invoke(app, ["extract-text", "--source", "test-source", "--departments", "HMRC"])
 
     assert result.exit_code == 0
-    assert "Total docs:  3" in result.output
-    assert "After filter: 1 (removed 2)" in result.output
+    assert "Listing documents... 3 found" in result.output
+    assert "After department filter: 1 (removed 2)" in result.output
+
+
+def test_extract_text_shows_metadata_load_progress():
+    from dia.metadata.models import DocumentMetadata
+    from dia.metadata.provider import MetadataProvider
+
+    data_source = _make_data_source()
+    refs = _make_refs(3)
+    metadata = MetadataProvider({"docs/doc0.pdf": DocumentMetadata(department="HMRC")})
+
+    with (
+        patch("dia.sources.known.get_source", return_value=data_source),
+        patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
+        patch("dia.metadata.load_metadata", return_value=metadata),
+        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-dev"),
+        patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_ledger_cls,
+    ):
+        mock_source_cls.return_value.list_documents.return_value = refs
+        mock_ledger_cls.return_value.get_unprocessed.return_value = refs
+
+        result = runner.invoke(app, ["extract-text", "--source", "test-source"])
+
+    assert result.exit_code == 0
+    assert "Loading metadata... 1 entries loaded" in result.output
+
+
+def test_extract_text_shows_no_metadata_configured():
+    data_source = _make_data_source()
+    refs = _make_refs(2)
+
+    with (
+        patch("dia.sources.known.get_source", return_value=data_source),
+        patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
+        patch("dia.metadata.load_metadata", return_value=None),
+        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-dev"),
+        patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_ledger_cls,
+    ):
+        mock_source_cls.return_value.list_documents.return_value = refs
+        mock_ledger_cls.return_value.get_unprocessed.return_value = refs
+
+        result = runner.invoke(app, ["extract-text", "--source", "test-source"])
+
+    assert result.exit_code == 0
+    assert "Loading metadata... none configured" in result.output
 
 
 def test_extract_text_execute_uses_local_writer_and_file_ledger():

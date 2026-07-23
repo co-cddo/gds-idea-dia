@@ -159,10 +159,16 @@ def extract_text(
         typer.echo(f"Error: Unknown source {source!r}. Known sources: {', '.join(sorted(KNOWN_SOURCES))}")
         raise typer.Exit(code=1) from None
 
-    s3_source = S3DocumentSource(data_source)
-    all_refs = s3_source.list_documents()
+    typer.echo(f"Source: {source}")
 
+    s3_source = S3DocumentSource(data_source)
+    typer.echo("Listing documents...", nl=False)
+    all_refs = s3_source.list_documents()
+    typer.echo(f" {len(all_refs)} found")
+
+    typer.echo("Loading metadata...", nl=False)
     metadata = load_metadata(source, data_source.prefix, document_keys=[ref.key for ref in all_refs])
+    typer.echo(" none configured" if metadata is None else f" {len(metadata)} entries loaded")
 
     filters = []
     if departments:
@@ -191,20 +197,17 @@ def _preview(source: str, all_refs: list, filtered_refs: list, force: bool) -> N
     from dia.cli_helpers import resolve_ledger_table
     from dia.ledger.dynamodb import DynamoDBLedger
 
-    table_name = resolve_ledger_table()
-    ledger = DynamoDBLedger(table_name=table_name)
-
-    typer.echo(f"Source:      {source}")
-    typer.echo(f"Total docs:  {len(all_refs)}")
     if len(filtered_refs) != len(all_refs):
-        typer.echo(f"After filter: {len(filtered_refs)} (removed {len(all_refs) - len(filtered_refs)})")
+        typer.echo(f"After department filter: {len(filtered_refs)} (removed {len(all_refs) - len(filtered_refs)})")
 
     if force:
-        typer.echo(f"To extract:  {len(filtered_refs)} (--force: ignoring ledger)")
+        typer.echo(f"To extract: {len(filtered_refs)} (--force: ignoring ledger)")
     else:
+        typer.echo("Checking ledger...", nl=False)
+        table_name = resolve_ledger_table()
+        ledger = DynamoDBLedger(table_name=table_name)
         pending = ledger.get_unprocessed(filtered_refs, source, "text")
-        typer.echo(f"Already done: {len(filtered_refs) - len(pending)}")
-        typer.echo(f"To extract:   {len(pending)}")
+        typer.echo(f" {len(filtered_refs) - len(pending)} already done, {len(pending)} to extract")
 
     typer.echo("")
     typer.echo("Run with --execute for a local run, or --live for production.")
@@ -252,10 +255,12 @@ def _run_live(source, data_source, s3_source, metadata, filters, filtered_refs, 
         verb = "REPROCESS"
         suffix = " (ignoring ledger)"
     else:
+        typer.echo("Checking ledger...", nl=False)
         pending = ledger.get_unprocessed(filtered_refs, source, "text")
         count = len(pending)
         verb = "process"
         suffix = ""
+        typer.echo(f" {count} to extract")
 
     typer.echo(f"About to {verb} {count} documents{suffix} against production ({table_name} -> s3://{bucket}/)")
 
