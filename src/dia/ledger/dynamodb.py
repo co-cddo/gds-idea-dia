@@ -19,25 +19,55 @@ class DynamoDBLedger:
 
     def __init__(self, table_name: str, dynamodb_resource=None) -> None:
         self._table_name = table_name
-        resource = dynamodb_resource or boto3.resource("dynamodb")
-        self._table = resource.Table(table_name)
+        self._resource = dynamodb_resource or boto3.resource("dynamodb")
+        self._table = self._resource.Table(table_name)
 
     def get_unprocessed(self, refs: list[DocumentReference], source_name: str, stage: str) -> list[DocumentReference]:
-        """Return refs whose composite key does not exist in the table."""
+        """Return refs whose composite key does not exist in the table.
+
+        Uses BatchGetItem (up to 100 keys per call) rather than one
+        get_item call per ref — cuts API calls by ~100x for large
+        document sets (e.g. 10k refs -> ~100 calls instead of 10k).
+        """
         if not refs:
             return []
 
-        unprocessed: list[DocumentReference] = []
-        for ref in refs:
-            key = composite_key(stage, source_name, ref)
-            response = self._table.get_item(
-                Key={"document_key": key},
-                ProjectionExpression="document_key",
-            )
-            if "Item" not in response:
-                unprocessed.append(ref)
+        # Keyed by composite key so we can map found keys back to refs.
+        # Preserves ref order (dict insertion order) for non-duplicate keys.
+        ref_by_key = {composite_key(stage, source_name, ref): ref for ref in refs}
 
-        return unprocessed
+        found_keys: set[str] = set()
+        all_keys = list(ref_by_key.keys())
+        for i in range(0, len(all_keys), 100):
+            found_keys |= self._batch_get_existing_keys(all_keys[i : i + 100])
+
+        return [ref for key, ref in ref_by_key.items() if key not in found_keys]
+
+    def _batch_get_existing_keys(self, keys: list[str]) -> set[str]:
+        """Check which of the given composite keys already exist in the table.
+
+        Retries any UnprocessedKeys returned by DynamoDB (e.g. under
+        throttling) until every key in the batch has been resolved.
+        """
+        found: set[str] = set()
+        request_keys = [{"document_key": key} for key in keys]
+
+        while request_keys:
+            response = self._resource.batch_get_item(
+                RequestItems={
+                    self._table_name: {
+                        "Keys": request_keys,
+                        "ProjectionExpression": "document_key",
+                    }
+                }
+            )
+            for item in response.get("Responses", {}).get(self._table_name, []):
+                found.add(item["document_key"])
+
+            unprocessed = response.get("UnprocessedKeys", {}).get(self._table_name, {})
+            request_keys = unprocessed.get("Keys", [])
+
+        return found
 
     def mark_processed(
         self, ref: DocumentReference, source_name: str, stage: str, department: str | None = None

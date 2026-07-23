@@ -231,6 +231,25 @@ def test_dynamo_large_batch(dynamodb_ledger):
     assert len(result) == 150
 
 
+def test_dynamo_large_batch_mixed_processed_spanning_chunk_boundary(dynamodb_ledger):
+    """Processed refs on both sides of the 100-item BatchGetItem chunk boundary
+    should still be correctly filtered out."""
+    refs = [_ref(f"file_{i}.pdf", "v1") for i in range(150)]
+
+    # Mark some as processed on both sides of the 100-item chunk boundary
+    processed_indices = [0, 50, 99, 100, 101, 149]
+    for i in processed_indices:
+        dynamodb_ledger.mark_processed(refs[i], "source", "text")
+
+    result = dynamodb_ledger.get_unprocessed(refs, "source", "text")
+
+    result_keys = {r.key for r in result}
+    expected_unprocessed = {refs[i].key for i in range(150) if i not in processed_indices}
+
+    assert result_keys == expected_unprocessed
+    assert len(result) == 150 - len(processed_indices)
+
+
 # --- InMemoryLedger: list_records ---
 
 
