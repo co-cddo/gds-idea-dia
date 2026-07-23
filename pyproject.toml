@@ -54,7 +54,9 @@ cdk = [
 agent =[
     "graphrag-toolkit-lexical-graph",
     "strands-agents>=1.20.0",
-    "fastmcp>=2.14.1"
+    "fastmcp>=2.14.1",
+    "awswrangler",
+    "tavily"
 ]
 
 [project.scripts]
