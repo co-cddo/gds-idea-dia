@@ -193,9 +193,15 @@ def extract_text(
 
 
 def _preview(source: str, all_refs: list, filtered_refs: list, force: bool) -> None:
-    """Report what would happen, without writing anything."""
-    from dia.cli_helpers import resolve_ledger_table
-    from dia.ledger.dynamodb import DynamoDBLedger
+    """Report what --execute would do, without writing anything.
+
+    Checks the local JsonFileLedger (output/ledger.json) rather than
+    DynamoDB — this reports against the same ledger --execute would use,
+    so it reflects local progress (e.g. an interrupted previous run).
+    Use `dia ledger clone` to seed output/ledger.json from production,
+    or `--live` to see production state directly.
+    """
+    from dia.ledger.file import JsonFileLedger
 
     if len(filtered_refs) != len(all_refs):
         typer.echo(f"After department filter: {len(filtered_refs)} (removed {len(all_refs) - len(filtered_refs)})")
@@ -203,11 +209,14 @@ def _preview(source: str, all_refs: list, filtered_refs: list, force: bool) -> N
     if force:
         typer.echo(f"To extract: {len(filtered_refs)} (--force: ignoring ledger)")
     else:
-        typer.echo("Checking ledger...", nl=False)
-        table_name = resolve_ledger_table()
-        ledger = DynamoDBLedger(table_name=table_name)
+        ledger = JsonFileLedger("output/ledger.json")
+        typer.echo("Checking ledger (output/ledger.json)...", nl=False)
         pending = ledger.get_unprocessed(filtered_refs, source, "text")
-        typer.echo(f" {len(filtered_refs) - len(pending)} already done, {len(pending)} to extract")
+        already_done = len(filtered_refs) - len(pending)
+        typer.echo(f" {already_done} already done, {len(pending)} to extract")
+
+        if already_done == 0:
+            typer.echo("Tip: run `dia ledger clone` to seed from production.")
 
     typer.echo("")
     typer.echo("Run with --execute for a local run, or --live for production.")

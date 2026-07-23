@@ -217,8 +217,7 @@ def test_extract_text_preview_shows_counts():
         patch("dia.sources.known.get_source", return_value=data_source),
         patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
         patch("dia.metadata.load_metadata", return_value=None),
-        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-dev"),
-        patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_ledger_cls,
+        patch("dia.ledger.file.JsonFileLedger") as mock_ledger_cls,
     ):
         mock_source_cls.return_value.list_documents.return_value = refs
         mock_ledger_cls.return_value.get_unprocessed.return_value = refs[:2]
@@ -227,9 +226,28 @@ def test_extract_text_preview_shows_counts():
 
     assert result.exit_code == 0
     assert "Listing documents... 5 found" in result.output
-    assert "Checking ledger... 3 already done, 2 to extract" in result.output
+    assert "Checking ledger (output/ledger.json)... 3 already done, 2 to extract" in result.output
     assert "--execute" in result.output
     assert "--live" in result.output
+
+
+def test_extract_text_preview_suggests_ledger_clone_when_nothing_done():
+    data_source = _make_data_source()
+    refs = _make_refs(5)
+
+    with (
+        patch("dia.sources.known.get_source", return_value=data_source),
+        patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
+        patch("dia.metadata.load_metadata", return_value=None),
+        patch("dia.ledger.file.JsonFileLedger") as mock_ledger_cls,
+    ):
+        mock_source_cls.return_value.list_documents.return_value = refs
+        mock_ledger_cls.return_value.get_unprocessed.return_value = refs
+
+        result = runner.invoke(app, ["extract-text", "--source", "test-source"])
+
+    assert result.exit_code == 0
+    assert "Tip: run `dia ledger clone` to seed from production." in result.output
 
 
 def test_extract_text_preview_with_force_ignores_ledger():
@@ -240,8 +258,7 @@ def test_extract_text_preview_with_force_ignores_ledger():
         patch("dia.sources.known.get_source", return_value=data_source),
         patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
         patch("dia.metadata.load_metadata", return_value=None),
-        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-dev"),
-        patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_ledger_cls,
+        patch("dia.ledger.file.JsonFileLedger") as mock_ledger_cls,
     ):
         mock_source_cls.return_value.list_documents.return_value = refs
 
@@ -286,8 +303,7 @@ def test_extract_text_departments_filters_refs():
         patch("dia.sources.known.get_source", return_value=data_source),
         patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
         patch("dia.metadata.load_metadata", return_value=metadata),
-        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-dev"),
-        patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_ledger_cls,
+        patch("dia.ledger.file.JsonFileLedger") as mock_ledger_cls,
     ):
         mock_source_cls.return_value.list_documents.return_value = refs
         mock_ledger_cls.return_value.get_unprocessed.side_effect = lambda r, *_: r
@@ -311,8 +327,7 @@ def test_extract_text_shows_metadata_load_progress():
         patch("dia.sources.known.get_source", return_value=data_source),
         patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
         patch("dia.metadata.load_metadata", return_value=metadata),
-        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-dev"),
-        patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_ledger_cls,
+        patch("dia.ledger.file.JsonFileLedger") as mock_ledger_cls,
     ):
         mock_source_cls.return_value.list_documents.return_value = refs
         mock_ledger_cls.return_value.get_unprocessed.return_value = refs
@@ -331,8 +346,7 @@ def test_extract_text_shows_no_metadata_configured():
         patch("dia.sources.known.get_source", return_value=data_source),
         patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
         patch("dia.metadata.load_metadata", return_value=None),
-        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-dev"),
-        patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_ledger_cls,
+        patch("dia.ledger.file.JsonFileLedger") as mock_ledger_cls,
     ):
         mock_source_cls.return_value.list_documents.return_value = refs
         mock_ledger_cls.return_value.get_unprocessed.return_value = refs
