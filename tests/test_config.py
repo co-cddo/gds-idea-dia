@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from dia.config import ChunkingConfig, ExtractionConfig
+from dia.config import ChunkingConfig, ExtractionConfig, TextExtractionConfig
 
 # --- ChunkingConfig ---
 
@@ -108,3 +108,36 @@ def test_extraction_config_is_frozen():
     config = ExtractionConfig()
     with pytest.raises(ValidationError):
         config.extraction_model = "something"
+
+
+# --- TextExtractionConfig ---
+
+
+def test_text_extraction_config_defaults():
+    config = TextExtractionConfig()
+
+    assert config.batch_size == 100
+    assert config.max_concurrency == 10
+
+
+def test_text_extraction_config_override():
+    config = TextExtractionConfig(batch_size=50, max_concurrency=20)
+
+    assert config.batch_size == 50
+    assert config.max_concurrency == 20
+
+
+def test_text_extraction_config_rejects_zero_batch_size():
+    with pytest.raises(ValidationError):
+        TextExtractionConfig(batch_size=0)
+
+
+def test_text_extraction_config_rejects_zero_concurrency():
+    with pytest.raises(ValidationError):
+        TextExtractionConfig(max_concurrency=0)
+
+
+def test_text_extraction_config_is_frozen():
+    config = TextExtractionConfig()
+    with pytest.raises(ValidationError):
+        config.batch_size = 50
