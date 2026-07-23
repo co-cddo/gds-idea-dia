@@ -13,6 +13,7 @@ from dia.types import DataSource, DocumentReference
 @pytest.fixture
 def data_source() -> DataSource:
     return DataSource(
+        name="test-source",
         document_type=DocumentType.BUSINESS_CASE,
         bucket="test-bucket",
         prefix="docs/",
@@ -49,7 +50,7 @@ def populated_bucket(s3_client, data_source):
 def test_s3_document_source_satisfies_protocol():
     """S3DocumentSource is structurally compatible with DocumentSource protocol."""
     source: DocumentSource = S3DocumentSource(
-        data_source=DataSource(document_type=DocumentType.SR_BIDS, bucket="x", prefix=""),
+        data_source=DataSource(name="proto-test", document_type=DocumentType.SR_BIDS, bucket="x", prefix=""),
         s3_client=None,
     )
     assert hasattr(source, "list_documents")
@@ -115,6 +116,7 @@ def test_list_documents_populates_version_from_etag(populated_bucket, data_sourc
 
 def test_list_documents_custom_extensions(s3_client):
     data_source = DataSource(
+        name="custom-ext-test",
         document_type=DocumentType.CONTRACT_FINDER,
         bucket="test-bucket",
         prefix="",

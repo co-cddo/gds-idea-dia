@@ -5,19 +5,15 @@ from importlib.metadata import version
 
 import boto3
 
+from dia.ledger.keys import composite_key
 from dia.ledger.models import LedgerRecord
 from dia.types import DocumentReference
-
-
-def _composite_key(source_name: str, ref: DocumentReference) -> str:
-    """Build the composite ledger key."""
-    return f"{source_name}#{ref.key}#{ref.version}"
 
 
 class DynamoDBLedger:
     """DynamoDB-backed processing ledger.
 
-    Stores one item per composite key (source_name#key#version).
+    Stores one item per composite key (stage#source_name#key#version).
     A document is considered processed if its composite key exists in the table.
     """
 
@@ -26,14 +22,14 @@ class DynamoDBLedger:
         resource = dynamodb_resource or boto3.resource("dynamodb")
         self._table = resource.Table(table_name)
 
-    def get_unprocessed(self, refs: list[DocumentReference], source_name: str) -> list[DocumentReference]:
+    def get_unprocessed(self, refs: list[DocumentReference], source_name: str, stage: str) -> list[DocumentReference]:
         """Return refs whose composite key does not exist in the table."""
         if not refs:
             return []
 
         unprocessed: list[DocumentReference] = []
         for ref in refs:
-            key = _composite_key(source_name, ref)
+            key = composite_key(stage, source_name, ref)
             response = self._table.get_item(
                 Key={"document_key": key},
                 ProjectionExpression="document_key",
@@ -43,9 +39,11 @@ class DynamoDBLedger:
 
         return unprocessed
 
-    def mark_processed(self, ref: DocumentReference, source_name: str, department: str | None = None) -> None:
+    def mark_processed(
+        self, ref: DocumentReference, source_name: str, stage: str, department: str | None = None
+    ) -> None:
         """Record a document as successfully processed."""
-        key = _composite_key(source_name, ref)
+        key = composite_key(stage, source_name, ref)
         record = LedgerRecord(
             source_name=source_name,
             processed_at=datetime.now(UTC),
@@ -60,17 +58,16 @@ class DynamoDBLedger:
         )
 
     def list_records(self, source_name: str) -> list[dict]:
-        """List all records for a source.
+        """List all records for a source (across all stages).
 
-        Scans for items whose document_key starts with the source name prefix.
+        Scans for items whose source_name field matches.
         Fine at our volume (hundreds/low thousands of records).
         """
         from boto3.dynamodb.conditions import Attr
 
         results = []
-        prefix = f"{source_name}#"
         scan_kwargs = {
-            "FilterExpression": Attr("document_key").begins_with(prefix),
+            "FilterExpression": Attr("source_name").eq(source_name),
         }
 
         while True:
@@ -83,7 +80,7 @@ class DynamoDBLedger:
         return results
 
     def clear(self, source_name: str) -> int:
-        """Delete all records for a source. Returns count deleted."""
+        """Delete all records for a source (across all stages). Returns count deleted."""
         records = self.list_records(source_name)
         for item in records:
             self._table.delete_item(Key={"document_key": item["document_key"]})

@@ -22,7 +22,7 @@ def test_new_refs_are_unprocessed():
     ledger = InMemoryLedger()
     refs = [_ref("a.pdf", "v1"), _ref("b.pdf", "v2")]
 
-    result = ledger.get_unprocessed(refs, "test-source")
+    result = ledger.get_unprocessed(refs, "test-source", "text")
 
     assert result == refs
 
@@ -30,9 +30,9 @@ def test_new_refs_are_unprocessed():
 def test_processed_refs_are_filtered():
     ledger = InMemoryLedger()
     ref = _ref("a.pdf", "v1")
-    ledger.mark_processed(ref, "test-source")
+    ledger.mark_processed(ref, "test-source", "text")
 
-    result = ledger.get_unprocessed([ref], "test-source")
+    result = ledger.get_unprocessed([ref], "test-source", "text")
 
     assert result == []
 
@@ -40,10 +40,10 @@ def test_processed_refs_are_filtered():
 def test_changed_version_is_unprocessed():
     ledger = InMemoryLedger()
     ref_v1 = _ref("a.pdf", "v1")
-    ledger.mark_processed(ref_v1, "test-source")
+    ledger.mark_processed(ref_v1, "test-source", "text")
 
     ref_v2 = _ref("a.pdf", "v2")
-    result = ledger.get_unprocessed([ref_v2], "test-source")
+    result = ledger.get_unprocessed([ref_v2], "test-source", "text")
 
     assert result == [ref_v2]
 
@@ -54,10 +54,10 @@ def test_mix_of_processed_and_unprocessed():
     new = _ref("new.pdf", "v1")
     updated = _ref("updated.pdf", "v2")
 
-    ledger.mark_processed(processed, "source")
-    ledger.mark_processed(_ref("updated.pdf", "v1"), "source")
+    ledger.mark_processed(processed, "source", "text")
+    ledger.mark_processed(_ref("updated.pdf", "v1"), "source", "text")
 
-    result = ledger.get_unprocessed([processed, new, updated], "source")
+    result = ledger.get_unprocessed([processed, new, updated], "source", "text")
 
     assert len(result) == 2
     keys = {r.key for r in result}
@@ -67,7 +67,7 @@ def test_mix_of_processed_and_unprocessed():
 def test_empty_list_returns_empty():
     ledger = InMemoryLedger()
 
-    result = ledger.get_unprocessed([], "source")
+    result = ledger.get_unprocessed([], "source", "text")
 
     assert result == []
 
@@ -77,10 +77,23 @@ def test_same_file_different_source_treated_independently():
     ledger = InMemoryLedger()
     ref = _ref("files/report.pdf", "v1")
 
-    ledger.mark_processed(ref, "source-a")
+    ledger.mark_processed(ref, "source-a", "text")
 
     # Same ref but different source — should still be unprocessed
-    result = ledger.get_unprocessed([ref], "source-b")
+    result = ledger.get_unprocessed([ref], "source-b", "text")
+
+    assert result == [ref]
+
+
+def test_same_file_different_stage_treated_independently():
+    """The same document processed in 'text' stage is still unprocessed for 'graph'."""
+    ledger = InMemoryLedger()
+    ref = _ref("files/report.pdf", "v1")
+
+    ledger.mark_processed(ref, "source-a", "text")
+
+    # Same ref+source but different stage — should still be unprocessed
+    result = ledger.get_unprocessed([ref], "source-a", "graph")
 
     assert result == [ref]
 
@@ -92,9 +105,9 @@ def test_mark_processed_stores_record():
     ledger = InMemoryLedger()
     ref = _ref("a.pdf", "v1")
 
-    ledger.mark_processed(ref, "gats-business-cases")
+    ledger.mark_processed(ref, "gats-business-cases", "text")
 
-    key = "gats-business-cases#a.pdf#v1"
+    key = "text#gats-business-cases#a.pdf#v1"
     record = ledger.records[key]
     assert record.source_name == "gats-business-cases"
     assert record.processed_at is not None
@@ -106,9 +119,9 @@ def test_mark_processed_stores_department():
     ledger = InMemoryLedger()
     ref = _ref("a.pdf", "v1")
 
-    ledger.mark_processed(ref, "source", department="HMRC")
+    ledger.mark_processed(ref, "source", "text", department="HMRC")
 
-    key = "source#a.pdf#v1"
+    key = "text#source#a.pdf#v1"
     record = ledger.records[key]
     assert record.department == "HMRC"
 
@@ -117,9 +130,9 @@ def test_mark_processed_stores_code_version():
     ledger = InMemoryLedger()
     ref = _ref("a.pdf", "v1")
 
-    ledger.mark_processed(ref, "source")
+    ledger.mark_processed(ref, "source", "text")
 
-    key = "source#a.pdf#v1"
+    key = "text#source#a.pdf#v1"
     record = ledger.records[key]
     # Should be a valid semver-like string
     assert "." in record.code_version
@@ -146,52 +159,62 @@ def dynamodb_ledger():
 def test_dynamo_new_refs_are_unprocessed(dynamodb_ledger):
     refs = [_ref("a.pdf", "v1"), _ref("b.pdf", "v2")]
 
-    result = dynamodb_ledger.get_unprocessed(refs, "test-source")
+    result = dynamodb_ledger.get_unprocessed(refs, "test-source", "text")
 
     assert result == refs
 
 
 def test_dynamo_processed_refs_are_filtered(dynamodb_ledger):
     ref = _ref("a.pdf", "v1")
-    dynamodb_ledger.mark_processed(ref, "test-source")
+    dynamodb_ledger.mark_processed(ref, "test-source", "text")
 
-    result = dynamodb_ledger.get_unprocessed([ref], "test-source")
+    result = dynamodb_ledger.get_unprocessed([ref], "test-source", "text")
 
     assert result == []
 
 
 def test_dynamo_changed_version_is_unprocessed(dynamodb_ledger):
     ref_v1 = _ref("a.pdf", "v1")
-    dynamodb_ledger.mark_processed(ref_v1, "test-source")
+    dynamodb_ledger.mark_processed(ref_v1, "test-source", "text")
 
     ref_v2 = _ref("a.pdf", "v2")
-    result = dynamodb_ledger.get_unprocessed([ref_v2], "test-source")
+    result = dynamodb_ledger.get_unprocessed([ref_v2], "test-source", "text")
 
     assert result == [ref_v2]
 
 
 def test_dynamo_same_file_different_source(dynamodb_ledger):
     ref = _ref("files/report.pdf", "v1")
-    dynamodb_ledger.mark_processed(ref, "source-a")
+    dynamodb_ledger.mark_processed(ref, "source-a", "text")
 
-    result = dynamodb_ledger.get_unprocessed([ref], "source-b")
+    result = dynamodb_ledger.get_unprocessed([ref], "source-b", "text")
+
+    assert result == [ref]
+
+
+def test_dynamo_same_file_different_stage(dynamodb_ledger):
+    """Text-processed doc is still unprocessed for graph stage."""
+    ref = _ref("files/report.pdf", "v1")
+    dynamodb_ledger.mark_processed(ref, "source-a", "text")
+
+    result = dynamodb_ledger.get_unprocessed([ref], "source-a", "graph")
 
     assert result == [ref]
 
 
 def test_dynamo_empty_list_returns_empty(dynamodb_ledger):
-    result = dynamodb_ledger.get_unprocessed([], "source")
+    result = dynamodb_ledger.get_unprocessed([], "source", "text")
 
     assert result == []
 
 
 def test_dynamo_stores_code_version(dynamodb_ledger):
     ref = _ref("a.pdf", "v1")
-    dynamodb_ledger.mark_processed(ref, "source")
+    dynamodb_ledger.mark_processed(ref, "source", "text")
 
     # Read back the item directly to verify attributes
     table = dynamodb_ledger._table
-    response = table.get_item(Key={"document_key": "source#a.pdf#v1"})
+    response = table.get_item(Key={"document_key": "text#source#a.pdf#v1"})
     item = response["Item"]
 
     assert item["code_version"] == version("dia")
@@ -203,7 +226,7 @@ def test_dynamo_large_batch(dynamodb_ledger):
     """Test that lookups work for >100 items."""
     refs = [_ref(f"file_{i}.pdf", "v1") for i in range(150)]
 
-    result = dynamodb_ledger.get_unprocessed(refs, "source")
+    result = dynamodb_ledger.get_unprocessed(refs, "source", "text")
 
     assert len(result) == 150
 
@@ -213,9 +236,9 @@ def test_dynamo_large_batch(dynamodb_ledger):
 
 def test_list_records_returns_matching_source():
     ledger = InMemoryLedger()
-    ledger.mark_processed(_ref("a.pdf", "v1"), "source-a")
-    ledger.mark_processed(_ref("b.pdf", "v1"), "source-a")
-    ledger.mark_processed(_ref("c.pdf", "v1"), "source-b")
+    ledger.mark_processed(_ref("a.pdf", "v1"), "source-a", "text")
+    ledger.mark_processed(_ref("b.pdf", "v1"), "source-a", "text")
+    ledger.mark_processed(_ref("c.pdf", "v1"), "source-b", "text")
 
     records = ledger.list_records("source-a")
 
@@ -225,7 +248,7 @@ def test_list_records_returns_matching_source():
 
 def test_list_records_empty_source():
     ledger = InMemoryLedger()
-    ledger.mark_processed(_ref("a.pdf", "v1"), "source-a")
+    ledger.mark_processed(_ref("a.pdf", "v1"), "source-a", "text")
 
     records = ledger.list_records("source-b")
 
@@ -237,9 +260,9 @@ def test_list_records_empty_source():
 
 def test_clear_removes_source_records():
     ledger = InMemoryLedger()
-    ledger.mark_processed(_ref("a.pdf", "v1"), "source-a")
-    ledger.mark_processed(_ref("b.pdf", "v1"), "source-a")
-    ledger.mark_processed(_ref("c.pdf", "v1"), "source-b")
+    ledger.mark_processed(_ref("a.pdf", "v1"), "source-a", "text")
+    ledger.mark_processed(_ref("b.pdf", "v1"), "source-a", "graph")
+    ledger.mark_processed(_ref("c.pdf", "v1"), "source-b", "text")
 
     deleted = ledger.clear("source-a")
 
@@ -251,7 +274,7 @@ def test_clear_removes_source_records():
 
 def test_clear_nonexistent_source_returns_zero():
     ledger = InMemoryLedger()
-    ledger.mark_processed(_ref("a.pdf", "v1"), "source-a")
+    ledger.mark_processed(_ref("a.pdf", "v1"), "source-a", "text")
 
     deleted = ledger.clear("source-b")
 
@@ -264,8 +287,8 @@ def test_clear_nonexistent_source_returns_zero():
 
 def test_clear_all_removes_everything():
     ledger = InMemoryLedger()
-    ledger.mark_processed(_ref("a.pdf", "v1"), "source-a")
-    ledger.mark_processed(_ref("b.pdf", "v1"), "source-b")
+    ledger.mark_processed(_ref("a.pdf", "v1"), "source-a", "text")
+    ledger.mark_processed(_ref("b.pdf", "v1"), "source-b", "graph")
 
     deleted = ledger.clear_all()
 
@@ -285,9 +308,9 @@ def test_clear_all_empty_ledger_returns_zero():
 
 
 def test_dynamo_list_records_returns_matching_source(dynamodb_ledger):
-    dynamodb_ledger.mark_processed(_ref("a.pdf", "v1"), "source-a")
-    dynamodb_ledger.mark_processed(_ref("b.pdf", "v1"), "source-a")
-    dynamodb_ledger.mark_processed(_ref("c.pdf", "v1"), "source-b")
+    dynamodb_ledger.mark_processed(_ref("a.pdf", "v1"), "source-a", "text")
+    dynamodb_ledger.mark_processed(_ref("b.pdf", "v1"), "source-a", "graph")
+    dynamodb_ledger.mark_processed(_ref("c.pdf", "v1"), "source-b", "text")
 
     records = dynamodb_ledger.list_records("source-a")
 
@@ -296,7 +319,7 @@ def test_dynamo_list_records_returns_matching_source(dynamodb_ledger):
 
 
 def test_dynamo_list_records_empty_source(dynamodb_ledger):
-    dynamodb_ledger.mark_processed(_ref("a.pdf", "v1"), "source-a")
+    dynamodb_ledger.mark_processed(_ref("a.pdf", "v1"), "source-a", "text")
 
     records = dynamodb_ledger.list_records("source-b")
 
@@ -307,9 +330,9 @@ def test_dynamo_list_records_empty_source(dynamodb_ledger):
 
 
 def test_dynamo_clear_removes_source_records(dynamodb_ledger):
-    dynamodb_ledger.mark_processed(_ref("a.pdf", "v1"), "source-a")
-    dynamodb_ledger.mark_processed(_ref("b.pdf", "v1"), "source-a")
-    dynamodb_ledger.mark_processed(_ref("c.pdf", "v1"), "source-b")
+    dynamodb_ledger.mark_processed(_ref("a.pdf", "v1"), "source-a", "text")
+    dynamodb_ledger.mark_processed(_ref("b.pdf", "v1"), "source-a", "graph")
+    dynamodb_ledger.mark_processed(_ref("c.pdf", "v1"), "source-b", "text")
 
     deleted = dynamodb_ledger.clear("source-a")
 
@@ -322,8 +345,8 @@ def test_dynamo_clear_removes_source_records(dynamodb_ledger):
 
 
 def test_dynamo_clear_all_removes_everything(dynamodb_ledger):
-    dynamodb_ledger.mark_processed(_ref("a.pdf", "v1"), "source-a")
-    dynamodb_ledger.mark_processed(_ref("b.pdf", "v1"), "source-b")
+    dynamodb_ledger.mark_processed(_ref("a.pdf", "v1"), "source-a", "text")
+    dynamodb_ledger.mark_processed(_ref("b.pdf", "v1"), "source-b", "graph")
 
     deleted = dynamodb_ledger.clear_all()
 
