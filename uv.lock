@@ -981,6 +981,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+agent = [
+    { name = "graphrag-toolkit-lexical-graph" },
+]
 cdk = [
     { name = "aws-cdk-lib" },
     { name = "constructs" },
@@ -1003,6 +1006,7 @@ requires-dist = [
     { name = "gds-idea-cdk-constructs", specifier = ">=0.3.0", index = "https://co-cddo.github.io/gds-idea-pypi/simple/" },
     { name = "gds-idea-cdk-constructs", marker = "extra == 'cdk'", specifier = ">=0.3.0", index = "https://co-cddo.github.io/gds-idea-pypi/simple/" },
     { name = "graphrag-toolkit-lexical-graph", url = "https://github.com/awslabs/graphrag-toolkit/archive/refs/tags/v3.17.0.zip", subdirectory = "lexical-graph" },
+    { name = "graphrag-toolkit-lexical-graph", marker = "extra == 'agent'", url = "https://github.com/awslabs/graphrag-toolkit/archive/refs/tags/v3.17.0.zip", subdirectory = "lexical-graph" },
     { name = "llama-index-vector-stores-opensearch", specifier = ">=0.6.2" },
     { name = "numpy", specifier = "<2" },
     { name = "pdfplumber", specifier = ">=0.11.9" },
@@ -1013,7 +1017,7 @@ requires-dist = [
     { name = "sentence-transformers", specifier = ">=5.2.0" },
     { name = "typer", specifier = ">=0.15.0" },
 ]
-provides-extras = ["cdk"]
+provides-extras = ["agent", "cdk"]
 
 [package.metadata.requires-dev]
 dev = [

@@ -51,6 +51,10 @@ cdk = [
     "gds-idea-cdk-constructs>=0.3.0",
 ]
 
+agent =[
+    "graphrag-toolkit-lexical-graph"
+]
+
 [project.scripts]
 dia = "dia.cli:app"
 
