@@ -65,19 +65,14 @@ class DynamoDBLedger:
         """
         from boto3.dynamodb.conditions import Attr
 
-        results = []
-        scan_kwargs = {
-            "FilterExpression": Attr("source_name").eq(source_name),
-        }
+        return self._scan(FilterExpression=Attr("source_name").eq(source_name))
 
-        while True:
-            response = self._table.scan(**scan_kwargs)
-            results.extend(response.get("Items", []))
-            if "LastEvaluatedKey" not in response:
-                break
-            scan_kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
+    def list_all_records(self) -> list[dict]:
+        """List every record in the table, across all sources and stages.
 
-        return results
+        Fine at our volume (hundreds/low thousands of records).
+        """
+        return self._scan()
 
     def clear(self, source_name: str) -> int:
         """Delete all records for a source (across all stages). Returns count deleted."""
@@ -88,20 +83,23 @@ class DynamoDBLedger:
 
     def clear_all(self) -> int:
         """Delete all records. Returns count deleted."""
-        count = 0
-        scan_kwargs: dict = {}
+        items = self._scan(ProjectionExpression="document_key")
+        for item in items:
+            self._table.delete_item(Key={"document_key": item["document_key"]})
+        return len(items)
 
+    def _scan(self, **scan_kwargs) -> list[dict]:
+        """Run a full table scan, handling pagination, and return all items.
+
+        DynamoDB scan() only returns up to 1MB per call, so results beyond
+        that require following LastEvaluatedKey. This is the one place that
+        loop lives — every other method delegates here.
+        """
+        items: list[dict] = []
         while True:
-            response = self._table.scan(
-                ProjectionExpression="document_key",
-                **scan_kwargs,
-            )
-            items = response.get("Items", [])
-            for item in items:
-                self._table.delete_item(Key={"document_key": item["document_key"]})
-                count += 1
+            response = self._table.scan(**scan_kwargs)
+            items.extend(response.get("Items", []))
             if "LastEvaluatedKey" not in response:
                 break
             scan_kwargs["ExclusiveStartKey"] = response["LastEvaluatedKey"]
-
-        return count
+        return items
