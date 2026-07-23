@@ -9,8 +9,9 @@ known source — it knows which metadata strategy (GATS, historic CSV,
 folder structure) applies to which source.
 """
 
+from dia.metadata.filter import MetadataDepartmentFilter
 from dia.metadata.models import DocumentMetadata
 from dia.metadata.provider import MetadataProvider
 from dia.metadata.registry import load_metadata
 
-__all__ = ["DocumentMetadata", "MetadataProvider", "load_metadata"]
+__all__ = ["DocumentMetadata", "MetadataDepartmentFilter", "MetadataProvider", "load_metadata"]
