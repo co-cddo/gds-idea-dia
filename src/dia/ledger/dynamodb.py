@@ -5,13 +5,9 @@ from importlib.metadata import version
 
 import boto3
 
+from dia.ledger.keys import composite_key
 from dia.ledger.models import LedgerRecord
 from dia.types import DocumentReference
-
-
-def _composite_key(stage: str, source_name: str, ref: DocumentReference) -> str:
-    """Build the composite ledger key: stage#source_name#key#version."""
-    return f"{stage}#{source_name}#{ref.key}#{ref.version}"
 
 
 class DynamoDBLedger:
@@ -33,7 +29,7 @@ class DynamoDBLedger:
 
         unprocessed: list[DocumentReference] = []
         for ref in refs:
-            key = _composite_key(stage, source_name, ref)
+            key = composite_key(stage, source_name, ref)
             response = self._table.get_item(
                 Key={"document_key": key},
                 ProjectionExpression="document_key",
@@ -47,7 +43,7 @@ class DynamoDBLedger:
         self, ref: DocumentReference, source_name: str, stage: str, department: str | None = None
     ) -> None:
         """Record a document as successfully processed."""
-        key = _composite_key(stage, source_name, ref)
+        key = composite_key(stage, source_name, ref)
         record = LedgerRecord(
             source_name=source_name,
             processed_at=datetime.now(UTC),

@@ -3,13 +3,9 @@
 from datetime import UTC, datetime
 from importlib.metadata import version
 
+from dia.ledger.keys import composite_key
 from dia.ledger.models import LedgerRecord
 from dia.types import DocumentReference
-
-
-def _composite_key(stage: str, source_name: str, ref: DocumentReference) -> str:
-    """Build the composite ledger key: stage#source_name#key#version."""
-    return f"{stage}#{source_name}#{ref.key}#{ref.version}"
 
 
 class InMemoryLedger:
@@ -23,13 +19,13 @@ class InMemoryLedger:
 
     def get_unprocessed(self, refs: list[DocumentReference], source_name: str, stage: str) -> list[DocumentReference]:
         """Return refs whose composite key is not in the ledger."""
-        return [ref for ref in refs if _composite_key(stage, source_name, ref) not in self._records]
+        return [ref for ref in refs if composite_key(stage, source_name, ref) not in self._records]
 
     def mark_processed(
         self, ref: DocumentReference, source_name: str, stage: str, department: str | None = None
     ) -> None:
         """Record a document as successfully processed."""
-        key = _composite_key(stage, source_name, ref)
+        key = composite_key(stage, source_name, ref)
         self._records[key] = LedgerRecord(
             source_name=source_name,
             processed_at=datetime.now(UTC),
