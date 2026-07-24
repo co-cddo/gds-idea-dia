@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from textwrap import dedent
-from typing import Iterable, Optional
 
 
 def clean(text: str) -> str:
@@ -13,7 +13,7 @@ def block(name: str, body: str) -> str:
     return f"<{name}>\n{body}\n</{name}>"
 
 
-def join_sections(*sections: Optional[str]) -> str:
+def join_sections(*sections: str | None) -> str:
     return "\n\n".join(s for s in sections if s and s.strip())
 
 

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from prompts.fragments import (
-    GRAPH_TIMEOUT_GUARD,
+    COMMON_CITATION_RULES,
     COMMON_RULES,
     COMMON_TOOL_REFERENCE,
     GRAPH_MODES_REFERENCE,
-    COMMON_CITATION_RULES,
+    GRAPH_TIMEOUT_GUARD,
     SOURCE_DIAGNOSTICS,
 )
 from prompts.fragments.utils import block, join_sections

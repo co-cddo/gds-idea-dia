@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from prompts.fragments.utils import block
 
-
 COMMON_OUTPUT_RULES = block(
     "output_rules",
     """

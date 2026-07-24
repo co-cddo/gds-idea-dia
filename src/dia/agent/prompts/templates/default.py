@@ -1,21 +1,21 @@
 from __future__ import annotations
 
 from prompts.fragments import (
-    GRAPH_TIMEOUT_GUARD,
-    COMMON_RULES,
-    hard_gates,
-    COMMON_TOOL_REFERENCE,
-    COMMON_TOOLS_AND_SOURCES,
-    GRAPH_MODES_REFERENCE,
-    department_matching_rules,
     ATHENA_SCHEMA_REFERENCE,
-    SQL_HARD_RULES,
+    COMMON_CITATION_RULES,
     COMMON_INVESTIGATION_METHODOLOGY,
     COMMON_OUTPUT_RULES,
-    COMMON_CITATION_RULES,
-    SOURCE_DIAGNOSTICS,
+    COMMON_RULES,
+    COMMON_TOOL_REFERENCE,
+    COMMON_TOOLS_AND_SOURCES,
     DEFAULT_OUTPUT_SPEC,
+    GRAPH_MODES_REFERENCE,
+    GRAPH_TIMEOUT_GUARD,
+    SOURCE_DIAGNOSTICS,
+    SQL_HARD_RULES,
     default_required_graph_sequence,
+    department_matching_rules,
+    hard_gates,
 )
 from prompts.fragments.utils import block, join_sections
 

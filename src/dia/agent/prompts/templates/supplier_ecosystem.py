@@ -1,24 +1,24 @@
 from __future__ import annotations
 
 from prompts.fragments import (
-    GRAPH_TIMEOUT_GUARD,
+    ATHENA_SCHEMA_REFERENCE,
+    COMMON_CITATION_RULES,
+    COMMON_INVESTIGATION_METHODOLOGY,
+    COMMON_OUTPUT_RULES,
     COMMON_RULES,
-    hard_gates,
     COMMON_TOOL_REFERENCE,
     COMMON_TOOLS_AND_SOURCES,
     GRAPH_MODES_REFERENCE,
-    department_matching_rules,
-    ATHENA_SCHEMA_REFERENCE,
-    SQL_HARD_RULES,
-    COMMON_INVESTIGATION_METHODOLOGY,
-    SUPPLIER_INVESTIGATION_METHOD,
-    COMMON_OUTPUT_RULES,
-    COMMON_CITATION_RULES,
+    GRAPH_TIMEOUT_GUARD,
     SOURCE_DIAGNOSTICS,
-    SUPPLIER_ECOSYSTEM_OUTPUT_SPEC,
+    SQL_HARD_RULES,
     SUPPLIER_ECOSYSTEM_OUTPUT_CARD,
-    supplier_ecosystem_graph_queries,
+    SUPPLIER_ECOSYSTEM_OUTPUT_SPEC,
+    SUPPLIER_INVESTIGATION_METHOD,
+    department_matching_rules,
+    hard_gates,
     supplier_ecosystem_athena_queries,
+    supplier_ecosystem_graph_queries,
 )
 from prompts.fragments.utils import block, join_sections
 

@@ -123,7 +123,8 @@ def execute_sql(database_name: str, query: str) -> str:
     9. DEPARTMENT NAME MATCHING: Data uses inconsistent casing and naming. Always use
        case-insensitive matching with LOWER() and try multiple variants. Example:
        WHERE LOWER(buyer_name) LIKE '%home office%' OR LOWER(buyer_name) LIKE '%ho%'
-       For HMRC use: LOWER(col) LIKE '%hmrc%' OR LOWER(col) LIKE '%hm revenue%' OR LOWER(col) LIKE '%revenue and customs%'
+       For HMRC use: LOWER(col) LIKE '%hmrc%' OR LOWER(col) LIKE '%hm revenue%'
+       OR LOWER(col) LIKE '%revenue and customs%'
        For MoJ use: LOWER(col) LIKE '%moj%' OR LOWER(col) LIKE '%ministry of justice%'
        For DfE use: LOWER(col) LIKE '%dfe%' OR LOWER(col) LIKE '%department for education%'
        Always use LIKE with wildcards rather than exact equality for department filtering.

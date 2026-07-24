@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from prompts.fragments.utils import block
 
-
 # -----------------------------------------------------------------------------
 # DBR — required graph + Athena query enumerations
 # -----------------------------------------------------------------------------

@@ -27,8 +27,11 @@ do_graph_search's source.
 """
 
 import inspect as _inspect
+import logging
 
 from graphrag_toolkit.lexical_graph.retrieval.retrievers import EntityBasedSearch
+
+logger = logging.getLogger(__name__)
 
 
 def apply() -> None:

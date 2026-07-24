@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from prompts.fragments.utils import block, bullet_list
 
-
 GRAPH_TIMEOUT_GUARD = """
 <graph_timeout_guard priority="highest">
 You query a Neptune graph database (via the default_ tool) and an OpenSearch

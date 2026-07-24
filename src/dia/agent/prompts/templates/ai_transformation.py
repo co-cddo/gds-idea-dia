@@ -1,33 +1,33 @@
 from __future__ import annotations
 
 from prompts.fragments import (
-    GRAPH_TIMEOUT_GUARD,
+    # AI-transformation-specific fragments
+    AI_TRANSFORMATION_INVESTIGATION_AREAS,
+    AI_TRANSFORMATION_INVESTIGATION_METHOD,
+    AI_TRANSFORMATION_KB_FOCUS,
+    AI_TRANSFORMATION_KB_FOCUS_V2,
+    AI_TRANSFORMATION_REFERENCE_RULES,
+    # AI-transformation v2 fragments
+    AI_TRANSFORMATION_REPORTING_DISCIPLINE,
+    AI_TRANSFORMATION_SERVICE_STANDARD_CROSS_LENS,
+    ATHENA_SCHEMA_REFERENCE,
+    COMMON_CITATION_RULES,
+    COMMON_OUTPUT_RULES,
     COMMON_RULES,
-    hard_gates,
     COMMON_TOOL_REFERENCE,
     COMMON_TOOLS_AND_SOURCES,
     GRAPH_MODES_REFERENCE,
-    department_matching_rules,
+    GRAPH_TIMEOUT_GUARD,
     SERVICE_STANDARD_SOURCE,
-    ATHENA_SCHEMA_REFERENCE,
-    SQL_HARD_RULES,
-    COMMON_OUTPUT_RULES,
-    COMMON_CITATION_RULES,
     SOURCE_DIAGNOSTICS,
-    # AI-transformation-specific fragments
-    AI_TRANSFORMATION_INVESTIGATION_AREAS,
-    AI_TRANSFORMATION_KB_FOCUS,
-    AI_TRANSFORMATION_SERVICE_STANDARD_CROSS_LENS,
-    AI_TRANSFORMATION_INVESTIGATION_METHOD,
-    ai_transformation_required_graph_queries,
-    ai_transformation_required_athena_queries,
-    ai_transformation_web_searches,
+    SQL_HARD_RULES,
     ai_transformation_output_spec,
-    # AI-transformation v2 fragments
-    AI_TRANSFORMATION_REPORTING_DISCIPLINE,
-    AI_TRANSFORMATION_REFERENCE_RULES,
-    AI_TRANSFORMATION_KB_FOCUS_V2,
     ai_transformation_output_spec_v2,
+    ai_transformation_required_athena_queries,
+    ai_transformation_required_graph_queries,
+    ai_transformation_web_searches,
+    department_matching_rules,
+    hard_gates,
 )
 from prompts.fragments.utils import block, join_sections
 

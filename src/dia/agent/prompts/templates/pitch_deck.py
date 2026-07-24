@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import date
 
 from prompts.fragments import (
-    PITCH_DECK_OUTPUT_SPEC,
     PITCH_DECK_DESIGN_SYSTEM,
+    PITCH_DECK_OUTPUT_SPEC,
 )
 from prompts.fragments.utils import block, join_sections
 

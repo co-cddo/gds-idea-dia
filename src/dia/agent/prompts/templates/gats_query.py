@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from prompts.fragments import (
     ATHENA_SCHEMA_REFERENCE,
-    GATS_QUESTION_COLUMN_MAP,
     GATS_COMMON_QUERY_PATTERNS,
+    GATS_QUESTION_COLUMN_MAP,
     SQL_HARD_RULES,
 )
 from prompts.fragments.utils import block, join_sections

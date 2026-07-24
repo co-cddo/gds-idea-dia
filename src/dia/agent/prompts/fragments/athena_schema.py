@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from prompts.fragments.utils import block
 
-
 ATHENA_SCHEMA_REFERENCE = block(
     "athena_schema_reference",
     """
