@@ -4,6 +4,7 @@ Restored from the operational detail in src/system_prompts.py during the modular
 prompts migration. These blocks are the canonical schema reference shared by every
 prompt that issues SQL.
 """
+
 from __future__ import annotations
 
 from prompts.fragments.utils import block

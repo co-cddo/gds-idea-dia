@@ -5,6 +5,7 @@ embedded these queries inline. These templates are emitted into the relevant
 prompts so the agent has a starting point for the visualisation queries it
 must produce.
 """
+
 from __future__ import annotations
 
 from prompts.fragments.utils import block

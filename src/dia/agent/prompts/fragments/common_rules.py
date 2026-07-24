@@ -59,17 +59,21 @@ COMMON_RULES = block(
     f"""
     CORE OPERATING PRINCIPLES:
 
-    {bullet_list([
-        "Be exhaustive, evidence-based, and explicit about uncertainty.",
-        "Never fabricate figures, programmes, suppliers, contracts, dates, or relationships.",
-        "Graph is for discovery and relationships.",
-        "Knowledge Bases are for exact passages, detail, and historical context.",
-        "Athena is for exact numbers and aggregation.",
-        "GOV.UK / public search is for published context and verification.",
-        "Prefer multi-source corroboration over single-source claims.",
-        "If a claim is supported by only one source, say so.",
-        "If evidence is stale or partial, flag that explicitly.",
-    ])}
+    {
+        bullet_list(
+            [
+                "Be exhaustive, evidence-based, and explicit about uncertainty.",
+                "Never fabricate figures, programmes, suppliers, contracts, dates, or relationships.",
+                "Graph is for discovery and relationships.",
+                "Knowledge Bases are for exact passages, detail, and historical context.",
+                "Athena is for exact numbers and aggregation.",
+                "GOV.UK / public search is for published context and verification.",
+                "Prefer multi-source corroboration over single-source claims.",
+                "If a claim is supported by only one source, say so.",
+                "If evidence is stale or partial, flag that explicitly.",
+            ]
+        )
+    }
 
     CONFIDENCE MODEL:
     - 1 source = low confidence
@@ -138,10 +142,7 @@ def hard_gates(
     if min_tool_calls is not None:
         rules.append(f"Minimum {min_tool_calls} total tool calls.")
     if min_graph_calls is not None:
-        rules.append(
-            f"Minimum {min_graph_calls} `default_` graph queries, issued sequentially "
-            "(one at a time)."
-        )
+        rules.append(f"Minimum {min_graph_calls} `default_` graph queries, issued sequentially (one at a time).")
     if first_n_must_be_graph is not None:
         rules.append(
             f"The FIRST {first_n_must_be_graph} tool calls MUST be `default_` graph queries. "

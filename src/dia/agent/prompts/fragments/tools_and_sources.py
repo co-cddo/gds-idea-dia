@@ -6,20 +6,24 @@ COMMON_TOOL_REFERENCE = block(
     "tool_reference",
     f"""
     EXACT TOOL NAMES:
-    {bullet_list([
-        "default_ — GraphRAG knowledge graph (params: query, mode, entity_name)",
-        "search_ — helper to find relevant graph tools where available",
-        "wait_after_timeout — call before every throttled graph retry (mandatory)",
-        "kb_search_gats_business_cases — full-text GATS business cases (OBCs / SOCs / FBCs)",
-        "kb_search_sr25_bids — SR25 spending review bids (current investment plans)",
-        "kb_search_sr21_bids — SR21 spending review bids (historical baseline; NOT in graph)",
-        "kb_search_nao_reports — NAO reports and PAC findings (NOT in graph)",
-        "kb_search_efficiency_reports — interim efficiencies reports per department (SR25 follow-up; efficiency savings focus + SR27 plans; NOT in graph)",
-        "list_athena_tables — discover Athena tables",
-        "get_table_schema — inspect exact table columns before writing SQL (mandatory)",
-        "execute_sql — run Athena SQL (SELECT only)",
-        "web_search_gov — search GOV.UK publications",
-    ])}
+    {
+        bullet_list(
+            [
+                "default_ — GraphRAG knowledge graph (params: query, mode, entity_name)",
+                "search_ — helper to find relevant graph tools where available",
+                "wait_after_timeout — call before every throttled graph retry (mandatory)",
+                "kb_search_gats_business_cases — full-text GATS business cases (OBCs / SOCs / FBCs)",
+                "kb_search_sr25_bids — SR25 spending review bids (current investment plans)",
+                "kb_search_sr21_bids — SR21 spending review bids (historical baseline; NOT in graph)",
+                "kb_search_nao_reports — NAO reports and PAC findings (NOT in graph)",
+                "kb_search_efficiency_reports — interim efficiencies reports per department (SR25 follow-up; efficiency savings focus + SR27 plans; NOT in graph)",
+                "list_athena_tables — discover Athena tables",
+                "get_table_schema — inspect exact table columns before writing SQL (mandatory)",
+                "execute_sql — run Athena SQL (SELECT only)",
+                "web_search_gov — search GOV.UK publications",
+            ]
+        )
+    }
 
     CRITICAL:
     - default_ IS the GraphRAG knowledge graph. Do not be confused by the name.

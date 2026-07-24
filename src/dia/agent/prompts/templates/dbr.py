@@ -120,12 +120,9 @@ def get_dbr_system_prompt(department_name: str = "Home Office") -> str:
             first_n_must_be_graph=6,
             extra_rules=[
                 "Must query NAO KB for every major programme found.",
-                "Must run GMPP, GATS, and Service Standard Athena queries — "
-                "do not skip structured data.",
-                "Cross-government section is mandatory — run at least one unfiltered "
-                "graph query (mode=\"default\").",
-                "Never write a section with only \"No data found\" — explain what was "
-                "searched and what absence means.",
+                "Must run GMPP, GATS, and Service Standard Athena queries — do not skip structured data.",
+                'Cross-government section is mandatory — run at least one unfiltered graph query (mode="default").',
+                'Never write a section with only "No data found" — explain what was searched and what absence means.',
             ],
         ),
         "</system_prompt>",

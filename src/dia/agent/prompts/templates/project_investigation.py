@@ -68,16 +68,12 @@ def get_project_investigation_system_prompt() -> str:
             min_kb_calls=2,
             min_athena_calls=2,
             extra_rules=[
-                "Search for the project name AND reasonable variations (abbreviations, "
-                "full names, acronyms).",
-                "If nothing found under one name, try broader searches "
-                "(department + capability area).",
-                "Always report which sources returned NO results — absence of evidence "
-                "is itself intelligence.",
-                "If a source returns nothing, say \"Not found in [source]\".",
+                "Search for the project name AND reasonable variations (abbreviations, full names, acronyms).",
+                "If nothing found under one name, try broader searches (department + capability area).",
+                "Always report which sources returned NO results — absence of evidence is itself intelligence.",
+                'If a source returns nothing, say "Not found in [source]".',
                 "The Cypher query MUST be syntactically valid openCypher for Neptune.",
-                "Athena and KB queries CAN run in parallel with each other "
-                "(graph queries cannot).",
+                "Athena and KB queries CAN run in parallel with each other (graph queries cannot).",
             ],
         ),
         "</system_prompt>",

@@ -8,6 +8,7 @@ All blocks are built as functions where the dynamic parts (department name,
 mode resolution, SQL filters) are computed at call time, mirroring the
 behaviour of the original prompts.
 """
+
 from __future__ import annotations
 
 from prompts.fragments.utils import block
@@ -15,6 +16,7 @@ from prompts.fragments.utils import block
 # -----------------------------------------------------------------------------
 # DBR — required graph + Athena query enumerations
 # -----------------------------------------------------------------------------
+
 
 def dbr_required_graph_queries(department_name: str = "Home Office") -> str:
     return block(
@@ -172,6 +174,7 @@ def dbr_web_searches(department_name: str = "Home Office") -> str:
 # Default investigation — required graph sequence
 # -----------------------------------------------------------------------------
 
+
 def default_required_graph_sequence(department_name: str = "Home Office") -> str:
     return block(
         "default_required_graph_sequence",
@@ -294,6 +297,7 @@ PROJECT_KB_QUERIES = block(
 # Supplier lock-in — graph + Athena (parameterised by department scope)
 # -----------------------------------------------------------------------------
 
+
 def supplier_lockin_graph_queries(department_name: str = "") -> str:
     if department_name:
         all_mode = "department_all_sources"
@@ -351,11 +355,7 @@ def supplier_lockin_graph_queries(department_name: str = "") -> str:
 def supplier_lockin_athena_queries(department_name: str = "") -> str:
     dept_lower = department_name.lower() if department_name else ""
     dept_sql = f"AND LOWER(buyer_name) LIKE '%{dept_lower}%'" if department_name else ""
-    dept_sql_gats = (
-        f"AND LOWER(co_organisationsubmitter) LIKE '%{dept_lower}%'"
-        if department_name
-        else ""
-    )
+    dept_sql_gats = f"AND LOWER(co_organisationsubmitter) LIKE '%{dept_lower}%'" if department_name else ""
 
     return block(
         "supplier_lockin_athena_queries",
@@ -420,6 +420,7 @@ SUPPLIER_LOCKIN_KB_KEYWORDS = block(
 # Supplier ecosystem — graph + Athena (parameterised by department scope)
 # -----------------------------------------------------------------------------
 
+
 def supplier_ecosystem_graph_queries(department_name: str = "") -> str:
     if department_name:
         all_mode = "department_all_sources"
@@ -461,11 +462,7 @@ def supplier_ecosystem_graph_queries(department_name: str = "") -> str:
 def supplier_ecosystem_athena_queries(department_name: str = "") -> str:
     dept_lower = department_name.lower() if department_name else ""
     dept_sql = f"WHERE LOWER(buyer_name) LIKE '%{dept_lower}%'" if department_name else ""
-    dept_sql_gats = (
-        f"AND LOWER(co_organisationsubmitter) LIKE '%{dept_lower}%'"
-        if department_name
-        else ""
-    )
+    dept_sql_gats = f"AND LOWER(co_organisationsubmitter) LIKE '%{dept_lower}%'" if department_name else ""
     buyers_or_cats = "buyers" if not department_name else "categories"
 
     return block(

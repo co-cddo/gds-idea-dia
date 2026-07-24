@@ -10,6 +10,7 @@ All content is preserved verbatim from the original standalone prompt so no
 operational context is lost; the AI-focused framing here layers on top of the
 generic canonical references.
 """
+
 from __future__ import annotations
 
 from prompts.fragments.utils import block
@@ -204,6 +205,7 @@ AI_TRANSFORMATION_SERVICE_STANDARD_CROSS_LENS = block(
 # -----------------------------------------------------------------------------
 # Required query enumerations (graph / Athena / web)
 # -----------------------------------------------------------------------------
+
 
 def ai_transformation_required_graph_queries(department_name: str = "Home Office") -> str:
     return block(
@@ -406,6 +408,7 @@ AI_TRANSFORMATION_INVESTIGATION_METHOD = block(
 # -----------------------------------------------------------------------------
 # Output specification (the full report structure)
 # -----------------------------------------------------------------------------
+
 
 def ai_transformation_output_spec(department_name: str = "Home Office") -> str:
     return block(

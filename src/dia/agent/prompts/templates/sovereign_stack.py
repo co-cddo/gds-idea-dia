@@ -140,13 +140,11 @@ def get_sovereign_stack_system_prompt_v3() -> str:
                 "Distinguish UK capability vs ambition, and confirmed contracts ([ATHENA]) "
                 "vs graph-extracted relationships ([GRAPH]).",
                 "Capture niche makership even within taker layers.",
-                "Do not recommend \"make everything\" — justify maker vs shaper vs "
-                "diversify for each intervention.",
+                'Do not recommend "make everything" — justify maker vs shaper vs diversify for each intervention.',
                 "TEMPORAL DISCIPLINE: record the date of every piece of evidence cited. "
                 "Weight 2024-2025 evidence over 2020-2022 for current-state judgements. "
                 "Flag stale evidence (pre-2023) explicitly.",
-                f"Distinguish completed vs active contracts / programmes by comparing "
-                f"dates to today ({today}).",
+                f"Distinguish completed vs active contracts / programmes by comparing dates to today ({today}).",
                 "Include the REFERENCES section as the FINAL section — mandatory and must "
                 "list every source with its date so readers can assess currency.",
                 "Never fabricate figures, suppliers, or programmes.",

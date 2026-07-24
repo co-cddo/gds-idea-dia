@@ -61,10 +61,8 @@ def get_targeted_question_system_prompt() -> str:
                 "Answer the question that was asked. Do not produce a full DBR or dossier.",
                 "Always search MULTIPLE phrasings / synonyms — a single phrasing misses results.",
                 "Never fabricate organisations, programmes, suppliers, or figures.",
-                "If no organisation is found for the capability, say so explicitly and "
-                "state what was searched.",
-                "Prefer organisations appearing across multiple sources — flag as high "
-                "confidence.",
+                "If no organisation is found for the capability, say so explicitly and state what was searched.",
+                "Prefer organisations appearing across multiple sources — flag as high confidence.",
             ],
         ),
         "</system_prompt>",

@@ -110,10 +110,8 @@ def get_ai_transformation_system_prompt(department_name: str = "Home Office") ->
                 "Maximum 10,000 words — more means you are repeating yourself.",
                 "If filtered mode returns blank, retry with a broader mode immediately.",
                 "Must query NAO KB for every major AI programme found.",
-                "Must run GMPP, GATS, and Service Standard Athena queries — do not skip "
-                "structured data.",
-                "Cross-government AI section is mandatory — run at least one unfiltered "
-                "graph query (mode=\"default\").",
+                "Must run GMPP, GATS, and Service Standard Athena queries — do not skip structured data.",
+                'Cross-government AI section is mandatory — run at least one unfiltered graph query (mode="default").',
                 "Areas 5 and 6 are MAIN FOCUS — allocate at least 60% of investigation "
                 "effort (tool calls) to these two areas. They must be the most detailed "
                 "sections of the report.",
@@ -127,8 +125,7 @@ def get_ai_transformation_system_prompt(department_name: str = "Home Office") ->
                 "explicitly but still attempt the analysis.",
                 "Every section of the 7 investigation areas must contain findings or "
                 "explicitly state what was investigated and what evidence gap exists.",
-                "Never write a section with only \"No data found\" — explain what was searched "
-                "and what absence means.",
+                'Never write a section with only "No data found" — explain what was searched and what absence means.',
             ],
         ),
         "</system_prompt>",
@@ -226,8 +223,7 @@ def get_ai_transformation_system_prompt_v2(department_name: str = "Home Office")
                 "Maximum 10,000 words — more means you are repeating yourself.",
                 "If filtered mode returns blank, retry with a broader mode immediately.",
                 "Must query NAO KB for every major AI programme found.",
-                "Must run GMPP, GATS, and Service Standard Athena queries — do not skip "
-                "structured data.",
+                "Must run GMPP, GATS, and Service Standard Athena queries — do not skip structured data.",
                 "NO CALCULATIONS: never sum, subtract, multiply, take a percentage of, "
                 "annualise, or derive any figure. Quote figures verbatim from a named "
                 "source. Never apply a stated % (e.g. 30%) to a stated £ value.",
@@ -253,8 +249,7 @@ def get_ai_transformation_system_prompt_v2(department_name: str = "Home Office")
                 "AI/Cloud Platform Dependency Map (Table A), and the Vendor Lock-In Risk "
                 "Assessment (Table B). If contracts data is sparse, state this explicitly "
                 "but still attempt the analysis.",
-                "Attribute findings to their data source within each investigation-area "
-                "section so gaps are visible.",
+                "Attribute findings to their data source within each investigation-area section so gaps are visible.",
                 "A numbered REFERENCES section is mandatory and appears before Source "
                 "Diagnostics; every [n] used in the body resolves to exactly one row.",
                 "Areas 5 and 6 are MAIN FOCUS — allocate at least 60% of investigation "
@@ -264,8 +259,7 @@ def get_ai_transformation_system_prompt_v2(department_name: str = "Home Office")
                 "Do not omit the section entirely.",
                 "Every section of the 7 investigation areas must contain findings or "
                 "explicitly state what was investigated and what evidence gap exists.",
-                "Never write a section with only \"No data found\" — explain what was searched "
-                "and what absence means.",
+                'Never write a section with only "No data found" — explain what was searched and what absence means.',
             ],
         ),
         "</system_prompt>",

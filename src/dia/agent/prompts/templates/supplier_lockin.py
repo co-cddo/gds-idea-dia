@@ -111,8 +111,7 @@ def get_supplier_lockin_system_prompt(department_name: str = "") -> str:
             extra_rules=[
                 "All financial figures must cite source and be formatted as £X,XXX,XXX.",
                 "The Cypher queries MUST be syntactically valid openCypher for Neptune.",
-                "Populate Cypher placeholders with the actual supplier / programme names "
-                "found in the graph.",
+                "Populate Cypher placeholders with the actual supplier / programme names found in the graph.",
                 "Every assertion must be traceable to a document or data row.",
             ],
         ),

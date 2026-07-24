@@ -63,8 +63,7 @@ def get_default_system_prompt(department_name: str = "Home Office") -> str:
             first_n_must_be_graph=4,
             min_web_calls=1,
             extra_rules=[
-                "Prioritise entities that appear across multiple document sources — "
-                "these are highest confidence.",
+                "Prioritise entities that appear across multiple document sources — these are highest confidence.",
                 "When data is ambiguous or missing, explicitly state uncertainty.",
                 "Do not hallucinate programmes, Spend IDs, or financial figures.",
             ],
