@@ -58,9 +58,7 @@ def test_expected_secret_exists(synth, environment, phase, purpose):
 def test_kb_arns_secret_has_expected_keys(synth):
     template = synth(SecretsStack)
     resources = template.find_resources("AWS::SecretsManager::Secret")
-    kb_arns_resource = next(
-        r for r in resources.values() if r["Properties"]["Name"] == "dia-kb-arns-dev"
-    )
+    kb_arns_resource = next(r for r in resources.values() if r["Properties"]["Name"] == "dia-kb-arns-dev")
     secret_string = json.loads(kb_arns_resource["Properties"]["SecretString"])
     assert set(secret_string.keys()) == {
         "kb_gats_business_cases",
