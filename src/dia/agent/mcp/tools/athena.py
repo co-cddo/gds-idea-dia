@@ -40,7 +40,7 @@ def get_table_schema(database_name: str, table_name: str) -> str:
     Returns column names and data types for a specific Athena table.
 
     Available databases:
-    - 'assurance_contracts': Contains two tables:
+    - 'assurance_contracts': Contains three tables:
       1. 'extracted_contracts' — LLM-extracted contracts with columns:
          id, ocid, buyer_name, buyer_category, seller_name, title, status, date, end_date,
          value, currency, n_documents, total_document_length, digital_procurement_level,

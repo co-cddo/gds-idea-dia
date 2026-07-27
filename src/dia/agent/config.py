@@ -35,7 +35,8 @@ class Settings(BaseSettings):
     gats_service_db: str = Field(default="gats-assurance")
     gats_service_table: str = Field(default="service_assessments_snapshot20251217")
 
-    # -- Knowledge Base IDs --
+    # -- Secrets Manager --
+    tavily_secret_name: str = Field(default="")
     kb_gats_business_cases: str = Field(default="")
     kb_sr25_bids: str = Field(default="")
     kb_sr21_bids: str = Field(default="")
