@@ -19,8 +19,6 @@ class Settings(BaseSettings):
     aws_region: str = Field(default="eu-west-2")
     model_id: str = Field(default="global.anthropic.claude-sonnet-5")
 
-    # -- Endpoints --
-
     # -- Athena - contracts --
     contracts_db: str = Field(default="assurance_contracts")
     contracts_table: str = Field(default="extracted_contracts")
@@ -37,22 +35,9 @@ class Settings(BaseSettings):
 
     # -- Secrets Manager --
     tavily_secret_name: str = Field(default="")
-    kb_gats_business_cases: str = Field(default="")
-    kb_sr25_bids: str = Field(default="")
-    kb_sr21_bids: str = Field(default="")
-    kb_nao_reports: str = Field(default="")
-    kb_efficiency_reports: str = Field(default="")
-
-    @computed_field
-    @property
-    def kb_ids(self) -> dict[str, str]:
-        return {
-            "gats_business_cases": self.kb_gats_business_cases,
-            "sr25_bids": self.kb_sr25_bids,
-            "sr21_bids": self.kb_sr21_bids,
-            "nao_reports": self.kb_nao_reports,
-            "efficiency_reports": self.kb_efficiency_reports,
-        }
+    kb_arns: str = Field(default="")
+    neptune_endpoint_secret_name: str = Field(default="")
+    aoss_endpoint_secret_name: str = Field(default="")
 
     # -- MCP server defaults --
     mcp_port: int = Field(default=8000)
