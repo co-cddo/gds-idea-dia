@@ -65,7 +65,7 @@ class BastionStack(cdk.Stack):
             description="SSH access from EICE tunnel",
         )
 
-        # Minimal bastion instance — Amazon Linux 2023 (EC2 Instance Connect pre-installed)
+        # Minimal bastion instance with Linux installed
         self.instance = ec2.Instance(
             self,
             "BastionInstance",
@@ -75,7 +75,6 @@ class BastionStack(cdk.Stack):
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
             security_group=self.bastion_security_group,
             instance_name=config.resource_name("bastion"),
-            # No key pair — access exclusively via EC2 Instance Connect (ephemeral keys)
         )
         self.instance.apply_removal_policy(cdk.RemovalPolicy.DESTROY)
 
