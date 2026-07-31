@@ -3,18 +3,17 @@
 import json
 from typing import Any
 
-import boto3
-
-bedrock_agent_client = boto3.client("bedrock-agent-runtime", region_name=AWS_REGION)
+from dia.agent.config import settings
+from dia.clients.session import get_session
 
 
 def _kb_retrieve(kb_id: str, query: str, top_k: int = 10, filter_config: dict | None = None) -> str:
     """Internal helper to retrieve from a specific knowledge base."""
+    client = get_session().client("bedrock-agent-runtime", region_name=settings.aws_region)
     retrieval_config: dict[str, Any] = {"vectorSearchConfiguration": {"numberOfResults": top_k}}
     if filter_config:
         retrieval_config["vectorSearchConfiguration"]["filter"] = filter_config
-
-    response = bedrock_agent_client.retrieve(
+    response = client.retrieve(
         knowledgeBaseId=kb_id,
         retrievalQuery={"text": query},
         retrievalConfiguration=retrieval_config,
@@ -44,7 +43,7 @@ def kb_search_gats_business_cases(query: str, top_k: int = 10) -> str:
         query: Natural language search (e.g. 'cloud migration benefits', 'identity verification risks')
         top_k: Number of passages to return (default 10)
     """
-    kb_id = KB_IDS["gats_business_cases"]
+    kb_id = settings.kb_arns["gats_business_cases"]
     if not kb_id:
         return "Error: KB_GATS_BUSINESS_CASES not configured"
     return _kb_retrieve(kb_id, query, top_k)
@@ -62,7 +61,7 @@ def kb_search_sr25_bids(query: str, top_k: int = 10) -> str:
         query: Natural language search (e.g. 'digital transformation funding', 'AI investment')
         top_k: Number of passages to return (default 10)
     """
-    kb_id = KB_IDS["sr25_bids"]
+    kb_id = settings.kb_arns["sr25_bids"]
     if not kb_id:
         return "Error: KB_SR25_BIDS not configured"
     return _kb_retrieve(kb_id, query, top_k)
@@ -80,7 +79,7 @@ def kb_search_sr21_bids(query: str, top_k: int = 10) -> str:
         query: Natural language search (e.g. 'legacy IT replacement', 'data platform investment')
         top_k: Number of passages to return (default 10)
     """
-    kb_id = KB_IDS["sr21_bids"]
+    kb_id = settings.kb_arns["sr21_bids"]
     if not kb_id:
         return "Error: KB_SR21_BIDS not configured"
     return _kb_retrieve(kb_id, query, top_k)
@@ -98,7 +97,7 @@ def kb_search_nao_reports(query: str, top_k: int = 10) -> str:
         query: Natural language search (e.g. 'programme delays', 'cost overruns digital')
         top_k: Number of passages to return (default 10)
     """
-    kb_id = KB_IDS["nao_reports"]
+    kb_id = settings.kb_arns["nao_reports"]
     if not kb_id:
         return "Error: KB_NAO_REPORTS not configured"
     return _kb_retrieve(kb_id, query, top_k)
@@ -118,7 +117,7 @@ def kb_search_efficiency_reports(query: str, top_k: int = 10) -> str:
         query: Natural language search (e.g. 'workforce efficiency savings', 'SR27 investment plans')
         top_k: Number of passages to return (default 10)
     """
-    kb_id = KB_IDS["efficiency_reports"]
+    kb_id = settings.kb_arns["efficiency_reports"]
     if not kb_id:
         return "Error: KB_EFFICIENCY_REPORTS not configured"
     return _kb_retrieve(kb_id, query, top_k)

@@ -8,8 +8,12 @@ Usage:
 
 """
 
+import json
+
 from pydantic import Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from dia.clients.secrets import get_secret
 
 
 class Settings(BaseSettings):
@@ -22,7 +26,7 @@ class Settings(BaseSettings):
     # -- Athena - contracts --
     contracts_db: str = Field(default="assurance_contracts")
     contracts_table: str = Field(default="extracted_contracts")
-    contracts_group: str = Field(default="assurance-contracts")
+    contracts_workgroup: str = Field(default="assurance-contracts")
 
     # -- Athena - GATS spend controls --
     gats_db: str = Field(default="gats-assurance-ai")
@@ -35,7 +39,7 @@ class Settings(BaseSettings):
 
     # -- Secrets Manager --
     tavily_secret_name: str = Field(default="")
-    kb_arns: str = Field(default="")
+    kb_arns_secret_name: str = Field(default="")
     neptune_endpoint_secret_name: str = Field(default="")
     aoss_endpoint_secret_name: str = Field(default="")
 
@@ -46,6 +50,22 @@ class Settings(BaseSettings):
     @property
     def mcp_url(self) -> str:
         return f"http://127.0.0.1:{self.mcp_port}/mcp/"
+
+    @property
+    def kb_arns(self) -> dict[str, str]:
+        """Bedrock Knowledge Base IDs/ARNs, keyed without the 'kb_' prefix."""
+        if self._kb_arns_cache is None:
+            raw = get_secret(self.kb_arns_secret_name, region=self.aws_region)
+            parsed = json.loads(raw)
+            self._kb_arns_cache = {key.removeprefix("kb_"): value for key, value in parsed.items()}
+        return self._kb_arns_cache
+
+    @property
+    def tavily_api_key(self) -> str:
+        """Tavily API key, resolved from Secrets Manager."""
+        if self._tavily_api_key_cache is None:
+            self._tavily_api_key_cache = get_secret(self.tavily_secret_name, region=self.aws_region)
+        return self._tavily_api_key_cache
 
 
 settings = Settings()
