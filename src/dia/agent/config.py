@@ -10,7 +10,7 @@ Usage:
 
 import json
 
-from pydantic import Field, computed_field
+from pydantic import Field, PrivateAttr, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from dia.clients.secrets import get_secret
@@ -51,21 +51,35 @@ class Settings(BaseSettings):
     def mcp_url(self) -> str:
         return f"http://127.0.0.1:{self.mcp_port}/mcp/"
 
+    _secret_cache: dict[str, str] = PrivateAttr(default_factory=dict)
+
+    def _resolve_secret(self, secret_name: str) -> str:
+        """Fetch a plain-string secret once, cached by secret name."""
+        if secret_name not in self._secret_cache:
+            self._secret_cache[secret_name] = get_secret(secret_name, region=self.aws_region)
+        return self._secret_cache[secret_name]
+
     @property
     def kb_arns(self) -> dict[str, str]:
         """Bedrock Knowledge Base IDs/ARNs, keyed without the 'kb_' prefix."""
-        if self._kb_arns_cache is None:
-            raw = get_secret(self.kb_arns_secret_name, region=self.aws_region)
-            parsed = json.loads(raw)
-            self._kb_arns_cache = {key.removeprefix("kb_"): value for key, value in parsed.items()}
-        return self._kb_arns_cache
+        raw = self._resolve_secret(self.kb_arns_secret_name)
+        parsed = json.loads(raw)
+        return {key.removeprefix("kb_"): value for key, value in parsed.items()}
 
     @property
     def tavily_api_key(self) -> str:
         """Tavily API key, resolved from Secrets Manager."""
-        if self._tavily_api_key_cache is None:
-            self._tavily_api_key_cache = get_secret(self.tavily_secret_name, region=self.aws_region)
-        return self._tavily_api_key_cache
+        return self._resolve_secret(self.tavily_secret_name)
+
+    @property
+    def neptune_endpoint(self) -> str:
+        """Neptune cluster endpoint hostname, resolved from Secrets Manager."""
+        return self._resolve_secret(self.neptune_endpoint_secret_name)
+
+    @property
+    def aoss_endpoint(self) -> str:
+        """OpenSearch (AOSS) collection endpoint hostname, resolved from Secrets Manager."""
+        return self._resolve_secret(self.aoss_endpoint_secret_name)
 
 
 settings = Settings()
