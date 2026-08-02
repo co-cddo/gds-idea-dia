@@ -34,3 +34,8 @@ def web_search_gov(query: str, max_results: int = 5) -> str:
         return json.dumps(results.get("results", []), indent=2)
     except Exception as e:
         return f"Search error: {e}"
+
+
+def register(mcp_server) -> None:
+    """Register the web-search tool onto an already-built MCP server."""
+    mcp_server.tool()(web_search_gov)

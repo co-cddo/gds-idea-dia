@@ -121,3 +121,12 @@ def kb_search_efficiency_reports(query: str, top_k: int = 10) -> str:
     if not kb_id:
         return "Error: KB_EFFICIENCY_REPORTS not configured"
     return _kb_retrieve(kb_id, query, top_k)
+
+
+def register(mcp_server) -> None:
+    """Register all knowledge-base search tools onto an already-built MCP server."""
+    mcp_server.tool()(kb_search_gats_business_cases)
+    mcp_server.tool()(kb_search_sr25_bids)
+    mcp_server.tool()(kb_search_sr21_bids)
+    mcp_server.tool()(kb_search_nao_reports)
+    mcp_server.tool()(kb_search_efficiency_reports)
