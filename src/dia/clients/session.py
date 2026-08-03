@@ -10,6 +10,7 @@ import boto3
 
 from dia.agent.config import settings
 
+
 @lru_cache(maxsize=1)
 def get_session() -> boto3.Session:
     """Return the process-wide boto3 Session used by AWS clients.
