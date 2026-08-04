@@ -50,6 +50,22 @@ def test_cluster_has_deletion_protection_disabled(synth):
     )
 
 
+def test_cluster_has_serverless_scaling(synth):
+    template, _, _ = synth(NeptuneStack, needs_vpc=True, needs_sg=True, sg_kwarg_name="bastion_security_group")
+    template.has_resource_properties(
+        "AWS::Neptune::DBCluster",
+        {"ServerlessScalingConfiguration": {"MinCapacity": 1, "MaxCapacity": 48}},
+    )
+
+
+def test_instance_is_serverless(synth):
+    template, _, _ = synth(NeptuneStack, needs_vpc=True, needs_sg=True, sg_kwarg_name="bastion_security_group")
+    template.has_resource_properties(
+        "AWS::Neptune::DBInstance",
+        {"DBInstanceClass": "db.serverless"},
+    )
+
+
 def test_outputs_neptune_endpoint(synth):
     template, _, _ = synth(NeptuneStack, needs_vpc=True, needs_sg=True, sg_kwarg_name="bastion_security_group")
     outputs = template.find_outputs("*")

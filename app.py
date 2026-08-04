@@ -11,6 +11,7 @@ from config import AppConfig, StackId
 from stacks.bastion import BastionStack
 from stacks.neptune import NeptuneStack
 from stacks.networking import NetworkingStack
+from stacks.opensearch import OpenSearchStack
 from stacks.secrets import SecretsStack
 from stacks.storage import StorageStack
 
@@ -60,5 +61,9 @@ NeptuneStack(
     bastion_security_group=bastion_stack.bastion_security_group,
     env=cdk_env,
 )
+
+# OpenSearch Serverless — standalone (no VPC dependency), public endpoint
+# restricted by IAM data-access policy.
+OpenSearchStack(app, config.resource_name("opensearch"), config=config, env=cdk_env)
 
 app.synth()
