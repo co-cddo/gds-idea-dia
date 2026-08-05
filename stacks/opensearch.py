@@ -22,8 +22,9 @@ class OpenSearchStack(cdk.Stack):
     Resources:
         - Encryption security policy (AWS-owned KMS key) scoped to the collection
         - Network security policy exposing the collection + dashboards publicly
-        - NEXTGEN collection group with scale-to-zero (min 0, max 10 OCU for
-          both indexing and search)
+        - NEXTGEN collection group with scale-to-zero (min 0, max 8 OCU for
+          both indexing and search); standby replicas enabled (required for
+          NEXTGEN groups)
         - VECTORSEARCH collection joined to the collection group
         - Data-access policy granting the account root principal collection +
           index permissions (dev placeholder — tighten to a specific role later)
@@ -94,29 +95,33 @@ class OpenSearchStack(cdk.Stack):
         )
 
         # NEXTGEN collection group with scale-to-zero (min OCU 0 for both
-        # indexing and search). Max capped at 10 OCU each to bound cost.
+        # indexing and search). Max capped at 8 OCU each to bound cost.
+        # Valid OCU values are 0, 2, 4, 8, 16, or any multiple of 16.
+        # NEXTGEN groups require StandbyReplicas=ENABLED; scale-to-zero is
+        # driven by min OCU=0, independent of standby replicas.
         self.collection_group = aoss.CfnCollectionGroup(
             self,
             "CollectionGroup",
             name=group_name,
-            standby_replicas="DISABLED",
+            standby_replicas="ENABLED",
             generation="NEXTGEN",
             capacity_limits=aoss.CfnCollectionGroup.CapacityLimitsProperty(
                 min_indexing_capacity_in_ocu=0,
-                max_indexing_capacity_in_ocu=10,
+                max_indexing_capacity_in_ocu=8,
                 min_search_capacity_in_ocu=0,
-                max_search_capacity_in_ocu=10,
+                max_search_capacity_in_ocu=8,
             ),
         )
 
         # Vector-search collection joined to the group. Must be created after
         # the encryption + network policies and the collection group exist.
+        # Standby matches the NEXTGEN group requirement (ENABLED).
         self.collection = aoss.CfnCollection(
             self,
             "Collection",
             name=collection_name,
             type="VECTORSEARCH",
-            standby_replicas="DISABLED",
+            standby_replicas="ENABLED",
             collection_group_name=group_name,
         )
         self.collection.add_dependency(encryption_policy)
@@ -166,16 +171,12 @@ class OpenSearchStack(cdk.Stack):
         )
         data_access_policy.add_dependency(self.collection)
 
-        # Outputs for wiring the collection endpoint into the aoss-endpoint secret.
+        # Output the collection endpoint for wiring into the aoss-endpoint secret.
+        # Note: VECTORSEARCH collections do not expose a DashboardEndpoint
+        # attribute, so no dashboards output is emitted.
         cdk.CfnOutput(
             self,
             "AossCollectionEndpoint",
             value=self.collection.attr_collection_endpoint,
             description="OpenSearch Serverless collection endpoint (DNS)",
-        )
-        cdk.CfnOutput(
-            self,
-            "AossDashboardEndpoint",
-            value=self.collection.attr_dashboard_endpoint,
-            description="OpenSearch Serverless dashboards endpoint",
         )
