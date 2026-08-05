@@ -22,7 +22,7 @@ class OpenSearchStack(cdk.Stack):
     Resources:
         - Encryption security policy (AWS-owned KMS key) scoped to the collection
         - Network security policy exposing the collection + dashboards publicly
-        - NEXTGEN collection group with scale-to-zero (min 0, max 10 OCU for
+        - NEXTGEN collection group with scale-to-zero (min 0, max 8 OCU for
           both indexing and search); standby replicas enabled (required for
           NEXTGEN groups)
         - VECTORSEARCH collection joined to the collection group
@@ -95,7 +95,8 @@ class OpenSearchStack(cdk.Stack):
         )
 
         # NEXTGEN collection group with scale-to-zero (min OCU 0 for both
-        # indexing and search). Max capped at 10 OCU each to bound cost.
+        # indexing and search). Max capped at 8 OCU each to bound cost.
+        # Valid OCU values are 0, 2, 4, 8, 16, or any multiple of 16.
         # NEXTGEN groups require StandbyReplicas=ENABLED; scale-to-zero is
         # driven by min OCU=0, independent of standby replicas.
         self.collection_group = aoss.CfnCollectionGroup(
@@ -106,9 +107,9 @@ class OpenSearchStack(cdk.Stack):
             generation="NEXTGEN",
             capacity_limits=aoss.CfnCollectionGroup.CapacityLimitsProperty(
                 min_indexing_capacity_in_ocu=0,
-                max_indexing_capacity_in_ocu=10,
+                max_indexing_capacity_in_ocu=8,
                 min_search_capacity_in_ocu=0,
-                max_search_capacity_in_ocu=10,
+                max_search_capacity_in_ocu=8,
             ),
         )
 

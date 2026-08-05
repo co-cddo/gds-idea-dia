@@ -31,9 +31,9 @@ def test_collection_group_is_nextgen_scale_to_zero(synth):
             "StandbyReplicas": "ENABLED",
             "CapacityLimits": {
                 "MinIndexingCapacityInOcu": 0,
-                "MaxIndexingCapacityInOcu": 10,
+                "MaxIndexingCapacityInOcu": 8,
                 "MinSearchCapacityInOcu": 0,
-                "MaxSearchCapacityInOcu": 10,
+                "MaxSearchCapacityInOcu": 8,
             },
         },
     )
