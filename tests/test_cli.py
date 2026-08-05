@@ -329,3 +329,393 @@ def test_ledger_clone_creates_parent_directories(tmp_path):
 
     data = json.loads(Path(target).read_text())
     assert "text#src#a.pdf#v1" in data
+
+
+# ---------------------------------------------------------------------------
+# extract-text
+# ---------------------------------------------------------------------------
+
+
+def _make_data_source(prefix="docs/"):
+    from dia.document_types import DocumentType
+    from dia.types import DataSource
+
+    return DataSource(
+        name="test-source",
+        document_type=DocumentType.BUSINESS_CASE,
+        bucket="test-bucket",
+        prefix=prefix,
+    )
+
+
+def _make_refs(n: int):
+    from dia.types import DocumentReference
+
+    return [
+        DocumentReference(key=f"docs/doc{i}.pdf", content_type="application/pdf", version=f"v{i}") for i in range(n)
+    ]
+
+
+def _make_result(**overrides):
+    from dia.pipeline import TextExtractionResult
+
+    defaults = {"total": 3, "processed": 3, "skipped": 0, "failed": 0}
+    defaults.update(overrides)
+    return TextExtractionResult(**defaults)
+
+
+def test_extract_text_execute_and_live_mutually_exclusive():
+    result = runner.invoke(app, ["extract-text", "--source", "test-source", "--execute", "--live"])
+
+    assert result.exit_code == 1
+    assert "mutually exclusive" in result.output
+
+
+def test_extract_text_inmemory_ledger_requires_execute():
+    result = runner.invoke(app, ["extract-text", "--source", "test-source", "--inmemory-ledger"])
+
+    assert result.exit_code == 1
+    assert "--inmemory-ledger is only valid with --execute" in result.output
+
+
+def test_extract_text_unknown_source():
+    with patch("dia.sources.known.get_source", side_effect=KeyError("test-source")):
+        result = runner.invoke(app, ["extract-text", "--source", "unknown-source"])
+
+    assert result.exit_code == 1
+    assert "Unknown source" in result.output
+
+
+def test_extract_text_preview_shows_counts():
+    data_source = _make_data_source()
+    refs = _make_refs(5)
+
+    with (
+        patch("dia.sources.known.get_source", return_value=data_source),
+        patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
+        patch("dia.metadata.load_metadata", return_value=None),
+        patch("dia.ledger.file.JsonFileLedger") as mock_ledger_cls,
+    ):
+        mock_source_cls.return_value.list_documents.return_value = refs
+        mock_ledger_cls.return_value.get_unprocessed.return_value = refs[:2]
+
+        result = runner.invoke(app, ["extract-text", "--source", "test-source"])
+
+    assert result.exit_code == 0
+    assert "Listing documents... 5 found" in result.output
+    assert "Checking ledger (output/ledger.json)... 3 already done, 2 to extract" in result.output
+    assert "--execute" in result.output
+    assert "--live" in result.output
+
+
+def test_extract_text_preview_suggests_ledger_clone_when_nothing_done():
+    data_source = _make_data_source()
+    refs = _make_refs(5)
+
+    with (
+        patch("dia.sources.known.get_source", return_value=data_source),
+        patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
+        patch("dia.metadata.load_metadata", return_value=None),
+        patch("dia.ledger.file.JsonFileLedger") as mock_ledger_cls,
+    ):
+        mock_source_cls.return_value.list_documents.return_value = refs
+        mock_ledger_cls.return_value.get_unprocessed.return_value = refs
+
+        result = runner.invoke(app, ["extract-text", "--source", "test-source"])
+
+    assert result.exit_code == 0
+    assert "Tip: run `dia ledger clone` to seed from production." in result.output
+
+
+def test_extract_text_preview_with_force_ignores_ledger():
+    data_source = _make_data_source()
+    refs = _make_refs(4)
+
+    with (
+        patch("dia.sources.known.get_source", return_value=data_source),
+        patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
+        patch("dia.metadata.load_metadata", return_value=None),
+        patch("dia.ledger.file.JsonFileLedger") as mock_ledger_cls,
+    ):
+        mock_source_cls.return_value.list_documents.return_value = refs
+
+        result = runner.invoke(app, ["extract-text", "--source", "test-source", "--force"])
+
+    assert result.exit_code == 0
+    assert "To extract: 4 (--force: ignoring ledger)" in result.output
+    # Ledger should never be consulted when --force is set
+    mock_ledger_cls.return_value.get_unprocessed.assert_not_called()
+
+
+def test_extract_text_departments_without_metadata_errors():
+    data_source = _make_data_source()
+    refs = _make_refs(3)
+
+    with (
+        patch("dia.sources.known.get_source", return_value=data_source),
+        patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
+        patch("dia.metadata.load_metadata", return_value=None),
+    ):
+        mock_source_cls.return_value.list_documents.return_value = refs
+
+        result = runner.invoke(app, ["extract-text", "--source", "test-source", "--departments", "HMRC"])
+
+    assert result.exit_code == 1
+    assert "does not support department filtering" in result.output
+
+
+def test_extract_text_departments_filters_refs():
+    from dia.metadata.models import DocumentMetadata
+    from dia.metadata.provider import MetadataProvider
+
+    data_source = _make_data_source()
+    refs = _make_refs(3)
+    lookup = {
+        "docs/doc0.pdf": DocumentMetadata(department="HMRC"),
+        "docs/doc1.pdf": DocumentMetadata(department="DfE"),
+    }
+    metadata = MetadataProvider(lookup)
+
+    with (
+        patch("dia.sources.known.get_source", return_value=data_source),
+        patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
+        patch("dia.metadata.load_metadata", return_value=metadata),
+        patch("dia.ledger.file.JsonFileLedger") as mock_ledger_cls,
+    ):
+        mock_source_cls.return_value.list_documents.return_value = refs
+        mock_ledger_cls.return_value.get_unprocessed.side_effect = lambda r, *_: r
+
+        result = runner.invoke(app, ["extract-text", "--source", "test-source", "--departments", "HMRC"])
+
+    assert result.exit_code == 0
+    assert "Listing documents... 3 found" in result.output
+    assert "After department filter: 1 (removed 2)" in result.output
+
+
+def test_extract_text_shows_metadata_load_progress():
+    from dia.metadata.models import DocumentMetadata
+    from dia.metadata.provider import MetadataProvider
+
+    data_source = _make_data_source()
+    refs = _make_refs(3)
+    metadata = MetadataProvider({"docs/doc0.pdf": DocumentMetadata(department="HMRC")})
+
+    with (
+        patch("dia.sources.known.get_source", return_value=data_source),
+        patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
+        patch("dia.metadata.load_metadata", return_value=metadata),
+        patch("dia.ledger.file.JsonFileLedger") as mock_ledger_cls,
+    ):
+        mock_source_cls.return_value.list_documents.return_value = refs
+        mock_ledger_cls.return_value.get_unprocessed.return_value = refs
+
+        result = runner.invoke(app, ["extract-text", "--source", "test-source"])
+
+    assert result.exit_code == 0
+    assert "Loading metadata... 1 entries loaded" in result.output
+
+
+def test_extract_text_shows_no_metadata_configured():
+    data_source = _make_data_source()
+    refs = _make_refs(2)
+
+    with (
+        patch("dia.sources.known.get_source", return_value=data_source),
+        patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
+        patch("dia.metadata.load_metadata", return_value=None),
+        patch("dia.ledger.file.JsonFileLedger") as mock_ledger_cls,
+    ):
+        mock_source_cls.return_value.list_documents.return_value = refs
+        mock_ledger_cls.return_value.get_unprocessed.return_value = refs
+
+        result = runner.invoke(app, ["extract-text", "--source", "test-source"])
+
+    assert result.exit_code == 0
+    assert "Loading metadata... none configured" in result.output
+
+
+def test_extract_text_execute_uses_local_writer_and_file_ledger():
+    data_source = _make_data_source()
+    refs = _make_refs(3)
+
+    with (
+        patch("dia.sources.known.get_source", return_value=data_source),
+        patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
+        patch("dia.metadata.load_metadata", return_value=None),
+        patch("dia.ledger.file.JsonFileLedger") as mock_ledger_cls,
+        patch("dia.pipeline.TextExtractionRunner") as mock_runner_cls,
+    ):
+        mock_source_cls.return_value.list_documents.return_value = refs
+        mock_runner_cls.return_value.run.return_value = _make_result()
+
+        result = runner.invoke(app, ["extract-text", "--source", "test-source", "--execute"])
+
+    assert result.exit_code == 0
+    mock_ledger_cls.assert_called_once_with("output/ledger.json")
+    _, kwargs = mock_runner_cls.call_args
+    assert kwargs["force"] is False
+    assert "Processed: 3" in result.output
+
+
+def test_extract_text_execute_inmemory_ledger():
+    data_source = _make_data_source()
+    refs = _make_refs(2)
+
+    with (
+        patch("dia.sources.known.get_source", return_value=data_source),
+        patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
+        patch("dia.metadata.load_metadata", return_value=None),
+        patch("dia.ledger.memory.InMemoryLedger") as mock_ledger_cls,
+        patch("dia.ledger.file.JsonFileLedger") as mock_file_ledger_cls,
+        patch("dia.pipeline.TextExtractionRunner") as mock_runner_cls,
+    ):
+        mock_source_cls.return_value.list_documents.return_value = refs
+        mock_runner_cls.return_value.run.return_value = _make_result(total=2, processed=2)
+
+        result = runner.invoke(app, ["extract-text", "--source", "test-source", "--execute", "--inmemory-ledger"])
+
+    assert result.exit_code == 0
+    mock_ledger_cls.assert_called_once()
+    mock_file_ledger_cls.assert_not_called()
+
+
+def test_extract_text_execute_force_passed_to_runner():
+    data_source = _make_data_source()
+    refs = _make_refs(2)
+
+    with (
+        patch("dia.sources.known.get_source", return_value=data_source),
+        patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
+        patch("dia.metadata.load_metadata", return_value=None),
+        patch("dia.ledger.file.JsonFileLedger"),
+        patch("dia.pipeline.TextExtractionRunner") as mock_runner_cls,
+    ):
+        mock_source_cls.return_value.list_documents.return_value = refs
+        mock_runner_cls.return_value.run.return_value = _make_result(total=2, processed=2)
+
+        result = runner.invoke(app, ["extract-text", "--source", "test-source", "--execute", "--force"])
+
+    assert result.exit_code == 0
+    _, kwargs = mock_runner_cls.call_args
+    assert kwargs["force"] is True
+
+
+def test_extract_text_live_prompts_and_aborts_on_no():
+    data_source = _make_data_source()
+    refs = _make_refs(3)
+
+    with (
+        patch("dia.sources.known.get_source", return_value=data_source),
+        patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
+        patch("dia.metadata.load_metadata", return_value=None),
+        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-prod"),
+        patch("dia.cli_helpers.resolve_text_output_bucket", return_value="dia-text-extracted-prod"),
+        patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_ledger_cls,
+        patch("dia.writers.s3.S3OutputWriter"),
+        patch("dia.pipeline.TextExtractionRunner") as mock_runner_cls,
+    ):
+        mock_source_cls.return_value.list_documents.return_value = refs
+        mock_ledger_cls.return_value.get_unprocessed.return_value = refs
+
+        result = runner.invoke(app, ["extract-text", "--source", "test-source", "--live"], input="n\n")
+
+    assert result.exit_code == 0
+    assert "About to process 3 documents" in result.output
+    assert "Aborted." in result.output
+    mock_runner_cls.return_value.run.assert_not_called()
+
+
+def test_extract_text_live_yes_skips_confirmation():
+    data_source = _make_data_source()
+    refs = _make_refs(2)
+
+    with (
+        patch("dia.sources.known.get_source", return_value=data_source),
+        patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
+        patch("dia.metadata.load_metadata", return_value=None),
+        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-prod"),
+        patch("dia.cli_helpers.resolve_text_output_bucket", return_value="dia-text-extracted-prod"),
+        patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_ledger_cls,
+        patch("dia.writers.s3.S3OutputWriter"),
+        patch("dia.pipeline.TextExtractionRunner") as mock_runner_cls,
+    ):
+        mock_source_cls.return_value.list_documents.return_value = refs
+        mock_ledger_cls.return_value.get_unprocessed.return_value = refs
+        mock_runner_cls.return_value.run.return_value = _make_result(total=2, processed=2)
+
+        result = runner.invoke(app, ["extract-text", "--source", "test-source", "--live", "--yes"])
+
+    assert result.exit_code == 0
+    mock_runner_cls.return_value.run.assert_called_once()
+    assert "Processed: 2" in result.output
+
+
+def test_extract_text_live_force_shows_reprocess_warning():
+    data_source = _make_data_source()
+    refs = _make_refs(5)
+
+    with (
+        patch("dia.sources.known.get_source", return_value=data_source),
+        patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
+        patch("dia.metadata.load_metadata", return_value=None),
+        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-prod"),
+        patch("dia.cli_helpers.resolve_text_output_bucket", return_value="dia-text-extracted-prod"),
+        patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_ledger_cls,
+        patch("dia.writers.s3.S3OutputWriter"),
+        patch("dia.pipeline.TextExtractionRunner") as mock_runner_cls,
+    ):
+        mock_source_cls.return_value.list_documents.return_value = refs
+        mock_runner_cls.return_value.run.return_value = _make_result(total=5, processed=5)
+
+        result = runner.invoke(app, ["extract-text", "--source", "test-source", "--live", "--force", "--yes"])
+
+    assert result.exit_code == 0
+    assert "About to REPROCESS 5 documents (ignoring ledger)" in result.output
+    mock_ledger_cls.return_value.get_unprocessed.assert_not_called()
+
+
+def test_extract_text_live_nothing_to_do():
+    data_source = _make_data_source()
+    refs = _make_refs(2)
+
+    with (
+        patch("dia.sources.known.get_source", return_value=data_source),
+        patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
+        patch("dia.metadata.load_metadata", return_value=None),
+        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-prod"),
+        patch("dia.cli_helpers.resolve_text_output_bucket", return_value="dia-text-extracted-prod"),
+        patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_ledger_cls,
+        patch("dia.writers.s3.S3OutputWriter"),
+        patch("dia.pipeline.TextExtractionRunner") as mock_runner_cls,
+    ):
+        mock_source_cls.return_value.list_documents.return_value = refs
+        mock_ledger_cls.return_value.get_unprocessed.return_value = []
+
+        result = runner.invoke(app, ["extract-text", "--source", "test-source", "--live"])
+
+    assert result.exit_code == 0
+    assert "Nothing to do." in result.output
+    mock_runner_cls.return_value.run.assert_not_called()
+
+
+def test_extract_text_reports_failed_keys():
+    data_source = _make_data_source()
+    refs = _make_refs(2)
+
+    with (
+        patch("dia.sources.known.get_source", return_value=data_source),
+        patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
+        patch("dia.metadata.load_metadata", return_value=None),
+        patch("dia.ledger.file.JsonFileLedger"),
+        patch("dia.pipeline.TextExtractionRunner") as mock_runner_cls,
+    ):
+        mock_source_cls.return_value.list_documents.return_value = refs
+        mock_runner_cls.return_value.run.return_value = _make_result(
+            total=2, processed=1, failed=1, failed_keys=["docs/doc1.pdf"]
+        )
+
+        result = runner.invoke(app, ["extract-text", "--source", "test-source", "--execute"])
+
+    assert result.exit_code == 0
+    assert "Failed:    1" in result.output
+    assert "Failed keys: docs/doc1.pdf" in result.output

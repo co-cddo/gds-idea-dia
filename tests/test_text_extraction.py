@@ -286,6 +286,53 @@ def test_skips_already_processed(source_with_fakes, ledger, config, writer, mock
 
 
 # ---------------------------------------------------------------------------
+# Tests: force
+# ---------------------------------------------------------------------------
+
+
+def test_force_reprocesses_already_processed_documents(
+    source_with_fakes, ledger, config, writer, mock_extractor, tmp_path
+):
+    # Process once
+    runner = TextExtractionRunner(
+        source=source_with_fakes,
+        ledger=ledger,
+        config=config,
+        writer=writer,
+        log_dir=str(tmp_path),
+    )
+    runner.run()
+
+    # Process again with force=True — should reprocess all, not skip
+    forced_runner = TextExtractionRunner(
+        source=source_with_fakes,
+        ledger=ledger,
+        config=config,
+        writer=writer,
+        log_dir=str(tmp_path),
+        force=True,
+    )
+    result = forced_runner.run()
+
+    assert result.processed == 3
+    assert result.skipped == 0
+
+
+def test_force_still_updates_ledger(source_with_fakes, ledger, config, writer, mock_extractor, tmp_path):
+    runner = TextExtractionRunner(
+        source=source_with_fakes,
+        ledger=ledger,
+        config=config,
+        writer=writer,
+        log_dir=str(tmp_path),
+        force=True,
+    )
+    runner.run()
+
+    assert len(ledger.records) == 3
+
+
+# ---------------------------------------------------------------------------
 # Tests: filters
 # ---------------------------------------------------------------------------
 

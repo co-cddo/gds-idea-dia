@@ -40,3 +40,13 @@ def resolve_ledger_table() -> str:
     """
     env = detect_environment()
     return f"dia-ledger-{env.short_name}"
+
+
+def resolve_text_output_bucket() -> str:
+    """Derive the text-extracted output S3 bucket name from the active environment.
+
+    Returns:
+        Bucket name following the pattern: gds-idea-dia-text-extracted-{phase}
+    """
+    env = detect_environment()
+    return f"gds-idea-dia-text-extracted-{env.short_name}"

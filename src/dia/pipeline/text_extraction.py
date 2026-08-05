@@ -61,6 +61,7 @@ class TextExtractionRunner:
         metadata: MetadataProvider | None = None,
         filters: list[DocumentFilter] | None = None,
         log_dir: str | None = None,
+        force: bool = False,
     ) -> None:
         self._source = source
         self._ledger = ledger
@@ -68,6 +69,7 @@ class TextExtractionRunner:
         self._writer = writer
         self._metadata = metadata
         self._filters = filters or []
+        self._force = force
         self._source_name = source.data_source.name
         self._log_file = setup_pipeline_logging(self._source_name, log_dir=log_dir)
 
@@ -102,9 +104,14 @@ class TextExtractionRunner:
         filtered_out = total - len(filtered_refs)
 
         # --- Ledger filter ---
-        pending = self._ledger.get_unprocessed(filtered_refs, self._source_name, STAGE)
-        skipped = len(filtered_refs) - len(pending)
-        logger.info("Ledger: skipped=%d (already processed) pending=%d", skipped, len(pending))
+        if self._force:
+            pending = filtered_refs
+            skipped = 0
+            logger.info("Force enabled — skipping ledger check, reprocessing all %d documents", len(pending))
+        else:
+            pending = self._ledger.get_unprocessed(filtered_refs, self._source_name, STAGE)
+            skipped = len(filtered_refs) - len(pending)
+            logger.info("Ledger: skipped=%d (already processed) pending=%d", skipped, len(pending))
 
         if not pending:
             logger.info("Nothing to process — all documents already in ledger")

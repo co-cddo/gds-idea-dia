@@ -11,6 +11,10 @@ uv sync --all-extras
 uv run dia --version
 ```
 
+## Usage
+
+- [`dia extract-text`](docs/extract-text.md) — Stage 1: extract text from documents in a source
+
 ## Running tests
 
 ```bash
