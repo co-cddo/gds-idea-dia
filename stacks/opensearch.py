@@ -23,7 +23,8 @@ class OpenSearchStack(cdk.Stack):
         - Encryption security policy (AWS-owned KMS key) scoped to the collection
         - Network security policy exposing the collection + dashboards publicly
         - NEXTGEN collection group with scale-to-zero (min 0, max 10 OCU for
-          both indexing and search)
+          both indexing and search); standby replicas enabled (required for
+          NEXTGEN groups)
         - VECTORSEARCH collection joined to the collection group
         - Data-access policy granting the account root principal collection +
           index permissions (dev placeholder — tighten to a specific role later)
@@ -95,11 +96,13 @@ class OpenSearchStack(cdk.Stack):
 
         # NEXTGEN collection group with scale-to-zero (min OCU 0 for both
         # indexing and search). Max capped at 10 OCU each to bound cost.
+        # NEXTGEN groups require StandbyReplicas=ENABLED; scale-to-zero is
+        # driven by min OCU=0, independent of standby replicas.
         self.collection_group = aoss.CfnCollectionGroup(
             self,
             "CollectionGroup",
             name=group_name,
-            standby_replicas="DISABLED",
+            standby_replicas="ENABLED",
             generation="NEXTGEN",
             capacity_limits=aoss.CfnCollectionGroup.CapacityLimitsProperty(
                 min_indexing_capacity_in_ocu=0,
@@ -111,12 +114,13 @@ class OpenSearchStack(cdk.Stack):
 
         # Vector-search collection joined to the group. Must be created after
         # the encryption + network policies and the collection group exist.
+        # Standby matches the NEXTGEN group requirement (ENABLED).
         self.collection = aoss.CfnCollection(
             self,
             "Collection",
             name=collection_name,
             type="VECTORSEARCH",
-            standby_replicas="DISABLED",
+            standby_replicas="ENABLED",
             collection_group_name=group_name,
         )
         self.collection.add_dependency(encryption_policy)

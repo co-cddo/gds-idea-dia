@@ -28,7 +28,7 @@ def test_collection_group_is_nextgen_scale_to_zero(synth):
         "AWS::OpenSearchServerless::CollectionGroup",
         {
             "Generation": "NEXTGEN",
-            "StandbyReplicas": "DISABLED",
+            "StandbyReplicas": "ENABLED",
             "CapacityLimits": {
                 "MinIndexingCapacityInOcu": 0,
                 "MaxIndexingCapacityInOcu": 10,
@@ -45,7 +45,7 @@ def test_collection_is_vectorsearch_in_group(synth):
         "AWS::OpenSearchServerless::Collection",
         {
             "Type": "VECTORSEARCH",
-            "StandbyReplicas": "DISABLED",
+            "StandbyReplicas": "ENABLED",
             "CollectionGroupName": "dia-aoss-group-dev",
         },
     )
