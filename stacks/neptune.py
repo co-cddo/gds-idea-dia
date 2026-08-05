@@ -21,15 +21,10 @@ class NeptuneStack(cdk.Stack):
         - Security group for Neptune (incoming connection from bastion on 8182)
         - DB subnet group spanning the VPC's isolated subnets (2 AZs)
         - Neptune cluster with IAM auth + encryption enabled
-        - Serverless scaling (1.0-48 NCU) so capacity grows with load
-        - Single db.serverless writer instance
+        - Single db.t3.medium instance (smallest available, can scale later)
 
     The cluster uses DESTROY removal policy and has deletion protection
     disabled for while we develop this, can change to RETAIN later.
-
-    Note: Neptune Serverless has a hard floor of 1.0 NCU (~2 GiB) — it
-    cannot scale to zero, so a minimal cost is always incurred while the
-    cluster exists.
     """
 
     def __init__(
@@ -68,8 +63,7 @@ class NeptuneStack(cdk.Stack):
             subnet_ids=[subnet.subnet_id for subnet in vpc.isolated_subnets],
         )
 
-        # Neptune cluster — IAM auth enabled for SigV4-signed boto3 access.
-        # Serverless scaling grows capacity with load (1.0 NCU floor, 48 NCU ceiling).
+        # Neptune cluster — IAM auth enabled for SigV4-signed boto3 access
         self.cluster = neptune.CfnDBCluster(
             self,
             "Cluster",
@@ -79,18 +73,14 @@ class NeptuneStack(cdk.Stack):
             iam_auth_enabled=True,
             storage_encrypted=True,
             deletion_protection=False,
-            serverless_scaling_configuration=neptune.CfnDBCluster.ServerlessScalingConfigurationProperty(
-                min_capacity=1.0,
-                max_capacity=48,
-            ),
         )
         self.cluster.apply_removal_policy(cdk.RemovalPolicy.DESTROY)
 
-        # Single writer instance — db.serverless scales within the cluster's NCU range
+        # Single writer instance — db.t3.medium is the smallest Neptune instance
         self.instance = neptune.CfnDBInstance(
             self,
             "Instance",
-            db_instance_class="db.serverless",
+            db_instance_class="db.t3.medium",
             db_cluster_identifier=self.cluster.ref,
             db_instance_identifier=config.resource_name("neptune-instance"),
         )
