@@ -171,16 +171,12 @@ class OpenSearchStack(cdk.Stack):
         )
         data_access_policy.add_dependency(self.collection)
 
-        # Outputs for wiring the collection endpoint into the aoss-endpoint secret.
+        # Output the collection endpoint for wiring into the aoss-endpoint secret.
+        # Note: VECTORSEARCH collections do not expose a DashboardEndpoint
+        # attribute, so no dashboards output is emitted.
         cdk.CfnOutput(
             self,
             "AossCollectionEndpoint",
             value=self.collection.attr_collection_endpoint,
             description="OpenSearch Serverless collection endpoint (DNS)",
-        )
-        cdk.CfnOutput(
-            self,
-            "AossDashboardEndpoint",
-            value=self.collection.attr_dashboard_endpoint,
-            description="OpenSearch Serverless dashboards endpoint",
         )
