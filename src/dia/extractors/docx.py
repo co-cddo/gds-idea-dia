@@ -42,7 +42,7 @@ class DocxExtractor:
             try:
                 rows.append(self._format_row(row))
             except Exception:
-                logger.warning("Skipping malformed table row", exc_info=True)
+                logger.debug("Skipping malformed table row", exc_info=True)
                 continue
         return "\n".join(rows)
 

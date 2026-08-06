@@ -57,6 +57,12 @@ def setup_pipeline_logging(
     # Prevent propagation to root logger (avoids duplicate output)
     logger.propagate = False
 
+    # Suppress noisy third-party loggers — pdfminer/pdfplumber emit warnings
+    # like "Could not get FontBBox from font descriptor" for malformed PDFs
+    # that aren't actionable and clutter the console during bulk extraction.
+    logging.getLogger("pdfminer").setLevel(logging.ERROR)
+    logging.getLogger("pdfplumber").setLevel(logging.ERROR)
+
     logger.debug("Logging initialised: file=%s, source=%s", log_file, source_name)
 
     return log_file
