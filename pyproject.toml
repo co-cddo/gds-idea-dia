@@ -126,4 +126,5 @@ testpaths = ["tests"]
 pythonpath = ["."]
 markers = [
     "integration: marks tests that run the full pipeline with mocks",
+    "live_aws: marks tests that require live AWS infrastructure (e.g. Neptune via SSH tunnel); skipped unless explicitly opted in, never run in CI",
 ]
