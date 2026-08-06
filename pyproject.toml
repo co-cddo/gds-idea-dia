@@ -28,7 +28,7 @@ license = {text = "MIT"}
 dependencies = [
     "boto3>=1.35.0",
     "gds-idea-cdk-constructs>=0.3.0",
-    "graphrag-toolkit-lexical-graph",
+    "graphrag-lexical-graph>=3.18.7",
     "llama-index-vector-stores-opensearch>=0.6.2",
     "numpy<2",                          # pinned: graphrag-toolkit incompatible with numpy 2.x
     "pdfplumber>=0.11.9",
@@ -52,7 +52,6 @@ cdk = [
 ]
 
 agent =[
-    "graphrag-toolkit-lexical-graph",
     "strands-agents>=1.20.0",
     "fastmcp>=2.14.1",
     "awswrangler",
@@ -68,7 +67,6 @@ Repository = "https://github.com/co-cddo/gds-idea-dia"
 Issues = "https://github.com/co-cddo/gds-idea-dia/issues"
 
 [tool.uv.sources]
-graphrag-toolkit-lexical-graph = { url = "https://github.com/awslabs/graphrag-toolkit/archive/refs/tags/v3.17.0.zip", subdirectory = "lexical-graph" }
 gds-idea-cdk-constructs = { index = "gds-idea" }
 
 [dependency-groups]
