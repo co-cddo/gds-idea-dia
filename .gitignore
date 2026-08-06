@@ -48,6 +48,7 @@ cdk.context.json
 
 # Output
 output/
+logs/
 
 # Notebook run artifacts
 notebooks/output.log

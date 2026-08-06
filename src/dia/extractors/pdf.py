@@ -35,7 +35,10 @@ class PdfExtractor:
                         content_parts.append(page_text)
 
         except Exception:
-            logger.exception("Error during PDF extraction")
+            # The runner already logs a WARNING with the error message per
+            # failed document — debug here to avoid a duplicate traceback
+            # on the console. Full detail still lands in the log file.
+            logger.debug("PDF extraction failed", exc_info=True)
             raise
 
         return "\n".join(content_parts).strip()
