@@ -230,8 +230,15 @@ confirmed via Strands docs) - no custom routing code needed:
 ```python
 supervisor = Agent(
     system_prompt="Route to the right specialist based on the query...",
-    tools=[dbr_agent, supplier_lockin_agent, supplier_ecosystem_agent,
-           project_agent, gats_query_agent, default_agent, ...],
+    tools=[
+        dbr_agent,
+        supplier_lockin_agent,
+        supplier_ecosystem_agent,
+        project_agent,
+        gats_query_agent,
+        default_agent,
+        ...,
+    ],
 )
 ```
 
