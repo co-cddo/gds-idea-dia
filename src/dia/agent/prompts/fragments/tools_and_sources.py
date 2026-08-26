@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from prompts.fragments.utils import block, bullet_list
+from dia.agent.prompts.fragments.utils import block, bullet_list
 
 COMMON_TOOL_REFERENCE = block(
     "tool_reference",

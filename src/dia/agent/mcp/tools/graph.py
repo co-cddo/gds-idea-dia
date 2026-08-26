@@ -23,3 +23,8 @@ def wait_after_timeout(seconds: int = 30) -> str:
     seconds = min(max(seconds, 5), 60)
     time.sleep(seconds)
     return f"Waited {seconds}s. Neptune should have recovered. Retry the query now with the next throttled mode."
+
+
+def register(mcp_server) -> None:
+    """Register the timeout-recovery tool onto an already-built MCP server."""
+    mcp_server.tool()(wait_after_timeout)

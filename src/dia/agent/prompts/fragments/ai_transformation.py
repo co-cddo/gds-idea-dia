@@ -13,7 +13,7 @@ generic canonical references.
 
 from __future__ import annotations
 
-from prompts.fragments.utils import block
+from dia.agent.prompts.fragments.utils import block
 
 # -----------------------------------------------------------------------------
 # Investigation areas — the seven-area scope that defines this report

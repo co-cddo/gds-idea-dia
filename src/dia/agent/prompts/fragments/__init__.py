@@ -1,4 +1,4 @@
-from prompts.fragments.ai_transformation import (
+from dia.agent.prompts.fragments.ai_transformation import (
     AI_TRANSFORMATION_INVESTIGATION_AREAS,
     AI_TRANSFORMATION_INVESTIGATION_METHOD,
     AI_TRANSFORMATION_KB_FOCUS,
@@ -13,22 +13,22 @@ from prompts.fragments.ai_transformation import (
     ai_transformation_required_graph_queries,
     ai_transformation_web_searches,
 )
-from prompts.fragments.athena_schema import (
+from dia.agent.prompts.fragments.athena_schema import (
     ATHENA_SCHEMA_REFERENCE,
     GATS_COMMON_QUERY_PATTERNS,
     GATS_QUESTION_COLUMN_MAP,
     SQL_HARD_RULES,
 )
-from prompts.fragments.common_rules import (
+from dia.agent.prompts.fragments.common_rules import (
     COMMON_RULES,
     GRAPH_TIMEOUT_GUARD,
     hard_gates,
 )
-from prompts.fragments.cypher_templates import (
+from dia.agent.prompts.fragments.cypher_templates import (
     PROJECT_CYPHER_TEMPLATES,
     SUPPLIER_LOCKIN_CYPHER_TEMPLATES,
 )
-from prompts.fragments.investigation import (
+from dia.agent.prompts.fragments.investigation import (
     COMMON_INVESTIGATION_METHODOLOGY,
     DBR_INVESTIGATION_METHOD,
     PROJECT_INVESTIGATION_METHOD,
@@ -36,7 +36,7 @@ from prompts.fragments.investigation import (
     SUPPLIER_INVESTIGATION_METHOD,
     TARGETED_QUESTION_METHOD,
 )
-from prompts.fragments.output_specs import (
+from dia.agent.prompts.fragments.output_specs import (
     COMMON_CITATION_RULES,
     COMMON_OUTPUT_RULES,
     DBR_OUTPUT_SPEC,
@@ -56,7 +56,7 @@ from prompts.fragments.output_specs import (
     dbr_output_card,
     sovereign_stack_output_card,
 )
-from prompts.fragments.query_templates import (
+from dia.agent.prompts.fragments.query_templates import (
     PROJECT_ATHENA_QUERIES,
     PROJECT_GRAPH_QUERIES,
     PROJECT_KB_QUERIES,
@@ -83,7 +83,7 @@ from prompts.fragments.query_templates import (
     supplier_lockin_athena_queries,
     supplier_lockin_graph_queries,
 )
-from prompts.fragments.tools_and_sources import (
+from dia.agent.prompts.fragments.tools_and_sources import (
     COMMON_TOOL_REFERENCE,
     COMMON_TOOLS_AND_SOURCES,
     GRAPH_MODES_REFERENCE,

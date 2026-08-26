@@ -1,9 +1,10 @@
 """MCP tool: gov.uk web search."""
 
 import json
-import os
 
 from tavily import TavilyClient
+
+from dia.agent.config import settings
 
 
 def web_search_gov(query: str, max_results: int = 5) -> str:
@@ -23,7 +24,7 @@ def web_search_gov(query: str, max_results: int = 5) -> str:
         max_results: Number of results (default 5)
     """
     try:
-        client = TavilyClient(api_key=os.environ.get("TAVILY_API_KEY", ""))
+        client = TavilyClient(api_key=settings.tavily_api_key)
         results = client.search(
             query=f"{query} site:gov.uk/government/publications",
             search_depth="advanced",
@@ -33,3 +34,8 @@ def web_search_gov(query: str, max_results: int = 5) -> str:
         return json.dumps(results.get("results", []), indent=2)
     except Exception as e:
         return f"Search error: {e}"
+
+
+def register(mcp_server) -> None:
+    """Register the web-search tool onto an already-built MCP server."""
+    mcp_server.tool()(web_search_gov)

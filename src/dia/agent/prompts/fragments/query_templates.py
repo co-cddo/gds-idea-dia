@@ -11,7 +11,7 @@ behaviour of the original prompts.
 
 from __future__ import annotations
 
-from prompts.fragments.utils import block
+from dia.agent.prompts.fragments.utils import block
 
 # -----------------------------------------------------------------------------
 # DBR — required graph + Athena query enumerations
