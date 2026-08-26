@@ -129,48 +129,48 @@ def make_default_agent(department_name: str = "Home Office", **kwargs: Any) -> A
     return make_agent(get_default_system_prompt(department_name), **kwargs)
 
 
-# def make_dbr_agent(department_name: str = "Home Office", **kwargs: Any) -> Agent:
-#     return make_agent(get_dbr_system_prompt(department_name), **kwargs)
+def make_dbr_agent(department_name: str = "Home Office", **kwargs: Any) -> Agent:
+    return make_agent(get_dbr_system_prompt(department_name), **kwargs)
 
 
-# def make_gats_query_agent(**kwargs: Any) -> Agent:
-#     return make_agent(get_gats_query_system_prompt(), **kwargs)
+def make_gats_query_agent(**kwargs: Any) -> Agent:
+    return make_agent(get_gats_query_system_prompt(), **kwargs)
 
 
-# def make_project_investigation_agent(**kwargs: Any) -> Agent:
-#     return make_agent(get_project_investigation_system_prompt(), **kwargs)
+def make_project_investigation_agent(**kwargs: Any) -> Agent:
+    return make_agent(get_project_investigation_system_prompt(), **kwargs)
 
 
-# def make_supplier_lockin_agent(department_name: str = "", **kwargs: Any) -> Agent:
-#     return make_agent(get_supplier_lockin_system_prompt(department_name), **kwargs)
+def make_supplier_lockin_agent(department_name: str = "", **kwargs: Any) -> Agent:
+    return make_agent(get_supplier_lockin_system_prompt(department_name), **kwargs)
 
 
-# def make_supplier_ecosystem_agent(department_name: str = "", **kwargs: Any) -> Agent:
-#     return make_agent(get_supplier_ecosystem_system_prompt(department_name), **kwargs)
+def make_supplier_ecosystem_agent(department_name: str = "", **kwargs: Any) -> Agent:
+    return make_agent(get_supplier_ecosystem_system_prompt(department_name), **kwargs)
 
 
-# def make_targeted_question_agent(**kwargs: Any) -> Agent:
-#     return make_agent(get_targeted_question_system_prompt(), **kwargs)
+def make_targeted_question_agent(**kwargs: Any) -> Agent:
+    return make_agent(get_targeted_question_system_prompt(), **kwargs)
 
 
-# def make_sovereign_stack_agent(**kwargs: Any) -> Agent:
-#     return make_agent(get_sovereign_stack_system_prompt_v3(), **kwargs)
+def make_sovereign_stack_agent(**kwargs: Any) -> Agent:
+    return make_agent(get_sovereign_stack_system_prompt_v3(), **kwargs)
 
 
-# def make_graph_cost_aware_agent(**kwargs: Any) -> Agent:
-#     return make_agent(get_graph_cost_aware_system_prompt(), **kwargs)
+def make_graph_cost_aware_agent(**kwargs: Any) -> Agent:
+    return make_agent(get_graph_cost_aware_system_prompt(), **kwargs)
 
 
-# def make_pitch_deck_agent(**kwargs: Any) -> Agent:
-#     return make_agent(get_pitch_deck_system_prompt(), **kwargs)
+def make_pitch_deck_agent(**kwargs: Any) -> Agent:
+    return make_agent(get_pitch_deck_system_prompt(), **kwargs)
 
 
-# def make_ai_transformation_agent(department_name: str = "Home Office", **kwargs: Any) -> Agent:
-#     return make_agent(get_ai_transformation_system_prompt(department_name), **kwargs)
+def make_ai_transformation_agent(department_name: str = "Home Office", **kwargs: Any) -> Agent:
+    return make_agent(get_ai_transformation_system_prompt(department_name), **kwargs)
 
 
-# def make_ai_transformation_agent_v2(department_name: str = "Home Office", **kwargs: Any) -> Agent:
-#     return make_agent(get_ai_transformation_system_prompt_v2(department_name), **kwargs)
+def make_ai_transformation_agent_v2(department_name: str = "Home Office", **kwargs: Any) -> Agent:
+    return make_agent(get_ai_transformation_system_prompt_v2(department_name), **kwargs)
 
 
 def make_all_agents(
@@ -201,16 +201,16 @@ def make_all_agents(
 
     return SimpleNamespace(
         default=make_default_agent(department_name, **common),
-        # dbr=make_dbr_agent(department_name, **common),
-        # gats_query=make_gats_query_agent(**common),
-        # project=make_project_investigation_agent(**common),
-        # supplier_lockin=make_supplier_lockin_agent(department_name, **common),
-        # supplier_ecosystem=make_supplier_ecosystem_agent(department_name, **common),
-        # targeted_question=make_targeted_question_agent(**common),
-        # sovereign_stack=make_sovereign_stack_agent(**common),
-        # graph_cost_aware=make_graph_cost_aware_agent(**common),
-        # pitch_deck=make_pitch_deck_agent(**common),
-        # ai_transformation=make_ai_transformation_agent(department_name, **common),
+        dbr=make_dbr_agent(department_name, **common),
+        gats_query=make_gats_query_agent(**common),
+        project=make_project_investigation_agent(**common),
+        supplier_lockin=make_supplier_lockin_agent(department_name, **common),
+        supplier_ecosystem=make_supplier_ecosystem_agent(department_name, **common),
+        targeted_question=make_targeted_question_agent(**common),
+        sovereign_stack=make_sovereign_stack_agent(**common),
+        graph_cost_aware=make_graph_cost_aware_agent(**common),
+        pitch_deck=make_pitch_deck_agent(**common),
+        ai_transformation=make_ai_transformation_agent(department_name, **common),
     )
 
 
