@@ -5,13 +5,14 @@ import logging
 from dia.agent import agents, stores
 from dia.agent.config import settings
 from dia.agent.mcp import server as mcp_server
+from dia.agent.model import AgentResponse
 from dia.agent.patches import apply_all
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-def ask(department: str, query: str) -> str:
+def ask(department: str, query: str) -> AgentResponse:
     try:
         apply_all()
         logging.info("[1/5] Toolkit bugfix patches applied")
@@ -40,9 +41,15 @@ def ask(department: str, query: str) -> str:
         agent = agents.make_default_agent(department)
         logging.info("[4/5] Call dia agent")
         result = agent(query)
-        logging.info("[5/5] Finito!")
     except Exception as e:
         logging.error("failed calling agent: %s", e)
         raise
 
-    return str(result)
+    try:
+        response = AgentResponse(department=department, query=query, output=str(result))
+        logging.info("[5/5] Finito!")
+    except Exception as e:
+        logging.error("failed building response object: %s", e)
+        raise
+
+    return response
