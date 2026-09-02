@@ -15,41 +15,41 @@ logger.setLevel(logging.INFO)
 def ask(department: str, query: str) -> AgentResponse:
     try:
         apply_all()
-        logging.info("[1/5] Toolkit bugfix patches applied")
+        logger.info("[1/5] Toolkit bugfix patches applied")
     except Exception as e:
-        logging.error("failed applying patches: %s", e)
+        logger.error("failed applying patches: %s", e)
         raise
 
     try:
         graph_store = stores.build_graph_store(settings.neptune_endpoint)
         vector_store = stores.build_vector_store(settings.aoss_endpoint)
         stores.build_graph_index(graph_store, vector_store)
-        logging.info("[2/5] Connected to stores")
+        logger.info("[2/5] Connected to stores")
     except Exception as e:
-        logging.error("failed connecting to stores: %s", e)
+        logger.error("failed connecting to stores: %s", e)
         raise
 
     try:
         server = mcp_server.build_mcp_server(graph_store, vector_store)
         mcp_server.start_server(server)
-        logging.info("[3/5] Started MCP server")
+        logger.info("[3/5] Started MCP server")
     except Exception as e:
-        logging.error("failed starting MCP server: %s", e)
+        logger.error("failed starting MCP server: %s", e)
         raise
 
     try:
         agent = agents.make_default_agent(department)
-        logging.info("[4/5] Call dia agent")
+        logger.info("[4/5] Call dia agent")
         result = agent(query)
     except Exception as e:
-        logging.error("failed calling agent: %s", e)
+        logger.error("failed calling agent: %s", e)
         raise
 
     try:
         response = AgentResponse(department=department, query=query, output=str(result))
-        logging.info("[5/5] Finito!")
+        logger.info("[5/5] Finito!")
     except Exception as e:
-        logging.error("failed building response object: %s", e)
+        logger.error("failed building response object: %s", e)
         raise
 
     return response

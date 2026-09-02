@@ -15,6 +15,7 @@ from dia.agent.prompts.templates import (
     get_ai_transformation_system_prompt,
     get_ai_transformation_system_prompt_v2,
     get_dbr_system_prompt,
+    get_default_system_prompt,
     get_gats_query_system_prompt,
     get_graph_cost_aware_system_prompt,
     get_pitch_deck_system_prompt,
