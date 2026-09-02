@@ -18,6 +18,10 @@ LICENCE = "sha256:21cc325b3181cb748845827425d37ce04b3dc563835bbf50fafbc56a5eb68c
 ".github/workflows/ci_cd_cdk_app.yml" = "sha256:46202692b6be60616364f177be030d8ba760c10717c97a69b0723c6c0e85b7b3"
 ".github/workflows/ci_pr_cdk_app.yml" = "sha256:40662f487f20b93f80ab0cf903c3c59a2d1806ba2ea9081bdb5076b7b1d576fc"
 ".github/dependabot.yml" = "sha256:46db4f8808d2d40d4a11e915ff38f0c5ebf837505d60442b228cab20a18014ea"
+
+[[tool.uv.index]]
+name = "gds-idea"
+url = "https://co-cddo.github.io/gds-idea-pypi/simple/"
 [project]
 name = "dia"
 dynamic = ["version"]
@@ -29,7 +33,7 @@ dependencies = [
     "aioboto3>=13.0.0",
     "boto3>=1.35.0",
     "gds-idea-cdk-constructs>=0.3.0",
-    "graphrag-toolkit-lexical-graph",
+    "graphrag-lexical-graph>=3.18.7",
     "llama-index-vector-stores-opensearch>=0.6.2",
     "numpy<2",                          # pinned: graphrag-toolkit incompatible with numpy 2.x
     "pdfplumber>=0.11.9",
@@ -41,10 +45,6 @@ dependencies = [
     "typer>=0.15.0",
 ]
 
-[[tool.uv.index]]
-name = "gds-idea"
-url = "https://co-cddo.github.io/gds-idea-pypi/simple/"
-
 [project.optional-dependencies]
 cdk = [
     "aws-cdk-lib>=2.252.0",
@@ -53,7 +53,6 @@ cdk = [
 ]
 
 agent =[
-    "graphrag-toolkit-lexical-graph",
     "strands-agents>=1.20.0",
     "fastmcp>=2.14.1",
     "awswrangler",
@@ -69,8 +68,8 @@ Repository = "https://github.com/co-cddo/gds-idea-dia"
 Issues = "https://github.com/co-cddo/gds-idea-dia/issues"
 
 [tool.uv.sources]
-graphrag-toolkit-lexical-graph = { url = "https://github.com/awslabs/graphrag-toolkit/archive/refs/tags/v3.17.0.zip", subdirectory = "lexical-graph" }
 gds-idea-cdk-constructs = { index = "gds-idea" }
+gds-idea-pkg-zscaler-fix = { index = "gds-idea" }
 
 [dependency-groups]
 dev = [
@@ -80,6 +79,9 @@ dev = [
     "ruff>=0.11.0",
     "moto[s3]>=5.0.0",
     "ipykernel",
+]
+zscaler = [
+    "gds-idea-pkg-zscaler-fix>=0.1.1",
 ]
 
 [tool.ruff]
@@ -128,4 +130,5 @@ testpaths = ["tests"]
 pythonpath = ["."]
 markers = [
     "integration: marks tests that run the full pipeline with mocks",
+    "live_aws: marks tests that require live AWS infrastructure (e.g. Neptune via SSH tunnel); skipped unless explicitly opted in, never run in CI",
 ]
