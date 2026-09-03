@@ -199,6 +199,18 @@ in **skills** based on the query, instead of selecting an entire bespoke system 
 - What happens to the existing 12 `make_*_agent()` factories and their prompt files -
   likely most of their content becomes skill content, but this migration is out of scope
   for the CLI-wiring work (PR1/PR2 below), which only wires up `make_default_agent()`.
+- **Department must stay optional in the new prompt/skill design.** `AgentInput` and
+  `AgentResponse.department` are already `str | None = None` (to support cross-government
+  queries not tied to one department). The current per-flavour prompt templates
+  (`prompts/templates/*.py`, `prompts/fragments/query_templates.py`,
+  `output_specs.py::dbr_output_card`) are **not** all `None`-safe today - some do
+  `department_name.upper()`/`.lower()` directly (crashes on `None`), others just
+  f-string-interpolate it (renders the literal word "None" into the prompt). Only the
+  `supplier_lockin`/`supplier_ecosystem` templates already handle this correctly
+  (`scope = f"for {department_name}" if department_name else "across central
+  government"`). Whichever skill(s) replace these prompts must build in that same
+  "no department = cross-government, not a crash and not the literal string None"
+  handling from the start, rather than re-inheriting the gap.
 
 **What this means for the CLI-wiring work (PR1/PR2, see below):** since there's no
 `--agent` flag, the CLI-wiring PRs deliberately keep things simple - no agent registry,
