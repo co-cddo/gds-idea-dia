@@ -10,7 +10,7 @@ class AgentInput(BaseModel, frozen=True):
     """The input of a single ask() call"""
 
     query: str
-    department: str
+    department: str | None = None
 
 
 class AgentResponse(BaseModel, frozen=True):
@@ -18,6 +18,6 @@ class AgentResponse(BaseModel, frozen=True):
 
     id: str = Field(default_factory=lambda: str(uuid4()))
     run_date: date = Field(default_factory=date.today)
-    department: str
+    department: str | None = None
     query: str
     output: str
