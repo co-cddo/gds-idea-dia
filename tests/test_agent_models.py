@@ -24,10 +24,14 @@ def test_agent_input_is_frozen():
         agent_input.query = "a different question"
 
 
-def test_agent_input_requires_query_and_department():
-    with pytest.raises(ValidationError):
-        AgentInput(query="what is the risk?")
+def test_agent_input_department_defaults_to_none():
+    agent_input = AgentInput(query="what is the risk?")
 
+    assert agent_input.query == "what is the risk?"
+    assert agent_input.department is None
+
+
+def test_agent_input_requires_query():
     with pytest.raises(ValidationError):
         AgentInput(department="Home Office")
 
@@ -72,10 +76,13 @@ def test_agent_response_is_frozen():
         response.output = "a different answer"
 
 
-def test_agent_response_requires_department_query_and_output():
-    with pytest.raises(ValidationError):
-        AgentResponse(query="q", output="a")
+def test_agent_response_department_defaults_to_none():
+    response = AgentResponse(query="q", output="a")
 
+    assert response.department is None
+
+
+def test_agent_response_requires_query_and_output():
     with pytest.raises(ValidationError):
         AgentResponse(department="Home Office", output="a")
 
