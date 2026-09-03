@@ -16,11 +16,12 @@ Prerequisites:
     - Authenticated to the correct AWS account/profile.
 """
 
+from dia.agent.config import settings
 from dia.agent.stores import build_graph_store
 from dia.clients.neptune import register_tunnel_host
 
-register_tunnel_host("graphrag-knowledge-graph.cluster-ro-c3a42mmuka2e.eu-west-2.neptune.amazonaws.com")
-graph_store = build_graph_store("graphrag-knowledge-graph.cluster-ro-c3a42mmuka2e.eu-west-2.neptune.amazonaws.com")
+register_tunnel_host(settings.neptune_endpoint)
+graph_store = build_graph_store(settings.neptune_endpoint)
 
 result = graph_store.execute_query("MATCH (n) RETURN labels(n) AS labels, count(n) AS count")
 print(result)

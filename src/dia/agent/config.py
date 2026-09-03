@@ -37,11 +37,11 @@ class Settings(BaseSettings):
     gats_service_db: str = Field(default="gats-assurance")
     gats_service_table: str = Field(default="service_assessments_snapshot20251217")
 
-    # -- Secrets Manager --
-    tavily_secret_name: str = Field(default="")
-    kb_arns_secret_name: str = Field(default="")
-    neptune_endpoint_secret_name: str = Field(default="")
-    aoss_endpoint_secret_name: str = Field(default="")
+    # -- Secrets Manager (currently hardcoded for local runs. To update when agent is deployed) --
+    tavily_secret_name: str = Field(default="dia-tavily-dev")
+    kb_arns_secret_name: str = Field(default="dia-kb-arns-dev")
+    neptune_endpoint_secret_name: str = Field(default="dia-neptune-endpoint-dev")
+    aoss_endpoint_secret_name: str = Field(default="dia-aoss-endpoint-dev")
 
     # -- MCP server defaults --
     mcp_port: int = Field(default=8000)
