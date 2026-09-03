@@ -103,6 +103,7 @@ select = [
 "src/dia/agent/patches/retry.py" = ["N806"]
 # Prompt content moved verbatim from src/system_prompts.py — not reflowed to preserve fidelity.
 "src/dia/agent/prompts/**" = ["E501"]
+"src/dia/pipeline/graph_extraction_prompts.py" = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["dia"]
