@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import aws_cdk as cdk
 from aws_cdk import aws_dynamodb as dynamodb
+from aws_cdk import aws_iam as iam
 from aws_cdk import aws_s3 as s3
 from constructs import Construct
 
@@ -21,6 +22,8 @@ class StorageStack(cdk.Stack):
             - batch: Bedrock batch inference working area (transient)
         DynamoDB Tables:
             - ledger: Tracks which documents have been successfully processed
+        IAM:
+            - batch-inference role: assumed by Bedrock Batch Inference jobs, scoped to the batch bucket
     """
 
     def __init__(self, scope: Construct, construct_id: str, *, config: AppConfig, **kwargs) -> None:
@@ -93,4 +96,30 @@ class StorageStack(cdk.Stack):
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             point_in_time_recovery=True,
             removal_policy=cdk.RemovalPolicy.RETAIN,
+        )
+
+        # Distinct from the pre-existing, Terraform-managed BatchInferenceRole
+        # in this account, which is scoped to a different (shared) bucket.
+        self.batch_inference_role = iam.Role(
+            self,
+            "BatchInferenceRole",
+            role_name=config.resource_name("batch-inference"),
+            description="Assumed by Bedrock Batch Inference jobs to read/write the batch bucket.",
+            assumed_by=iam.ServicePrincipal(
+                "bedrock.amazonaws.com",
+                conditions={"StringEquals": {"aws:SourceAccount": config.account_number}},
+            ),
+            permissions_boundary=iam.ManagedPolicy.from_managed_policy_arn(
+                self,
+                "BatchInferencePermissionsBoundary",
+                f"arn:aws:iam::{config.account_number}:policy/DenyUserPermissionsPolicy",
+            ),
+        )
+        self.batch_bucket.grant_read_write(self.batch_inference_role)
+
+        cdk.CfnOutput(
+            self,
+            "BatchInferenceRoleArn",
+            value=self.batch_inference_role.role_arn,
+            description="IAM role ARN for Bedrock Batch Inference jobs (BatchConfig.role_arn)",
         )

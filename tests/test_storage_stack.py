@@ -132,3 +132,76 @@ def test_ledger_table_partition_key(synth):
             "AttributeDefinitions": [{"AttributeName": "document_key", "AttributeType": "S"}],
         },
     )
+
+
+# --- Batch inference role ---
+
+
+@pytest.mark.parametrize(
+    "environment,phase",
+    [
+        (DeploymentEnvironment.DEVELOPMENT, "dev"),
+        (DeploymentEnvironment.PRODUCTION, "prod"),
+    ],
+)
+def test_batch_inference_role_name_follows_pattern(synth, environment, phase):
+    template = synth(StorageStack, environment)
+    template.has_resource_properties(
+        "AWS::IAM::Role",
+        {"RoleName": f"dia-batch-inference-{phase}"},
+    )
+
+
+def test_batch_inference_role_trust_policy(synth):
+    template = synth(StorageStack)
+    template.has_resource_properties(
+        "AWS::IAM::Role",
+        {
+            "AssumeRolePolicyDocument": {
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Principal": {"Service": "bedrock.amazonaws.com"},
+                        "Action": "sts:AssumeRole",
+                        "Condition": {"StringEquals": {"aws:SourceAccount": "992382722318"}},
+                    }
+                ],
+            }
+        },
+    )
+
+
+def test_batch_inference_role_has_permissions_boundary(synth):
+    template = synth(StorageStack)
+    template.has_resource_properties(
+        "AWS::IAM::Role",
+        {"PermissionsBoundary": "arn:aws:iam::992382722318:policy/DenyUserPermissionsPolicy"},
+    )
+
+
+def test_batch_inference_role_grants_access_to_batch_bucket_only(synth):
+    template = synth(StorageStack)
+
+    buckets = template.find_resources("AWS::S3::Bucket")
+    (batch_bucket_id,) = [
+        logical_id
+        for logical_id, resource in buckets.items()
+        if resource["Properties"]["BucketName"] == "gds-idea-dia-batch-dev"
+    ]
+
+    policies = template.find_resources("AWS::IAM::Policy")
+    (policy,) = [
+        p for p in policies.values() if p["Properties"]["PolicyName"].startswith("BatchInferenceRoleDefaultPolicy")
+    ]
+    (statement,) = policy["Properties"]["PolicyDocument"]["Statement"]
+    resources = statement["Resource"]
+
+    assert statement["Effect"] == "Allow"
+    assert resources[0] == {"Fn::GetAtt": [batch_bucket_id, "Arn"]}
+    assert resources[1] == {"Fn::Join": ["", [{"Fn::GetAtt": [batch_bucket_id, "Arn"]}, "/*"]]}
+
+
+def test_outputs_batch_inference_role_arn(synth):
+    template = synth(StorageStack)
+    outputs = template.find_outputs("*")
+    assert any("BatchInferenceRoleArn" in key for key in outputs)
