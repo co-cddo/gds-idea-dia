@@ -29,9 +29,9 @@ dependencies = [
     "aioboto3>=13.0.0",
     "boto3>=1.35.0",
     "gds-idea-cdk-constructs>=0.3.0",
-    "graphrag-toolkit-lexical-graph",
+    "graphrag-lexical-graph>=3.19.1",
     "llama-index-vector-stores-opensearch>=0.6.2",
-    "numpy<2",                          # pinned: graphrag-toolkit incompatible with numpy 2.x
+    "numpy<2",                          # pinned: blis (spacy, via graphrag-lexical-graph) requires numpy<2
     "pdfplumber>=0.11.9",
     "pydantic>=2.9.0",
     "pypdf>=6.4.2",
@@ -53,7 +53,6 @@ cdk = [
 ]
 
 agent =[
-    "graphrag-toolkit-lexical-graph",
     "strands-agents>=1.20.0",
     "fastmcp>=2.14.1",
     "awswrangler",
@@ -69,7 +68,6 @@ Repository = "https://github.com/co-cddo/gds-idea-dia"
 Issues = "https://github.com/co-cddo/gds-idea-dia/issues"
 
 [tool.uv.sources]
-graphrag-toolkit-lexical-graph = { url = "https://github.com/awslabs/graphrag-toolkit/archive/refs/tags/v3.17.0.zip", subdirectory = "lexical-graph" }
 gds-idea-cdk-constructs = { index = "gds-idea" }
 
 [dependency-groups]
@@ -105,6 +103,7 @@ select = [
 "src/dia/agent/patches/retry.py" = ["N806"]
 # Prompt content moved verbatim from src/system_prompts.py — not reflowed to preserve fidelity.
 "src/dia/agent/prompts/**" = ["E501"]
+"src/dia/pipeline/graph_extraction_prompts.py" = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["dia"]
