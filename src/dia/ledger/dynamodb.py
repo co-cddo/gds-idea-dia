@@ -73,19 +73,34 @@ class DynamoDBLedger:
         self, ref: DocumentReference, source_name: str, stage: str, department: str | None = None
     ) -> None:
         """Record a document as successfully processed."""
-        key = composite_key(stage, source_name, ref)
-        record = LedgerRecord(
-            source_name=source_name,
-            processed_at=datetime.now(UTC),
-            code_version=version("dia"),
-            department=department,
-        )
-        self._table.put_item(
-            Item={
-                "document_key": key,
-                **record.model_dump(mode="json"),
-            }
-        )
+        self.mark_processed_many([(ref, department)], source_name, stage)
+
+    def mark_processed_many(
+        self, entries: list[tuple[DocumentReference, str | None]], source_name: str, stage: str
+    ) -> None:
+        """Record multiple documents as successfully processed.
+
+        Uses batch_writer() (auto-chunks into 25-item BatchWriteItem calls,
+        retries unprocessed items) rather than one put_item call per document.
+        """
+        if not entries:
+            return
+
+        with self._table.batch_writer() as batch:
+            for ref, department in entries:
+                key = composite_key(stage, source_name, ref)
+                record = LedgerRecord(
+                    source_name=source_name,
+                    processed_at=datetime.now(UTC),
+                    code_version=version("dia"),
+                    department=department,
+                )
+                batch.put_item(
+                    Item={
+                        "document_key": key,
+                        **record.model_dump(mode="json"),
+                    }
+                )
 
     def list_records(self, source_name: str) -> list[dict]:
         """List all records for a source (across all stages).
