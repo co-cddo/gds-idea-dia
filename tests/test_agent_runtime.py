@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from dia.agent.model import AgentResponse
+from dia.agent.models import AgentResponse
 from dia.agent.runtime import ask
 
 pytestmark = pytest.mark.integration
