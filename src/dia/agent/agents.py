@@ -11,7 +11,20 @@ from strands.tools.mcp.mcp_client import MCPClient
 
 from dia.agent.config import settings
 from dia.agent.mcp.server import server_url
-from dia.agent.prompts.templates.default import get_default_system_prompt
+from dia.agent.prompts.templates import (
+    get_ai_transformation_system_prompt,
+    get_ai_transformation_system_prompt_v2,
+    get_dbr_system_prompt,
+    get_default_system_prompt,
+    get_gats_query_system_prompt,
+    get_graph_cost_aware_system_prompt,
+    get_pitch_deck_system_prompt,
+    get_project_investigation_system_prompt,
+    get_sovereign_stack_system_prompt_v3,
+    get_supplier_ecosystem_system_prompt,
+    get_supplier_lockin_system_prompt,
+    get_targeted_question_system_prompt,
+)
 
 
 def make_model(

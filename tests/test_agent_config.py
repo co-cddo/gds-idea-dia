@@ -150,10 +150,10 @@ def test_settings_field_defaults():
 
     assert settings.aws_region == "eu-west-2"
     assert settings.mcp_port == 8000
-    assert settings.tavily_secret_name == ""
-    assert settings.kb_arns_secret_name == ""
-    assert settings.neptune_endpoint_secret_name == ""
-    assert settings.aoss_endpoint_secret_name == ""
+    assert settings.tavily_secret_name == "dia-tavily-dev"
+    assert settings.kb_arns_secret_name == "dia-kb-arns-dev"
+    assert settings.neptune_endpoint_secret_name == "dia-neptune-endpoint-dev"
+    assert settings.aoss_endpoint_secret_name == "dia-aoss-endpoint-dev"
 
 
 def test_mcp_url_computed_from_port():

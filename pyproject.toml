@@ -98,8 +98,6 @@ select = [
 
 [tool.ruff.lint.per-file-ignores]
 # src/dia/agent/ is a mid-refactor scaffold (see src/dia/agent/docs/agent-refactor.md).
-# Config wiring (F821/F822) is deferred to the follow-up CLI-wiring PR.
-"src/dia/agent/agents.py" = ["F821", "F822"]
 "src/dia/agent/mcp/tools/knowledge_base.py" = ["F821"]
 "src/dia/agent/mcp/tools/athena.py" = ["F821"]
 # Deliberate SCREAMING_CASE for constant-like local values inside patch functions.
