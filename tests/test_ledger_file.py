@@ -58,6 +58,74 @@ def test_same_file_different_stage_treated_independently(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# mark_processed_many
+# ---------------------------------------------------------------------------
+
+
+def test_mark_processed_many_stores_all_records(tmp_path):
+    ledger = JsonFileLedger(tmp_path / "ledger.json")
+    refs = [_ref("a.pdf", "v1"), _ref("b.pdf", "v1"), _ref("c.pdf", "v1")]
+
+    ledger.mark_processed_many([(ref, None) for ref in refs], "source", "text")
+
+    result = ledger.get_unprocessed(refs, "source", "text")
+    assert result == []
+
+
+def test_mark_processed_many_stores_per_entry_department(tmp_path):
+    ledger = JsonFileLedger(tmp_path / "ledger.json")
+    ref_a = _ref("a.pdf", "v1")
+    ref_b = _ref("b.pdf", "v1")
+
+    ledger.mark_processed_many([(ref_a, "Home Office"), (ref_b, "Cabinet Office")], "source", "text")
+
+    records = {r["document_key"]: r for r in ledger.list_records("source")}
+    assert records["text#source#a.pdf#v1"]["department"] == "Home Office"
+    assert records["text#source#b.pdf#v1"]["department"] == "Cabinet Office"
+
+
+def test_mark_processed_many_empty_list_is_noop(tmp_path):
+    path = tmp_path / "ledger.json"
+    ledger = JsonFileLedger(path)
+
+    ledger.mark_processed_many([], "source", "text")
+
+    assert ledger.record_count == 0
+    assert not path.exists()  # no write happened at all
+
+
+def test_mark_processed_many_writes_file_once(tmp_path, monkeypatch):
+    """The whole point of mark_processed_many is a single disk write,
+    not one write per entry."""
+    ledger = JsonFileLedger(tmp_path / "ledger.json")
+    save_calls = 0
+    original_save = ledger._save
+
+    def _counting_save():
+        nonlocal save_calls
+        save_calls += 1
+        original_save()
+
+    monkeypatch.setattr(ledger, "_save", _counting_save)
+    refs = [_ref(f"file_{i}.pdf", "v1") for i in range(10)]
+
+    ledger.mark_processed_many([(ref, None) for ref in refs], "source", "text")
+
+    assert save_calls == 1
+
+
+def test_mark_processed_many_persists_to_disk(tmp_path):
+    path = tmp_path / "ledger.json"
+    ledger = JsonFileLedger(path)
+    refs = [_ref("a.pdf", "v1"), _ref("b.pdf", "v1")]
+
+    ledger.mark_processed_many([(ref, None) for ref in refs], "source", "text")
+
+    ledger2 = JsonFileLedger(path)
+    assert ledger2.get_unprocessed(refs, "source", "text") == []
+
+
+# ---------------------------------------------------------------------------
 # File persistence
 # ---------------------------------------------------------------------------
 

@@ -32,3 +32,15 @@ class ProcessingLedger(Protocol):
     ) -> None:
         """Record that a document has been successfully processed."""
         ...
+
+    def mark_processed_many(
+        self, entries: list[tuple[DocumentReference, str | None]], source_name: str, stage: str
+    ) -> None:
+        """Record multiple documents as successfully processed in one operation.
+
+        entries is a list of (ref, department) pairs — department may vary
+        per document. More efficient than looping mark_processed() for large
+        batches (e.g. DynamoDBLedger batches writes instead of one put_item
+        per document).
+        """
+        ...
