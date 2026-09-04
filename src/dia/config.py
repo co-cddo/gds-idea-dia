@@ -48,36 +48,33 @@ class ExtractionConfig(BaseModel, frozen=True):
     embeddings_model: str = "amazon.titan-embed-text-v2:0"
     region: str = "eu-west-2"
     extraction_batch_size: int = Field(default=20000, gt=0)
-    # extraction_num_workers and extraction_num_threads_per_worker are not
-    # currently wired to graphrag_toolkit. Both have no per-call override —
-    # only global ones (GraphRAGConfig.extraction_num_workers /
-    # extraction_num_threads_per_worker, or their EXTRACTION_NUM_WORKERS /
-    # EXTRACTION_NUM_THREADS_PER_WORKER env vars), which we deliberately don't
-    # mutate. Kept here (rather than removed) so they're easy to find if we
-    # decide the global-state tradeoff is worth it later. The toolkit's own
-    # defaults (2 and 4 respectively) are used instead.
     extraction_num_workers: int = Field(default=2, gt=0)
     extraction_num_threads_per_worker: int = Field(default=2, gt=0)
     max_tokens: int = Field(default=42768, gt=0)
     temperature: float | None = Field(default=0.0, ge=0.0, le=1.0)
     read_timeout: int = Field(default=600, gt=0)
     enable_cache: bool = True
+    local_output_dir: str = "output"
 
     def to_llm(self):
         """Build the LLM graphrag_toolkit uses for extraction.
 
         Passed directly as ExtractionConfig(extraction_llm=...) — the toolkit
-        returns an already-constructed LLM instance unchanged, so this is the
-        only place our model/max_tokens/temperature settings need to apply.
+        uses an already-LLMCache-wrapped instance unchanged, so this is the
+        only place our model/max_tokens/temperature/timeout/cache settings
+        need to apply.
         """
+        from graphrag_toolkit.lexical_graph.utils import LLMCache
         from llama_index.llms.bedrock_converse import BedrockConverse
 
-        return BedrockConverse(
+        llm = BedrockConverse(
             model=self.extraction_model,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
+            timeout=self.read_timeout,
             region_name=self.region,
         )
+        return LLMCache(llm=llm, enable_cache=self.enable_cache)
 
     def to_embedding_model(self):
         """Build the embedding model used for semantic chunking."""
@@ -87,6 +84,16 @@ class ExtractionConfig(BaseModel, frozen=True):
             model_name=self.embeddings_model,
             region_name=self.region,
         )
+
+    def apply_to_graphrag_config(self) -> None:
+        """Apply settings graphrag_toolkit only exposes via its global
+        GraphRAGConfig singleton — no per-call override exists for these."""
+        from graphrag_toolkit.lexical_graph import GraphRAGConfig
+
+        GraphRAGConfig.extraction_batch_size = self.extraction_batch_size
+        GraphRAGConfig.extraction_num_workers = self.extraction_num_workers
+        GraphRAGConfig.extraction_num_threads_per_worker = self.extraction_num_threads_per_worker
+        GraphRAGConfig.local_output_dir = self.local_output_dir
 
 
 class TextExtractionConfig(BaseModel, frozen=True):

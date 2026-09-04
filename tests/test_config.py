@@ -1,6 +1,8 @@
 """Tests for dia.config — ExtractionConfig and ChunkingConfig."""
 
 import pytest
+from graphrag_toolkit.lexical_graph import GraphRAGConfig
+from graphrag_toolkit.lexical_graph.utils import LLMCache
 from pydantic import ValidationError
 
 from dia.config import ChunkingConfig, ExtractionConfig, TextExtractionConfig
@@ -62,6 +64,7 @@ def test_extraction_config_defaults():
     assert config.temperature == 0.0
     assert config.read_timeout == 600
     assert config.enable_cache is True
+    assert config.local_output_dir == "output"
 
 
 def test_extraction_config_override():
@@ -115,15 +118,23 @@ def test_extraction_config_to_llm():
         extraction_model="anthropic.claude-sonnet-4-5-20250929-v1:0",
         temperature=0.2,
         max_tokens=1000,
+        read_timeout=45,
         region="us-east-1",
     )
 
     llm = config.to_llm()
 
-    assert llm.model == "anthropic.claude-sonnet-4-5-20250929-v1:0"
-    assert llm.temperature == 0.2
-    assert llm.max_tokens == 1000
-    assert llm.region_name == "us-east-1"
+    assert isinstance(llm, LLMCache)
+    assert llm.llm.model == "anthropic.claude-sonnet-4-5-20250929-v1:0"
+    assert llm.llm.temperature == 0.2
+    assert llm.llm.max_tokens == 1000
+    assert llm.llm.timeout == 45
+    assert llm.llm.region_name == "us-east-1"
+
+
+def test_extraction_config_to_llm_respects_enable_cache():
+    assert ExtractionConfig(enable_cache=True).to_llm().enable_cache is True
+    assert ExtractionConfig(enable_cache=False).to_llm().enable_cache is False
 
 
 def test_extraction_config_to_embedding_model():
@@ -133,6 +144,50 @@ def test_extraction_config_to_embedding_model():
 
     assert embed_model.model_name == "amazon.titan-embed-text-v2:0"
     assert embed_model.region_name == "us-east-1"
+
+
+# --- ExtractionConfig.apply_to_graphrag_config ---
+
+_GRAPHRAG_CONFIG_FIELDS = [
+    "_extraction_batch_size",
+    "_extraction_num_workers",
+    "_extraction_num_threads_per_worker",
+    "_local_output_dir",
+]
+
+
+@pytest.fixture
+def clean_graphrag_config():
+    """Save/restore the GraphRAGConfig fields apply_to_graphrag_config()
+    touches, so tests don't leak global state into each other."""
+    saved = {field: getattr(GraphRAGConfig, field) for field in _GRAPHRAG_CONFIG_FIELDS}
+    yield GraphRAGConfig
+    for field, value in saved.items():
+        setattr(GraphRAGConfig, field, value)
+
+
+def test_apply_to_graphrag_config_sets_batch_size(clean_graphrag_config):
+    ExtractionConfig(extraction_batch_size=12345).apply_to_graphrag_config()
+
+    assert clean_graphrag_config.extraction_batch_size == 12345
+
+
+def test_apply_to_graphrag_config_sets_num_workers(clean_graphrag_config):
+    ExtractionConfig(extraction_num_workers=7).apply_to_graphrag_config()
+
+    assert clean_graphrag_config.extraction_num_workers == 7
+
+
+def test_apply_to_graphrag_config_sets_num_threads_per_worker(clean_graphrag_config):
+    ExtractionConfig(extraction_num_threads_per_worker=9).apply_to_graphrag_config()
+
+    assert clean_graphrag_config.extraction_num_threads_per_worker == 9
+
+
+def test_apply_to_graphrag_config_sets_local_output_dir(clean_graphrag_config):
+    ExtractionConfig(local_output_dir="my-output").apply_to_graphrag_config()
+
+    assert clean_graphrag_config.local_output_dir == "my-output"
 
 
 # --- TextExtractionConfig ---

@@ -121,7 +121,6 @@ class GraphExtractionRunner:
         extraction_config: ExtractionConfig,
         graph_output_handler: NodeHandler,
         batch_config: BatchConfig | None = None,
-        checkpoint_dir: str | Path = "output",
         force: bool = False,
         log_dir: str | None = None,
     ) -> None:
@@ -132,7 +131,6 @@ class GraphExtractionRunner:
         self._extraction_config = extraction_config
         self._graph_output_handler = graph_output_handler
         self._batch_config = batch_config
-        self._checkpoint_dir = checkpoint_dir
         self._force = force
         self._log_file = setup_pipeline_logging(self._source_name, log_dir=log_dir)
 
@@ -155,7 +153,7 @@ class GraphExtractionRunner:
         if self._force:
             pending_refs = refs
             skipped = 0
-            clear_checkpoint_dir(self._source_name, output_dir=self._checkpoint_dir)
+            clear_checkpoint_dir(self._source_name, output_dir=self._extraction_config.local_output_dir)
             logger.info("Force enabled — cleared checkpoint, reprocessing all %d documents", len(pending_refs))
         else:
             pending_refs = self._ledger.get_unprocessed(refs, self._source_name, STAGE)
@@ -168,8 +166,11 @@ class GraphExtractionRunner:
             return GraphExtractionResult(total=total, processed=0, skipped=skipped, failed=0, duration_seconds=duration)
 
         documents = [to_document(outputs_by_key[ref.key]) for ref in pending_refs]
+        self._extraction_config.apply_to_graphrag_config()
         graph_index = self._build_index()
-        checkpoint = Checkpoint(_checkpoint_name(self._source_name), output_dir=str(self._checkpoint_dir))
+        checkpoint = Checkpoint(
+            _checkpoint_name(self._source_name), output_dir=self._extraction_config.local_output_dir
+        )
 
         try:
             graph_index.extract(

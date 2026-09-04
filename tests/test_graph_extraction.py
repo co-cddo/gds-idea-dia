@@ -2,6 +2,8 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+from graphrag_toolkit.lexical_graph import GraphRAGConfig
 from graphrag_toolkit.lexical_graph.indexing.extract import BatchConfig
 from llama_index.core.node_parser import SemanticSplitterNodeParser, SentenceSplitter
 
@@ -17,6 +19,24 @@ from dia.pipeline.graph_extraction import (
 from dia.pipeline.graph_extraction_prompts import TOPIC_EXTRACTION_PROMPT
 from dia.pipeline.models import TextExtractionOutput
 from dia.types import DocumentReference
+
+_GRAPHRAG_CONFIG_FIELDS = [
+    "_extraction_batch_size",
+    "_extraction_num_workers",
+    "_extraction_num_threads_per_worker",
+    "_local_output_dir",
+]
+
+
+@pytest.fixture
+def clean_graphrag_config():
+    """Save/restore the GraphRAGConfig fields apply_to_graphrag_config()
+    touches, so tests don't leak global state into each other."""
+    saved = {field: getattr(GraphRAGConfig, field) for field in _GRAPHRAG_CONFIG_FIELDS}
+    yield GraphRAGConfig
+    for field, value in saved.items():
+        setattr(GraphRAGConfig, field, value)
+
 
 # --- _checkpoint_name ---
 
@@ -142,6 +162,7 @@ def _ref(key: str, version: str = "v1") -> DocumentReference:
 
 
 def _make_runner(output_source, ledger, extraction_config, tmp_path, force=False, batch_config=None):
+    extraction_config = extraction_config.model_copy(update={"local_output_dir": str(tmp_path)})
     return GraphExtractionRunner(
         source_name="test-source",
         document_type=DocumentType.BUSINESS_CASE,
@@ -150,7 +171,6 @@ def _make_runner(output_source, ledger, extraction_config, tmp_path, force=False
         extraction_config=extraction_config,
         graph_output_handler=MagicMock(),
         batch_config=batch_config,
-        checkpoint_dir=str(tmp_path),
         force=force,
         log_dir=str(tmp_path),
     )
@@ -346,4 +366,17 @@ def test_build_index_uses_llm_from_extraction_config(mock_index_cls, tmp_path):
     runner.run()
 
     _, kwargs = mock_index_cls.call_args
-    assert kwargs["indexing_config"].extraction.extraction_llm.max_tokens == 1234
+    assert kwargs["indexing_config"].extraction.extraction_llm.llm.max_tokens == 1234
+
+
+@patch("dia.pipeline.graph_extraction.LexicalGraphIndex")
+def test_run_applies_extraction_config_to_graphrag_config(mock_index_cls, tmp_path, clean_graphrag_config):
+    source = InMemoryOutputSource({"test-source": [_output("a.pdf")]})
+    extraction_config = ExtractionConfig(extraction_batch_size=999, extraction_num_workers=3)
+    runner = _make_runner(source, InMemoryLedger(), extraction_config, tmp_path)
+
+    runner.run()
+
+    assert clean_graphrag_config.extraction_batch_size == 999
+    assert clean_graphrag_config.extraction_num_workers == 3
+    assert clean_graphrag_config.local_output_dir == str(tmp_path)
