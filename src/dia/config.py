@@ -48,12 +48,41 @@ class ExtractionConfig(BaseModel, frozen=True):
     embeddings_model: str = "amazon.titan-embed-text-v2:0"
     region: str = "eu-west-2"
     extraction_batch_size: int = Field(default=20000, gt=0)
-    extraction_num_workers: int = Field(default=1, gt=0)
+    extraction_num_workers: int = Field(default=2, gt=0)
+    # Not currently wired to graphrag_toolkit — it has no per-call override for
+    # this setting, only a global one (GraphRAGConfig.extraction_num_threads_per_worker
+    # / EXTRACTION_NUM_THREADS_PER_WORKER env var), which we deliberately don't touch.
+    # The toolkit's own default (4) is used instead.
     extraction_num_threads_per_worker: int = Field(default=2, gt=0)
     max_tokens: int = Field(default=42768, gt=0)
     temperature: float | None = Field(default=0.0, ge=0.0, le=1.0)
     read_timeout: int = Field(default=600, gt=0)
     enable_cache: bool = True
+
+    def to_llm(self):
+        """Build the LLM graphrag_toolkit uses for extraction.
+
+        Passed directly as ExtractionConfig(extraction_llm=...) — the toolkit
+        returns an already-constructed LLM instance unchanged, so this is the
+        only place our model/max_tokens/temperature settings need to apply.
+        """
+        from llama_index.llms.bedrock_converse import BedrockConverse
+
+        return BedrockConverse(
+            model=self.extraction_model,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            region_name=self.region,
+        )
+
+    def to_embedding_model(self):
+        """Build the embedding model used for semantic chunking."""
+        from llama_index.embeddings.bedrock import BedrockEmbedding
+
+        return BedrockEmbedding(
+            model_name=self.embeddings_model,
+            region_name=self.region,
+        )
 
 
 class TextExtractionConfig(BaseModel, frozen=True):

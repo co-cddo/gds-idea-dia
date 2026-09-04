@@ -56,7 +56,7 @@ def test_extraction_config_defaults():
     assert config.embeddings_model == "amazon.titan-embed-text-v2:0"
     assert config.region == "eu-west-2"
     assert config.extraction_batch_size == 20000
-    assert config.extraction_num_workers == 1
+    assert config.extraction_num_workers == 2
     assert config.extraction_num_threads_per_worker == 2
     assert config.max_tokens == 42768
     assert config.temperature == 0.0
@@ -108,6 +108,31 @@ def test_extraction_config_is_frozen():
     config = ExtractionConfig()
     with pytest.raises(ValidationError):
         config.extraction_model = "something"
+
+
+def test_extraction_config_to_llm():
+    config = ExtractionConfig(
+        extraction_model="anthropic.claude-sonnet-4-5-20250929-v1:0",
+        temperature=0.2,
+        max_tokens=1000,
+        region="us-east-1",
+    )
+
+    llm = config.to_llm()
+
+    assert llm.model == "anthropic.claude-sonnet-4-5-20250929-v1:0"
+    assert llm.temperature == 0.2
+    assert llm.max_tokens == 1000
+    assert llm.region_name == "us-east-1"
+
+
+def test_extraction_config_to_embedding_model():
+    config = ExtractionConfig(embeddings_model="amazon.titan-embed-text-v2:0", region="us-east-1")
+
+    embed_model = config.to_embedding_model()
+
+    assert embed_model.model_name == "amazon.titan-embed-text-v2:0"
+    assert embed_model.region_name == "us-east-1"
 
 
 # --- TextExtractionConfig ---
