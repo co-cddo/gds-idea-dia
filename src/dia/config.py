@@ -48,11 +48,15 @@ class ExtractionConfig(BaseModel, frozen=True):
     embeddings_model: str = "amazon.titan-embed-text-v2:0"
     region: str = "eu-west-2"
     extraction_batch_size: int = Field(default=20000, gt=0)
+    # extraction_num_workers and extraction_num_threads_per_worker are not
+    # currently wired to graphrag_toolkit. Both have no per-call override —
+    # only global ones (GraphRAGConfig.extraction_num_workers /
+    # extraction_num_threads_per_worker, or their EXTRACTION_NUM_WORKERS /
+    # EXTRACTION_NUM_THREADS_PER_WORKER env vars), which we deliberately don't
+    # mutate. Kept here (rather than removed) so they're easy to find if we
+    # decide the global-state tradeoff is worth it later. The toolkit's own
+    # defaults (2 and 4 respectively) are used instead.
     extraction_num_workers: int = Field(default=2, gt=0)
-    # Not currently wired to graphrag_toolkit — it has no per-call override for
-    # this setting, only a global one (GraphRAGConfig.extraction_num_threads_per_worker
-    # / EXTRACTION_NUM_THREADS_PER_WORKER env var), which we deliberately don't touch.
-    # The toolkit's own default (4) is used instead.
     extraction_num_threads_per_worker: int = Field(default=2, gt=0)
     max_tokens: int = Field(default=42768, gt=0)
     temperature: float | None = Field(default=0.0, ge=0.0, le=1.0)
