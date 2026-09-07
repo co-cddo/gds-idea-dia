@@ -14,7 +14,19 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-def ask(query: str, department: str | None = None, tunnel: bool = True) -> AgentResponse:
+def _connect_stores():
+    graph_store = stores.build_graph_store(settings.neptune_endpoint)
+    vector_store = stores.build_vector_store(settings.aoss_endpoint)
+    stores.build_graph_index(graph_store, vector_store)
+    return graph_store, vector_store
+
+
+def _start_mcp_server(graph_store, vector_store):
+    server = mcp_server.build_mcp_server(graph_store, vector_store)
+    return mcp_server.start_server(server)
+
+
+def ask(department: str | None, query: str, *, tunnel: bool = False) -> AgentResponse:
     """Run the agent end-to-end for a scoped query.
 
     Applies patches, connects to Neptune/AOSS, starts the MCP server,
@@ -30,19 +42,15 @@ def ask(query: str, department: str | None = None, tunnel: bool = True) -> Agent
         except Exception as e:
             logger.error("failed applying patches: %s", e)
             raise
-
         try:
-            graph_store = stores.build_graph_store(settings.neptune_endpoint)
-            vector_store = stores.build_vector_store(settings.aoss_endpoint)
-            stores.build_graph_index(graph_store, vector_store)
+            graph_store, vector_store = _connect_stores()
             logger.info("[2/5] Connected to stores")
         except Exception as e:
             logger.error("failed connecting to stores: %s", e)
             raise
 
         try:
-            server = mcp_server.build_mcp_server(graph_store, vector_store)
-            mcp_server.start_server(server)
+            _start_mcp_server(graph_store, vector_store)
             logger.info("[3/5] Started MCP server")
         except Exception as e:
             logger.error("failed starting MCP server: %s", e)
