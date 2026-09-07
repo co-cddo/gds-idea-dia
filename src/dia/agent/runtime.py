@@ -15,6 +15,7 @@ logger.setLevel(logging.INFO)
 
 
 def _connect_stores():
+    """Connect to Neptune/AOSS and warm up the graph index. Must run before _start_mcp_server()."""
     graph_store = stores.build_graph_store(settings.neptune_endpoint)
     vector_store = stores.build_vector_store(settings.aoss_endpoint)
     stores.build_graph_index(graph_store, vector_store)
@@ -22,8 +23,16 @@ def _connect_stores():
 
 
 def _start_mcp_server(graph_store, vector_store):
+    """Build and start the MCP server; graph_store/vector_store must already be connected. Returns the server URL."""
     server = mcp_server.build_mcp_server(graph_store, vector_store)
     return mcp_server.start_server(server)
+
+
+def _run_agent(department, query) -> str:
+    """Build the default agent scoped to department and run query, returning the answer as str."""
+    agent = agents.make_default_agent(department)
+    result = agent(query)
+    return str(result)
 
 
 def ask(department: str | None, query: str, *, tunnel: bool = False) -> AgentResponse:
@@ -57,15 +66,14 @@ def ask(department: str | None, query: str, *, tunnel: bool = False) -> AgentRes
             raise
 
         try:
-            agent = agents.make_default_agent(agent_input.department)
+            output = _run_agent(agent_input.department, agent_input.query)
             logger.info("[4/5] Call dia agent")
-            result = agent(query)
         except Exception as e:
             logger.error("failed calling agent: %s", e)
             raise
 
         try:
-            response = AgentResponse(department=agent_input.department, query=agent_input.query, output=str(result))
+            response = AgentResponse(department=agent_input.department, query=agent_input.query, output=str(output))
             logger.info("[5/5] Finito!")
         except Exception as e:
             logger.error("failed building response object: %s", e)

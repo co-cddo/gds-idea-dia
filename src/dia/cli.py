@@ -343,4 +343,4 @@ def agent_ask(
 ):
     from dia.agent import runtime
 
-    typer.echo(runtime.ask(query, department, tunnel=tunnel))
+    typer.echo(runtime.ask(department, query, tunnel=tunnel))

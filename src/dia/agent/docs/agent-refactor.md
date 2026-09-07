@@ -222,7 +222,7 @@ The skills design is a separate, later piece of work.
 ## Stage 1 structure
 
 **Status: steps 1-9 below are done (on `dev`).** Only step 10 (CLI wiring) remains -
-see "Stage 1b - CLI wiring (PR1 + PR2 + PR3)" further down for the detailed breakdown of what
+see "Stage 1b - CLI wiring (PR2)" further down for the detailed breakdown of what
 that step actually involves.
 
 ```
@@ -269,21 +269,23 @@ gds-idea-dia/
 7. ~~Move model/agent factories into `agents.py`.~~ **Done** (missing 10 imports - PR1 fixes).
 8. `report.py` (markdown → docx → S3 upload). **Deferred** - out of scope for PR1/PR2, stdout only (see Decision 6 note above).
 9. ~~Add `[project.optional-dependencies] agent` to `pyproject.toml`.~~ **Done.**
-10. Add `agent_app` Typer sub-app + `ask` command to `cli.py`, and everything needed to actually run the chain end-to-end. **This is PR1 + PR2 (+ PR3 status command) - see breakdown below.**
-11. Tests: patches (idempotency, existing), retrieval_modes (existing), plus new tests per PR1/PR2 below.
+10. Add `agent_app` Typer sub-app + `ask` command to `cli.py`, and everything needed to actually run the chain end-to-end. **This is PR2 - see breakdown below.**
+11. Tests: patches (idempotency, existing), retrieval_modes (existing), plus new tests per PR2 below.
 
 ---
 
-## Stage 1b - CLI wiring (PR1 + PR2 + PR3)
+## Stage 1b - CLI wiring (PR2)
 
 This is the detailed breakdown of migration step 10 above - the only step not yet done.
-Split into two PRs so PR1 (pure wiring, fully mockable) can land and be reviewed
-independently of PR2 (CLI + live-AWS tunnel concerns).
+Ships as a single PR: internal wiring, the `ask` CLI command, automated tunnel, and the
+`agent status` connectivity check all land together (no PR1/PR2/PR3 split).
 
-### PR1 - Internal wiring (no CLI, no networking)
+### PR2 - Internal wiring, CLI command, automated tunnel, and status check
 
-Makes the existing pieces actually connect, provable via mocked tests, before any CLI
-exists.
+Makes the existing pieces actually connect, adds the `dia agent ask`/`dia agent status`
+entrypoints, and automates what `scripts/neptune-agent-tunnel.py` currently demonstrates
+by hand (open the SSH tunnel, then `register_tunnel_host(...)`) into the real agent code
+path.
 
 1. **`agents.py`** - add the missing import block for the 10 prompt-template functions
    it calls but never imports (currently masked by a `ruff` per-file-ignore for
@@ -295,123 +297,68 @@ exists.
    returning, so the finished server exposes `default_` (1) + Athena (3) + graph-timeout
    helper (1) + KB search (5) + web search (1) = **11 tools across the 4 registered
    modules** (satisfies the "all 4 MCP tools registered" AC).
-4. **New file `agent/runtime.py`** - the orchestration chain:
-   ```python
-   """End-to-end agent bootstrap: config -> stores -> MCP server -> agent -> answer."""
-
-   from dia.agent import agents, stores
-   from dia.agent.config import settings
-   from dia.agent.mcp import server as mcp_server
-   from dia.agent.patches import apply_all
-
-   def ask(department: str, query: str) -> str:
-       apply_all()
-       graph_store = stores.build_graph_store(settings.neptune_endpoint)
-       vector_store = stores.build_vector_store(settings.aoss_endpoint)
-       stores.build_graph_index(graph_store, vector_store)
-       server = mcp_server.build_mcp_server(graph_store, vector_store)
-       mcp_server.start_server(server)
-       agent = agents.make_default_agent(department)
-       result = agent(query)
-       return str(result)
-   ```
-   No `--agent` dispatch/registry - matches Decision 8, only `make_default_agent()` is
-   wired for now.
-5. **Tests:** `test_agent_mcp_tools_init.py` (register_all_tools calls all 4
-   `register()`s), extended MCP-server test (build_mcp_server results in all 11 tools
-   registered), extended `test_agent_agents.py` (all `make_*_agent()` factories build
-   their prompt string without `NameError` now that imports are fixed), new
-   `test_agent_runtime.py` (`@pytest.mark.integration`, mocks `stores.*`,
-   `mcp.server.build_mcp_server/start_server`, `agents.make_default_agent` at the
-   boundary; asserts `apply_all()` runs before store construction, full chain called in
-   order, fake agent receives `query`, `ask()` returns `str(result)`).
-
-### PR2 - CLI command + automated tunnel
-
-Adds the actual `dia agent ask` entrypoint and automates what
-`scripts/neptune-agent-tunnel.py` currently demonstrates by hand (open the SSH tunnel,
-then `register_tunnel_host(...)`) into the real agent code path.
-
-1. **New file `agent/tunnel.py`** - `@contextmanager open_tunnel(phase="dev", port=8182,
+4. **New file `agent/runtime.py`** - the orchestration chain, split into small private
+   helpers from the start (rather than one inlined chain) so `check()` below can reuse
+   the connect/start steps without duplicating them:
+   - `_connect_stores() -> tuple[graph_store, vector_store]`: wraps
+     `stores.build_graph_store()` / `build_vector_store()` / `build_graph_index()`.
+   - `_start_mcp_server(graph_store, vector_store)`: wraps
+     `mcp_server.build_mcp_server()` / `start_server()`. Takes helper 1's return values
+     as input.
+   - `_run_agent(department, query) -> str`: wraps
+     `agents.make_default_agent(department)` + `agent(query)`. Doesn't need helper 1/2's
+     return values directly (the agent talks to Neptune/AOSS *through* the MCP server,
+     not the Python objects) but does need helper 2 to have already run so the server is
+     listening. Isolating this step also gives the future skills work (Decision 8) one
+     clear seam to modify later, instead of it being buried inside `ask()`.
+   - `ask(department: str | None, query: str, *, tunnel: bool = False) -> AgentResponse`:
+     applies patches, calls the three helpers above in order, then builds the response.
+     Patches (`apply_all()`) and the final `AgentResponse`-building step stay inline in
+     `ask()` - both are one-liners, not worth their own helper, and `check()` doesn't
+     need the response-building step at all. No `--agent` dispatch/registry - matches
+     Decision 8, only `make_default_agent()` is wired for now.
+5. **New file `agent/tunnel.py`** - `@contextmanager open_tunnel(phase="dev", port=8182,
    timeout=30.0)`: if port 8182 already has a live tunnel, reuse it (no teardown on
    exit); otherwise spawns `scripts/neptune-tunnel.sh {phase}` as a background
    subprocess, polls until the port accepts connections or times out, calls
    `dia.clients.neptune.register_tunnel_host(settings.neptune_endpoint)`, yields, then
    in `finally` (only if we started it) kills the subprocess's process group so no
-   orphaned `aws ec2-instance-connect ssh` process is left running.
-2. **`runtime.py`** - `ask()` gains a `tunnel: bool = False` keyword param:
-   ```python
-   from contextlib import nullcontext
-
-   def ask(department: str, query: str, *, tunnel: bool = False) -> str:
-       ctx = nullcontext()
-       if tunnel:
-           from dia.agent.tunnel import open_tunnel
-           ctx = open_tunnel()
-       with ctx:
-           ...  # same body as PR1
-   ```
-   `tunnel=False` (PR1's tests) is unaffected - `nullcontext()` means zero behaviour
-   change on that path.
-3. **`cli.py`** - a thin pass-through, no logic beyond argument wiring:
+   orphaned `aws ec2-instance-connect ssh` process is left running. `ask()`'s `tunnel`
+   param (above) selects between this and `nullcontext()` - `tunnel=False` means zero
+   behaviour change on that path.
+6. **`cli.py`** - a thin pass-through, no logic beyond argument wiring:
    ```python
    agent_app = typer.Typer(help="Query the assurance agent.")
    app.add_typer(agent_app, name="agent")
 
    @agent_app.command("ask")
    def agent_ask(
-       department: Annotated[str, typer.Option("--department", help="Department to scope the query to.")],
        query: Annotated[str, typer.Option("--query", help="Natural-language question for the agent.")],
+       department: Annotated[str | None, typer.Option("--department", help="Department to scope the query to.")] = None,
        tunnel: Annotated[bool, typer.Option("--tunnel", help="Auto-open the Neptune dev SSH tunnel for this run.")] = False,
    ):
        from dia.agent import runtime
        typer.echo(runtime.ask(department, query, tunnel=tunnel))
    ```
-4. **Tests:** `test_cli_agent.py` (`CliRunner` invokes `dia agent ask --department ...
-   --query ...` with `dia.agent.runtime.ask` mocked, asserts pass-through + echoed
-   output, including that `--tunnel` maps to `tunnel=True`), `test_agent_tunnel.py`
-   (mocks `subprocess.Popen`/socket-connect to test readiness-poll/reuse-existing/
-   timeout/teardown logic without real AWS/SSH), and an extension to
-   `test_agent_runtime.py` covering the `tunnel=True` path (mocks `open_tunnel`, asserts
-   it wraps the chain). Manual (non-automated) verification, since it needs real AWS/SSH:
-   `uv run dia agent ask --department "Home Office" --query "..." --tunnel` against dev.
+7. **`runtime.py`** - new `check(*, tunnel: bool = True) -> bool` (or similar): same
+   `nullcontext()`/`open_tunnel()` selection as `ask()`, calls `_connect_stores()` and
+   `_start_mcp_server()` inside that context, reports success/failure per component -
+   stops there, never calls `_run_agent()`/`agents.make_default_agent()`. Splitting
+   stores from the MCP server into two helpers (rather than one combined "bootstrap"
+   helper) means `check()` can report *which* dependency failed, not just a single
+   pass/fail.
 
-### PR3 - `agent status` command (connectivity check, no agent/LLM call)
-
-Adds a lightweight way to verify Neptune/AOSS/MCP connectivity - and, with `--tunnel`,
-that the SSH tunnel itself comes up - without spending on an LLM call or waiting for a
-full `ask()` run.
-
-**Design:** split `ask()`'s existing `[2/5]`/`[3/5]`/`[4/5]` steps (already isolated
-into their own try/except blocks) into three private helpers in `runtime.py` - not a
-new folder/module (the real logic already lives in `stores.py`/`mcp/server.py`/
-`agents.py`; these are thin orchestration wrappers, exactly what `runtime.py` is for).
-Splitting stores from the MCP server (rather than one combined "bootstrap" helper)
-means `check()` can report *which* dependency failed, not just a single pass/fail:
-
-1. **`runtime.py`** - `_connect_stores() -> tuple[graph_store, vector_store]`: wraps
-   `stores.build_graph_store()` / `build_vector_store()` / `build_graph_index()`
-   (today's `[2/5]`).
-2. **`runtime.py`** - `_start_mcp_server(graph_store, vector_store) -> server`: wraps
-   `mcp_server.build_mcp_server()` / `start_server()` (today's `[3/5]`). Takes helper
-   1's return values as input.
-3. **`runtime.py`** - `_run_agent(department, query) -> str`: wraps
-   `agents.make_default_agent(department)` + `agent(query)` (today's `[4/5]`). Doesn't
-   need helper 1/2's return values directly (the agent talks to Neptune/AOSS *through*
-   the MCP server, not the Python objects) but does need helper 2 to have already run
-   so the server is listening. Isolating this step also gives the future skills work
-   (Decision 8) one clear seam to modify later, instead of it being buried inside
-   `ask()`.
-   - Patches (`apply_all()`) and the final `AgentResponse`-building step stay inline in
-     `ask()` - both are one-liners, not worth their own helper, and `check()` doesn't
-     need the response-building step at all.
-4. **`runtime.py`** - `ask()` updated to call helpers 1-3 in order instead of inlining
-   that logic - no behaviour change, pure extraction.
-5. **`runtime.py`** - new `check(*, tunnel: bool = True) -> bool` (or similar): same
-   `nullcontext()`/`open_tunnel()` selection as `ask()`, calls helpers 1 and 2 inside
-   that context, reports success/failure per component - stops there, never calls
-   helper 3 (`_run_agent`/`agents.make_default_agent`).
-6. **`cli.py`** - `agent_app` gains a second command:
+   > **Known limitation (deferred, revisit later):** `start_server()`'s internal MCP
+   > verification step (in `mcp/server.py`, the block that connects a short-lived
+   > `MCPClient` and calls `list_tools_sync()` right after launching the server) wraps
+   > that check in a `try/except Exception` that only `print()`s on failure - it never
+   > re-raises. That means `_start_mcp_server()` can succeed (no exception) even when
+   > the server didn't come up correctly. `check()`, as designed above, only detects
+   > "failed to build/start" - it currently has no way to detect "started but not
+   > actually responding," because that specific failure is swallowed before it ever
+   > reaches `check()`. Not being fixed as part of this PR - come back to this if
+   > `agent status` needs a harder guarantee than "didn't crash."
+8. **`cli.py`** - `agent_app` gains a second command:
    ```python
    @agent_app.command("status")
    def agent_status(
@@ -423,12 +370,22 @@ means `check()` can report *which* dependency failed, not just a single pass/fai
        ok = runtime.check(tunnel=tunnel)
        typer.echo("OK" if ok else "FAILED")
    ```
-7. **Tests:** extend `test_agent_runtime.py` with coverage for `_connect_stores()`/
-   `_start_mcp_server()`/`_run_agent()`/`check()` (mocks `stores.*`/`mcp_server.*`/
-   `agents.make_default_agent`, asserts `ask()` and `check()` both call helpers 1 and 2,
-   asserts `check()` never touches helper 3), extend `test_cli_agent.py` for the new
-   `status` command (mocks `runtime.check`, asserts `--tunnel` pass-through and
-   OK/FAILED echo).
+9. **Tests:** `test_agent_mcp_tools_init.py` (register_all_tools calls all 4
+   `register()`s), extended MCP-server test (build_mcp_server results in all 11 tools
+   registered), extended `test_agent_agents.py` (all `make_*_agent()` factories build
+   their prompt string without `NameError` now that imports are fixed),
+   `test_agent_runtime.py` (`@pytest.mark.integration`, mocks `stores.*`,
+   `mcp.server.build_mcp_server/start_server`, `agents.make_default_agent` at the
+   boundary; asserts `apply_all()` runs before store construction, full chain called in
+   order, fake agent receives `query`, `ask()` returns an `AgentResponse` wrapping
+   `str(result)`, and `check()` calls `_connect_stores()`/`_start_mcp_server()` but never
+   `_run_agent()`), `test_agent_tunnel.py` (mocks `subprocess.Popen`/socket-connect to
+   test readiness-poll/reuse-existing/timeout/teardown logic without real AWS/SSH),
+   `test_cli_agent.py` (`CliRunner` invokes `dia agent ask --department ... --query ...`
+   and `dia agent status` with `dia.agent.runtime.ask`/`check` mocked, asserts
+   pass-through + echoed output, including that `--tunnel` maps to `tunnel=True`).
+   Manual (non-automated) verification, since it needs real AWS/SSH:
+   `uv run dia agent ask --query "..." --department "Home Office" --tunnel` against dev.
 
 ---
 
