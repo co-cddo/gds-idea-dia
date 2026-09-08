@@ -337,13 +337,10 @@ def _report_result(result) -> None:
 def agent_ask(
     query: Annotated[str, typer.Option("--query", help="Natural-language question for the agent.")],
     department: Annotated[str | None, typer.Option("--department", help="Department to scope the query to.")] = None,
-    tunnel: Annotated[
-        bool, typer.Option("--tunnel", help="Auto-open the Neptune dev SSH tunnel for this run.")
-    ] = False,
 ):
     from dia.agent import runtime
 
-    typer.echo(runtime.ask(department, query, tunnel=tunnel))
+    typer.echo(runtime.ask(department, query, tunnel=True))
 
 
 @agent_app.command("status")

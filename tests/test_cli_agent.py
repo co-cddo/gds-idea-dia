@@ -18,27 +18,41 @@ runner = CliRunner()
 # ---------------------------------------------------------------------------
 
 
-def test_agent_ask_passes_query_department_and_tunnel_through():
+def test_agent_ask_passes_query_and_department_through_with_tunnel_true():
+    """ask has no --tunnel CLI option - it always calls runtime.ask() with
+    tunnel=True (hardcoded), since ask() needs Neptune/AOSS access to succeed."""
     with patch("dia.agent.runtime.ask") as mock_ask:
         mock_ask.return_value = "an answer"
 
         result = runner.invoke(
             app,
-            ["agent", "ask", "--query", "what is the risk?", "--department", "Home Office", "--tunnel"],
+            ["agent", "ask", "--query", "what is the risk?", "--department", "Home Office"],
         )
 
         assert result.exit_code == 0
         mock_ask.assert_called_once_with("Home Office", "what is the risk?", tunnel=True)
 
 
-def test_agent_ask_defaults_department_none_and_tunnel_false():
+def test_agent_ask_defaults_department_none():
     with patch("dia.agent.runtime.ask") as mock_ask:
         mock_ask.return_value = "an answer"
 
         result = runner.invoke(app, ["agent", "ask", "--query", "what is the risk?"])
 
         assert result.exit_code == 0
-        mock_ask.assert_called_once_with(None, "what is the risk?", tunnel=False)
+        mock_ask.assert_called_once_with(None, "what is the risk?", tunnel=True)
+
+
+def test_agent_ask_has_no_tunnel_option():
+    result = runner.invoke(app, ["agent", "ask", "--help"])
+
+    assert "--tunnel" not in result.output
+
+
+def test_agent_ask_rejects_tunnel_flag():
+    result = runner.invoke(app, ["agent", "ask", "--query", "what is the risk?", "--tunnel"])
+
+    assert result.exit_code != 0
 
 
 def test_agent_ask_echoes_the_result():
