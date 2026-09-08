@@ -347,14 +347,10 @@ def agent_ask(
 
 
 @agent_app.command("status")
-def agent_status(
-    tunnel: Annotated[
-        bool, typer.Option("--tunnel", help="Auto-open the Neptune dev SSH tunnel for this check.")
-    ] = True,
-):
+def agent_status():
     from dia.agent import runtime
 
-    result = runtime.check(tunnel=tunnel)
+    result = runtime.check(tunnel=True)
     for component, status in result.items():
         typer.echo(f"{component}: {status}")
     typer.echo("OK" if all(s == "OK" for s in result.values()) else "FAILED")

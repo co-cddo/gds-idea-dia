@@ -61,7 +61,10 @@ def test_agent_ask_requires_query():
 # ---------------------------------------------------------------------------
 
 
-def test_agent_status_defaults_tunnel_true():
+def test_agent_status_always_calls_check_with_tunnel_true():
+    """status has no --tunnel CLI option (removed - it was unreachable/broken:
+    default True, no --no-tunnel counterpart). check(tunnel=...) is always
+    called with tunnel=True, hardcoded in cli.py."""
     with patch("dia.agent.runtime.check") as mock_check:
         mock_check.return_value = {"tunnel": "OK", "stores": "OK", "mcp_server": "OK"}
 
@@ -70,14 +73,20 @@ def test_agent_status_defaults_tunnel_true():
         mock_check.assert_called_once_with(tunnel=True)
 
 
-def test_agent_status_has_no_way_to_disable_tunnel_from_the_cli():
-    """Known gap: --tunnel has no --no-tunnel counterpart and already defaults to
-    True, so there is currently no CLI-reachable way to pass tunnel=False into
-    runtime.check() for `dia agent status` (unlike `ask`, where the default is
-    False and --tunnel toggles it on)."""
+def test_agent_status_has_no_tunnel_option():
+    """The --tunnel option was removed from `status` entirely - runtime.check()
+    still supports tunnel=False, but only reachable by calling it directly in
+    Python (e.g. tests), not from this CLI command."""
     result = runner.invoke(app, ["agent", "status", "--help"])
 
+    assert "--tunnel" not in result.output
     assert "--no-tunnel" not in result.output
+
+
+def test_agent_status_rejects_tunnel_flag():
+    result = runner.invoke(app, ["agent", "status", "--tunnel"])
+
+    assert result.exit_code != 0
 
 
 def test_agent_status_prints_one_line_per_component():
