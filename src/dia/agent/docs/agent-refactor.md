@@ -340,13 +340,21 @@ path.
        from dia.agent import runtime
        typer.echo(runtime.ask(department, query, tunnel=tunnel))
    ```
-7. **`runtime.py`** - new `check(*, tunnel: bool = True) -> bool` (or similar): same
-   `nullcontext()`/`open_tunnel()` selection as `ask()`, calls `_connect_stores()` and
-   `_start_mcp_server()` inside that context, reports success/failure per component -
-   stops there, never calls `_run_agent()`/`agents.make_default_agent()`. Splitting
-   stores from the MCP server into two helpers (rather than one combined "bootstrap"
-   helper) means `check()` can report *which* dependency failed, not just a single
-   pass/fail.
+7. **`runtime.py`** - new `check(*, tunnel: bool = True)`: one command, three named
+   checks, run in dependency order, each **skipped rather than attempted** once an
+   earlier one has failed (stores can't succeed without a tunnel; the MCP server can't
+   succeed without stores) - this way a single invocation makes the failure point
+   obvious instead of the caller having to run/interpret three separate commands that
+   would all fail for the same root cause:
+   - **`tunnel`**: if `tunnel=True`, enter `open_tunnel()` (a `TimeoutError` here means
+     `FAILED`); if `tunnel=False`, reported as `SKIPPED` (explicitly opted out, not a
+     failure).
+   - **`stores`**: `_connect_stores()` - only attempted if `tunnel` was `OK`/`SKIPPED`.
+   - **`mcp_server`**: `_start_mcp_server()` - only attempted if `stores` was `OK`.
+   - Never calls `_run_agent()`/`agents.make_default_agent()` - no LLM call, no cost.
+   - Returns a small structured result (e.g. a dict/dataclass with one
+     `OK`/`FAILED`/`SKIPPED` per component) rather than a bare `bool`, so `cli.py` can
+     print a line per component plus one overall summary line.
 
    > **Known limitation (deferred, revisit later):** `start_server()`'s internal MCP
    > verification step (in `mcp/server.py`, the block that connects a short-lived
@@ -358,7 +366,8 @@ path.
    > actually responding," because that specific failure is swallowed before it ever
    > reaches `check()`. Not being fixed as part of this PR - come back to this if
    > `agent status` needs a harder guarantee than "didn't crash."
-8. **`cli.py`** - `agent_app` gains a second command:
+8. **`cli.py`** - `agent_app` gains a second command that prints one line per component
+   plus an overall result:
    ```python
    @agent_app.command("status")
    def agent_status(
@@ -367,8 +376,17 @@ path.
        ] = True,
    ):
        from dia.agent import runtime
-       ok = runtime.check(tunnel=tunnel)
-       typer.echo("OK" if ok else "FAILED")
+       result = runtime.check(tunnel=tunnel)
+       for component, status in result.items():
+           typer.echo(f"{component}: {status}")
+       typer.echo("OK" if all(s == "OK" for s in result.values()) else "FAILED")
+   ```
+   Example output when the tunnel is down:
+   ```
+   tunnel: FAILED
+   stores: SKIPPED
+   mcp_server: SKIPPED
+   FAILED
    ```
 9. **Tests:** `test_agent_mcp_tools_init.py` (register_all_tools calls all 4
    `register()`s), extended MCP-server test (build_mcp_server results in all 11 tools
@@ -378,13 +396,15 @@ path.
    `mcp.server.build_mcp_server/start_server`, `agents.make_default_agent` at the
    boundary; asserts `apply_all()` runs before store construction, full chain called in
    order, fake agent receives `query`, `ask()` returns an `AgentResponse` wrapping
-   `str(result)`, and `check()` calls `_connect_stores()`/`_start_mcp_server()` but never
-   `_run_agent()`), `test_agent_tunnel.py` (mocks `subprocess.Popen`/socket-connect to
-   test readiness-poll/reuse-existing/timeout/teardown logic without real AWS/SSH),
+   `str(result)`, and `check()`: reports `tunnel`/`stores`/`mcp_server` correctly on the
+   happy path, reports `stores`/`mcp_server` as `SKIPPED` when `tunnel` fails, reports
+   `mcp_server` as `SKIPPED` when `stores` fails, never calls `_run_agent()`),
+   `test_agent_tunnel.py` (mocks `subprocess.Popen`/socket-connect to test
+   readiness-poll/reuse-existing/timeout/teardown logic without real AWS/SSH),
    `test_cli_agent.py` (`CliRunner` invokes `dia agent ask --department ... --query ...`
    and `dia agent status` with `dia.agent.runtime.ask`/`check` mocked, asserts
-   pass-through + echoed output, including that `--tunnel` maps to `tunnel=True`).
-   Manual (non-automated) verification, since it needs real AWS/SSH:
+   pass-through + echoed output per component, including that `--tunnel` maps to
+   `tunnel=True`). Manual (non-automated) verification, since it needs real AWS/SSH:
    `uv run dia agent ask --query "..." --department "Home Office" --tunnel` against dev.
 
 ---

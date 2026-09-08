@@ -3,36 +3,48 @@
 import logging
 from contextlib import nullcontext
 
-from dia.agent import agents, stores
-from dia.agent.config import settings
-from dia.agent.mcp import server as mcp_server
 from dia.agent.models import AgentInput, AgentResponse
 from dia.agent.patches import apply_all
+from dia.agent.steps import _connect_stores, _run_agent, _start_mcp_server
 from dia.agent.tunnel import open_tunnel
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-def _connect_stores():
-    """Connect to Neptune/AOSS and warm up the graph index. Must run before _start_mcp_server()."""
-    graph_store = stores.build_graph_store(settings.neptune_endpoint)
-    vector_store = stores.build_vector_store(settings.aoss_endpoint)
-    stores.build_graph_index(graph_store, vector_store)
-    return graph_store, vector_store
+def check(*, tunnel: bool = True) -> dict[str, str]:
+    """Connectivity check: tunnel -> stores -> mcp_server, skipping later steps on failure. No LLM call."""
+    result = {"tunnel": "SKIPPED", "stores": "SKIPPED", "mcp_server": "SKIPPED"}
 
+    ctx = nullcontext()
+    if tunnel:
+        try:
+            ctx = open_tunnel()
+            result["tunnel"] = "OK"
+        except Exception as e:
+            logger.error("tunnel check failed: %s", e)
+            result["tunnel"] = "FAILED"
+            return result
 
-def _start_mcp_server(graph_store, vector_store):
-    """Build and start the MCP server; graph_store/vector_store must already be connected. Returns the server URL."""
-    server = mcp_server.build_mcp_server(graph_store, vector_store)
-    return mcp_server.start_server(server)
+    with ctx:
+        if result["tunnel"] in ("OK", "SKIPPED"):
+            try:
+                graph_store, vector_store = _connect_stores()
+                result["stores"] = "OK"
+            except Exception as e:
+                logger.error("stores check failed: %s", e)
+                result["stores"] = "FAILED"
+                return result
 
+        if result["stores"] == "OK":
+            try:
+                _start_mcp_server(graph_store, vector_store)
+                result["mcp_server"] = "OK"
+            except Exception as e:
+                logger.error("mcp_server check failed: %s", e)
+                result["mcp_server"] = "FAILED"
 
-def _run_agent(department, query) -> str:
-    """Build the default agent scoped to department and run query, returning the answer as str."""
-    agent = agents.make_default_agent(department)
-    result = agent(query)
-    return str(result)
+    return result
 
 
 def ask(department: str | None, query: str, *, tunnel: bool = False) -> AgentResponse:
