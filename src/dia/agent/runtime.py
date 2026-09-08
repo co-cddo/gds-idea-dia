@@ -53,6 +53,7 @@ def check(*, tunnel: bool = True) -> dict[str, CheckStatus]:
         result["mcp_server"] = CheckStatus.FAILED
 
     return result
+    return result
 
 
 def ask(department: str | None, query: str, *, tunnel: bool = False) -> AgentResponse:
