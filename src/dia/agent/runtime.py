@@ -1,7 +1,7 @@
 """End-to-end agent bootstrap: config -> stores -> MCP server -> agent -> answer."""
 
 import logging
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 
 from dia.agent.models import AgentInput, AgentResponse
 from dia.agent.patches import apply_all
@@ -16,33 +16,30 @@ def check(*, tunnel: bool = True) -> dict[str, str]:
     """Connectivity check: tunnel -> stores -> mcp_server, skipping later steps on failure. No LLM call."""
     result = {"tunnel": "SKIPPED", "stores": "SKIPPED", "mcp_server": "SKIPPED"}
 
-    ctx = nullcontext()
-    if tunnel:
-        try:
-            ctx = open_tunnel()
-            result["tunnel"] = "OK"
-        except Exception as e:
-            logger.error("tunnel check failed: %s", e)
-            result["tunnel"] = "FAILED"
-            return result
-
-    with ctx:
-        if result["tunnel"] in ("OK", "SKIPPED"):
+    with ExitStack() as stack:
+        if tunnel:
             try:
-                graph_store, vector_store = _connect_stores()
-                result["stores"] = "OK"
+                stack.enter_context(open_tunnel())
+                result["tunnel"] = "OK"
             except Exception as e:
-                logger.error("stores check failed: %s", e)
-                result["stores"] = "FAILED"
+                logger.error("tunnel check failed: %s", e)
+                result["tunnel"] = "FAILED"
                 return result
 
-        if result["stores"] == "OK":
-            try:
-                _start_mcp_server(graph_store, vector_store)
-                result["mcp_server"] = "OK"
-            except Exception as e:
-                logger.error("mcp_server check failed: %s", e)
-                result["mcp_server"] = "FAILED"
+        try:
+            graph_store, vector_store = _connect_stores()
+            result["stores"] = "OK"
+        except Exception as e:
+            logger.error("stores check failed: %s", e)
+            result["stores"] = "FAILED"
+            return result
+
+        try:
+            _start_mcp_server(graph_store, vector_store)
+            result["mcp_server"] = "OK"
+        except Exception as e:
+            logger.error("mcp_server check failed: %s", e)
+            result["mcp_server"] = "FAILED"
 
     return result
 
