@@ -179,7 +179,7 @@ def test_batch_inference_role_has_permissions_boundary(synth):
     )
 
 
-def test_batch_inference_role_grants_access_to_batch_bucket_only(synth):
+def test_batch_inference_role_grants_access_to_batch_bucket(synth):
     template = synth(StorageStack)
 
     buckets = template.find_resources("AWS::S3::Bucket")
@@ -193,12 +193,27 @@ def test_batch_inference_role_grants_access_to_batch_bucket_only(synth):
     (policy,) = [
         p for p in policies.values() if p["Properties"]["PolicyName"].startswith("BatchInferenceRoleDefaultPolicy")
     ]
-    (statement,) = policy["Properties"]["PolicyDocument"]["Statement"]
+    statements = policy["Properties"]["PolicyDocument"]["Statement"]
+    (statement,) = [s for s in statements if s.get("Action") not in ("bedrock:InvokeModel", ["bedrock:InvokeModel"])]
     resources = statement["Resource"]
 
     assert statement["Effect"] == "Allow"
     assert resources[0] == {"Fn::GetAtt": [batch_bucket_id, "Arn"]}
     assert resources[1] == {"Fn::Join": ["", [{"Fn::GetAtt": [batch_bucket_id, "Arn"]}, "/*"]]}
+
+
+def test_batch_inference_role_can_invoke_model(synth):
+    template = synth(StorageStack)
+
+    policies = template.find_resources("AWS::IAM::Policy")
+    (policy,) = [
+        p for p in policies.values() if p["Properties"]["PolicyName"].startswith("BatchInferenceRoleDefaultPolicy")
+    ]
+    statements = policy["Properties"]["PolicyDocument"]["Statement"]
+    (statement,) = [s for s in statements if s.get("Action") in ("bedrock:InvokeModel", ["bedrock:InvokeModel"])]
+
+    assert statement["Effect"] == "Allow"
+    assert statement["Resource"] == "*"
 
 
 def test_outputs_batch_inference_role_arn(synth):
