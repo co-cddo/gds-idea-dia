@@ -23,7 +23,10 @@ class StorageStack(cdk.Stack):
         DynamoDB Tables:
             - ledger: Tracks which documents have been successfully processed
         IAM:
-            - batch-inference role: assumed by Bedrock Batch Inference jobs, scoped to the batch bucket
+            - batch-inference role: assumed by Bedrock Batch Inference jobs, scoped to the batch
+              bucket (S3 read/write) plus bedrock:InvokeModel (required by the Bedrock batch
+              inference service role itself to execute model invocations; resource is "*" since
+              cross-region inference profiles fan out to per-region foundation-model ARNs)
     """
 
     def __init__(self, scope: Construct, construct_id: str, *, config: AppConfig, **kwargs) -> None:
@@ -116,6 +119,13 @@ class StorageStack(cdk.Stack):
             ),
         )
         self.batch_bucket.grant_read_write(self.batch_inference_role)
+        self.batch_inference_role.add_to_policy(
+            iam.PolicyStatement(
+                sid="BatchInference",
+                actions=["bedrock:InvokeModel"],
+                resources=["*"],
+            )
+        )
 
         cdk.CfnOutput(
             self,
