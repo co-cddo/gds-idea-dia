@@ -22,9 +22,9 @@ def _is_port_open(port: int, host: str) -> bool:
 @contextmanager
 def open_tunnel(
     phase: str | None = None,
-    port: int = settings.neptune_port,
-    timeout: float = settings.timeout,
-    host: str = settings.host,
+    port: int = settings.tunnel_host,
+    timeout: float = settings.tunnel_timeout,
+    host: str = settings.tunnel_host,
 ):
     """Ensure the Neptune SSH tunnel is open, reusing one if already running.
 
