@@ -96,9 +96,7 @@ def test_spawns_subprocess_when_port_not_already_open():
         with open_tunnel(phase="dev", port=8182, timeout=30.0, host="127.0.0.1"):
             pass
 
-        mocks["Popen"].assert_called_once_with(
-            ["scripts/neptune-tunnel.sh", "dev"], start_new_session=True
-        )
+        mocks["Popen"].assert_called_once_with(["scripts/neptune-tunnel.sh", "dev"], start_new_session=True)
     finally:
         _stop_all(patches)
 
@@ -132,9 +130,7 @@ def test_default_phase_uses_detect_environment_short_name():
         with open_tunnel(port=8182, timeout=30.0, host="127.0.0.1"):
             pass
 
-        mocks["Popen"].assert_called_once_with(
-            ["scripts/neptune-tunnel.sh", "dev"], start_new_session=True
-        )
+        mocks["Popen"].assert_called_once_with(["scripts/neptune-tunnel.sh", "dev"], start_new_session=True)
     finally:
         _stop_all(patches)
 

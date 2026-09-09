@@ -3,7 +3,7 @@
 import logging
 from contextlib import ExitStack, nullcontext
 
-from dia.agent.models import AgentInput, AgentResponse
+from dia.agent.models import AgentInput, AgentResponse, CheckStatus
 from dia.agent.patches import apply_all
 from dia.agent.steps import _connect_stores, _run_agent, _start_mcp_server
 from dia.agent.tunnel import open_tunnel
@@ -12,34 +12,38 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-def check(*, tunnel: bool = True) -> dict[str, str]:
+def check(*, tunnel: bool = True) -> dict[str, CheckStatus]:
     """Connectivity check: tunnel -> stores -> mcp_server, skipping later steps on failure. No LLM call."""
-    result = {"tunnel": "SKIPPED", "stores": "SKIPPED", "mcp_server": "SKIPPED"}
+    result: dict[str, CheckStatus] = {
+        "tunnel": CheckStatus.SKIPPED,
+        "stores": CheckStatus.SKIPPED,
+        "mcp_server": CheckStatus.SKIPPED,
+    }
 
     with ExitStack() as stack:
         if tunnel:
             try:
                 stack.enter_context(open_tunnel())
-                result["tunnel"] = "OK"
+                result["tunnel"] = CheckStatus.OK
             except Exception as e:
                 logger.error("tunnel check failed: %s", e)
-                result["tunnel"] = "FAILED"
+                result["tunnel"] = CheckStatus.FAILED
                 return result
 
         try:
             graph_store, vector_store = _connect_stores()
-            result["stores"] = "OK"
+            result["stores"] = CheckStatus.OK
         except Exception as e:
             logger.error("stores check failed: %s", e)
-            result["stores"] = "FAILED"
+            result["stores"] = CheckStatus.FAILED
             return result
 
         try:
             _start_mcp_server(graph_store, vector_store)
-            result["mcp_server"] = "OK"
+            result["mcp_server"] = CheckStatus.OK
         except Exception as e:
             logger.error("mcp_server check failed: %s", e)
-            result["mcp_server"] = "FAILED"
+            result["mcp_server"] = CheckStatus.FAILED
 
     return result
 

@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     # -- MCP server defaults --
     mcp_port: int = Field(default=8000)
 
-    # -- Neptune port --
+    # -- Neptune SSH tunnel defaults --
 
     tunnel_port: int = Field(default=8182)
     tunnel_timeout: float = Field(default=30.0)
