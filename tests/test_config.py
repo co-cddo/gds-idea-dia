@@ -103,6 +103,17 @@ def test_extraction_config_is_frozen():
         config.extraction_model = "something"
 
 
+def test_extraction_config_to_embedding_model():
+    from llama_index.embeddings.bedrock import BedrockEmbedding
+
+    config = ExtractionConfig(embeddings_model="amazon.titan-embed-text-v2:0", region="eu-west-2")
+    embedding_model = config.to_embedding_model()
+
+    assert isinstance(embedding_model, BedrockEmbedding)
+    assert embedding_model.model_name == "amazon.titan-embed-text-v2:0"
+    assert embedding_model.region_name == "eu-west-2"
+
+
 # --- TextExtractionConfig ---
 
 

@@ -54,6 +54,15 @@ class ExtractionConfig(BaseModel, frozen=True):
     read_timeout: int = Field(default=600, gt=0)
     enable_cache: bool = True
 
+    def to_embedding_model(self):
+        """Build the embedding model used for semantic chunking."""
+        from llama_index.embeddings.bedrock import BedrockEmbedding
+
+        return BedrockEmbedding(
+            model_name=self.embeddings_model,
+            region_name=self.region,
+        )
+
 
 class TextExtractionConfig(BaseModel, frozen=True):
     """Configuration for Stage 1: text extraction from documents.
