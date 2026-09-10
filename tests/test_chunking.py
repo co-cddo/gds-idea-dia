@@ -14,6 +14,8 @@ from dia.pipeline.chunk_store import InMemoryChunkStore
 from dia.pipeline.chunking import ChunkingRunner, _build_chunking_pipeline
 from dia.pipeline.models import TextExtractionOutput
 
+FINGERPRINT = "test-fingerprint"
+
 
 class _FakeEmbedding(BaseEmbedding):
     """Deterministic, offline stand-in for BedrockEmbedding.
@@ -144,7 +146,7 @@ def test_build_pipeline_uses_chunking_config_values(monkeypatch):
 def test_runner_produces_chunks(monkeypatch, tmp_path):
     config = _extraction_config(monkeypatch)
     output_source = _FakeOutputSource([_output("doc-1.pdf", _LONG_TEXT)])
-    chunk_store = InMemoryChunkStore()
+    chunk_store = InMemoryChunkStore(FINGERPRINT)
 
     runner = ChunkingRunner(
         source_name="test-source",
@@ -156,17 +158,18 @@ def test_runner_produces_chunks(monkeypatch, tmp_path):
     )
     result = runner.run()
 
-    assert result.total_documents == 1
+    assert result.total == 1
+    assert result.processed == 1
+    assert result.skipped == 0
     assert result.total_chunks > 0
-    assert result.skipped is False
-    assert chunk_store.exists("test-source") is True
     assert len(chunk_store.read("test-source")) == result.total_chunks
+    assert chunk_store.present("test-source") == {("doc-1.pdf", "v1")}
 
 
 def test_runner_preserves_source_relationship(monkeypatch, tmp_path):
     config = _extraction_config(monkeypatch)
     output_source = _FakeOutputSource([_output("files/report.pdf", _LONG_TEXT)])
-    chunk_store = InMemoryChunkStore()
+    chunk_store = InMemoryChunkStore(FINGERPRINT)
 
     runner = ChunkingRunner(
         source_name="test-source",
@@ -189,7 +192,7 @@ def test_runner_preserves_source_relationship(monkeypatch, tmp_path):
 
 def test_runner_no_outputs_is_a_noop(monkeypatch, tmp_path):
     config = _extraction_config(monkeypatch)
-    chunk_store = InMemoryChunkStore()
+    chunk_store = InMemoryChunkStore(FINGERPRINT)
 
     runner = ChunkingRunner(
         source_name="test-source",
@@ -201,16 +204,17 @@ def test_runner_no_outputs_is_a_noop(monkeypatch, tmp_path):
     )
     result = runner.run()
 
-    assert result.total_documents == 0
+    assert result.total == 0
+    assert result.processed == 0
+    assert result.skipped == 0
     assert result.total_chunks == 0
-    assert result.skipped is False
-    assert chunk_store.exists("test-source") is False
+    assert chunk_store.present("test-source") == set()
 
 
-def test_runner_skips_if_chunks_already_exist(monkeypatch, tmp_path):
+def test_runner_skips_unchanged_documents(monkeypatch, tmp_path):
     config = _extraction_config(monkeypatch)
     output_source = _FakeOutputSource([_output("doc-1.pdf", _LONG_TEXT)])
-    chunk_store = InMemoryChunkStore()
+    chunk_store = InMemoryChunkStore(FINGERPRINT)
 
     first = ChunkingRunner(
         source_name="test-source",
@@ -222,32 +226,105 @@ def test_runner_skips_if_chunks_already_exist(monkeypatch, tmp_path):
     )
     first_result = first.run()
 
-    # Second run: same output source, but the *result* of calling it must not
-    # matter, since a skip must not even list_outputs — swap in an output
-    # source that would fail if touched.
-    class _ExplodingOutputSource:
-        def list_outputs(self, source_name):
-            raise AssertionError("list_outputs should not be called when skipping")
+    # Second run: same output source, but the embedding model must not be
+    # touched again for this document - swap in a poisoned embedding model
+    # that fails if called, so any re-chunking is caught immediately.
+    def _exploding_embedding_model(self):
+        raise AssertionError("to_embedding_model should not be called - nothing to chunk")
+
+    monkeypatch.setattr(ExtractionConfig, "to_embedding_model", _exploding_embedding_model)
 
     second = ChunkingRunner(
         source_name="test-source",
         document_type=DocumentType.BUSINESS_CASE,
-        output_source=_ExplodingOutputSource(),
+        output_source=output_source,
         chunk_store=chunk_store,
         extraction_config=config,
         log_dir=str(tmp_path),
     )
     second_result = second.run()
 
-    assert second_result.skipped is True
-    assert second_result.total_documents == 0
-    assert second_result.total_chunks == first_result.total_chunks
+    assert second_result.total == 1
+    assert second_result.processed == 0
+    assert second_result.skipped == 1
+    assert second_result.total_chunks == 0
+    assert len(chunk_store.read("test-source")) == first_result.total_chunks
 
 
-def test_runner_force_rechunks_even_if_chunks_exist(monkeypatch, tmp_path):
+def test_runner_chunks_only_new_document_alongside_unchanged_one(monkeypatch, tmp_path):
+    """Adding a new document to a source must not force re-chunking
+    documents that haven't changed - this is the whole point of
+    per-document (rather than per-source) tracking in the ChunkStore."""
+    config = _extraction_config(monkeypatch)
+    chunk_store = InMemoryChunkStore(FINGERPRINT)
+
+    first = ChunkingRunner(
+        source_name="test-source",
+        document_type=DocumentType.BUSINESS_CASE,
+        output_source=_FakeOutputSource([_output("doc-1.pdf", _LONG_TEXT)]),
+        chunk_store=chunk_store,
+        extraction_config=config,
+        log_dir=str(tmp_path),
+    )
+    first.run()
+    chunks_after_first = chunk_store.read("test-source")
+
+    second = ChunkingRunner(
+        source_name="test-source",
+        document_type=DocumentType.BUSINESS_CASE,
+        output_source=_FakeOutputSource([_output("doc-1.pdf", _LONG_TEXT), _output("doc-2.pdf", _LONG_TEXT)]),
+        chunk_store=chunk_store,
+        extraction_config=config,
+        log_dir=str(tmp_path),
+    )
+    second_result = second.run()
+
+    assert second_result.total == 2
+    assert second_result.processed == 1  # only doc-2.pdf
+    assert second_result.skipped == 1  # doc-1.pdf untouched
+    assert chunk_store.present("test-source") == {("doc-1.pdf", "v1"), ("doc-2.pdf", "v1")}
+
+    # doc-1.pdf's chunks are byte-identical to before - never re-chunked.
+    doc_1_chunks_before = [n for n in chunks_after_first if n.metadata["key"] == "doc-1.pdf"]
+    doc_1_chunks_after = [n for n in chunk_store.read("test-source") if n.metadata["key"] == "doc-1.pdf"]
+    assert {n.node_id for n in doc_1_chunks_before} == {n.node_id for n in doc_1_chunks_after}
+
+
+def test_runner_rechunks_modified_document(monkeypatch, tmp_path):
+    """A document whose version changed (e.g. a new S3 ETag after a
+    re-upload) must be re-chunked, even without force=True."""
+    config = _extraction_config(monkeypatch)
+    chunk_store = InMemoryChunkStore(FINGERPRINT)
+
+    first = ChunkingRunner(
+        source_name="test-source",
+        document_type=DocumentType.BUSINESS_CASE,
+        output_source=_FakeOutputSource([_output("doc-1.pdf", _LONG_TEXT, version="v1")]),
+        chunk_store=chunk_store,
+        extraction_config=config,
+        log_dir=str(tmp_path),
+    )
+    first.run()
+
+    second = ChunkingRunner(
+        source_name="test-source",
+        document_type=DocumentType.BUSINESS_CASE,
+        output_source=_FakeOutputSource([_output("doc-1.pdf", _LONG_TEXT, version="v2")]),
+        chunk_store=chunk_store,
+        extraction_config=config,
+        log_dir=str(tmp_path),
+    )
+    second_result = second.run()
+
+    assert second_result.processed == 1
+    assert second_result.skipped == 0
+    assert chunk_store.present("test-source") == {("doc-1.pdf", "v2")}
+
+
+def test_runner_force_rechunks_even_if_unchanged(monkeypatch, tmp_path):
     config = _extraction_config(monkeypatch)
     output_source = _FakeOutputSource([_output("doc-1.pdf", _LONG_TEXT)])
-    chunk_store = InMemoryChunkStore()
+    chunk_store = InMemoryChunkStore(FINGERPRINT)
 
     first = ChunkingRunner(
         source_name="test-source",
@@ -271,8 +348,8 @@ def test_runner_force_rechunks_even_if_chunks_exist(monkeypatch, tmp_path):
     )
     second_result = second.run()
 
-    assert second_result.skipped is False
-    assert second_result.total_documents == 1
+    assert second_result.processed == 1
+    assert second_result.skipped == 0
 
 
 def test_runner_without_semantic_splitting_produces_fewer_larger_chunks(monkeypatch, tmp_path):
@@ -283,7 +360,7 @@ def test_runner_without_semantic_splitting_produces_fewer_larger_chunks(monkeypa
     config = _extraction_config(monkeypatch)
     output_source = _FakeOutputSource([_output("doc-1.pdf", _MANY_SENTENCES_TEXT)])
 
-    semantic_store = InMemoryChunkStore()
+    semantic_store = InMemoryChunkStore(FINGERPRINT)
     ChunkingRunner(
         source_name="s",
         document_type=DocumentType.BUSINESS_CASE,
@@ -293,7 +370,7 @@ def test_runner_without_semantic_splitting_produces_fewer_larger_chunks(monkeypa
         log_dir=str(tmp_path),
     ).run()
 
-    sentence_only_store = InMemoryChunkStore()
+    sentence_only_store = InMemoryChunkStore(FINGERPRINT)
     ChunkingRunner(
         source_name="s",
         document_type=DocumentType.CONTRACT_FINDER,
@@ -317,7 +394,7 @@ def test_runner_uses_async_embedding_path(monkeypatch, tmp_path):
     embedding = _FakeEmbedding()
     config = _extraction_config(monkeypatch, embedding=embedding)
     outputs = [_output(f"doc-{i}.pdf", _LONG_TEXT) for i in range(6)]
-    chunk_store = InMemoryChunkStore()
+    chunk_store = InMemoryChunkStore(FINGERPRINT)
 
     runner = ChunkingRunner(
         source_name="test-source",
@@ -329,7 +406,8 @@ def test_runner_uses_async_embedding_path(monkeypatch, tmp_path):
     )
     result = runner.run()
 
-    assert result.total_documents == 6
+    assert result.total == 6
+    assert result.processed == 6
     nodes = chunk_store.read("test-source")
     assert len(nodes) == result.total_chunks
     represented_keys = {n.relationships[NodeRelationship.SOURCE].node_id for n in nodes}
