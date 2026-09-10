@@ -8,7 +8,7 @@ argument/order assertions for each individual step (e.g. build_vector_store
 called with the aoss endpoint, not neptune) live in test_agent_steps.py.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
@@ -143,12 +143,14 @@ def _patch_check(**overrides):
     patches = {
         "_is_port_open": patch("dia.agent.runtime._is_port_open"),
         "register_tunnel_host": patch("dia.agent.runtime.register_tunnel_host"),
+        "neptune_endpoint": patch("dia.agent.config.Settings.neptune_endpoint", new_callable=PropertyMock),
         "_connect_stores": patch("dia.agent.runtime._connect_stores"),
         "_start_mcp_server": patch("dia.agent.runtime._start_mcp_server"),
         "_run_agent": patch("dia.agent.runtime._run_agent"),
     }
     mocks = {name: p.start() for name, p in patches.items()}
     mocks["_is_port_open"].return_value = True
+    mocks["neptune_endpoint"].return_value = "neptune-endpoint"
     mocks["_connect_stores"].return_value = ("graph_store", "vector_store")
     for name, value in overrides.items():
         mocks[name].side_effect = value
