@@ -1,8 +1,11 @@
 """Tests for dia.pipeline.chunk_store — persisting chunks between stages."""
 
+import boto3
+import pytest
 from llama_index.core.schema import NodeRelationship, RelatedNodeInfo, TextNode
+from moto import mock_aws
 
-from dia.pipeline.chunk_store import ChunkStore, InMemoryChunkStore, LocalChunkStore
+from dia.pipeline.chunk_store import ChunkStore, InMemoryChunkStore, LocalChunkStore, S3ChunkStore
 
 FINGERPRINT = "9b55a7e3"
 
@@ -211,11 +214,110 @@ def test_memory_store_delete_on_missing_source_is_noop():
     store.delete("no-such-source")  # must not raise
 
 
+# --- S3ChunkStore ---
+
+BUCKET = "test-chunks-bucket"
+
+
+@pytest.fixture
+def s3_client():
+    with mock_aws():
+        client = boto3.client("s3", region_name="eu-west-2")
+        client.create_bucket(Bucket=BUCKET, CreateBucketConfiguration={"LocationConstraint": "eu-west-2"})
+        yield client
+
+
+def test_s3_store_read_returns_empty_list_for_missing_source(s3_client):
+    store = S3ChunkStore(FINGERPRINT, bucket=BUCKET, s3_client=s3_client)
+    assert store.read("no-such-source") == []
+
+
+def test_s3_store_present_returns_empty_set_for_missing_source(s3_client):
+    store = S3ChunkStore(FINGERPRINT, bucket=BUCKET, s3_client=s3_client)
+    assert store.present("no-such-source") == set()
+
+
+def test_s3_store_round_trip_preserves_node_id_and_text(s3_client):
+    store = S3ChunkStore(FINGERPRINT, bucket=BUCKET, s3_client=s3_client)
+    store.write("src", "doc-1.pdf", "v1", [_node("n1", "doc-1.pdf", "v1", text="First chunk.")])
+    store.write("src", "doc-2.pdf", "v1", [_node("n2", "doc-2.pdf", "v1", text="Second chunk.")])
+
+    nodes = sorted(store.read("src"), key=lambda n: n.text)
+
+    assert [n.node_id for n in nodes] == ["n1", "n2"]
+    assert [n.text for n in nodes] == ["First chunk.", "Second chunk."]
+
+
+def test_s3_store_round_trip_preserves_source_relationship(s3_client):
+    store = S3ChunkStore(FINGERPRINT, bucket=BUCKET, s3_client=s3_client)
+    store.write("src", "doc-1.pdf", "v1", [_node("n1", "doc-1.pdf", "v1", source_doc_id="doc-1.pdf")])
+
+    (node,) = store.read("src")
+
+    source = node.relationships[NodeRelationship.SOURCE]
+    assert source.node_id == "doc-1.pdf"
+
+
+def test_s3_store_present_does_not_require_reading_chunk_content(s3_client):
+    """present() must answer from the companion .meta.json objects alone -
+    put a chunk .jsonl object that would fail to parse as a TextNode, and
+    confirm present() still works (it never touches that object)."""
+    store = S3ChunkStore(FINGERPRINT, bucket=BUCKET, s3_client=s3_client)
+    store.write("src", "doc-1.pdf", "v1", [_node("n1", "doc-1.pdf", "v1")])
+
+    s3_client.put_object(Bucket=BUCKET, Key=store._jsonl_key("src", "doc-1.pdf"), Body=b"not valid json at all")
+
+    assert store.present("src") == {("doc-1.pdf", "v1")}
+
+
+def test_s3_store_write_replaces_previous_content_for_same_document(s3_client):
+    store = S3ChunkStore(FINGERPRINT, bucket=BUCKET, s3_client=s3_client)
+    store.write("src", "doc-1.pdf", "v1", [_node("old-1", "doc-1.pdf", "v1")])
+    store.write("src", "doc-1.pdf", "v2", [_node("new-1", "doc-1.pdf", "v2")])
+
+    assert [n.node_id for n in store.read("src")] == ["new-1"]
+    assert store.present("src") == {("doc-1.pdf", "v2")}
+
+
+def test_s3_store_keeps_fingerprints_separate(s3_client):
+    store_a = S3ChunkStore("fingerprint-a", bucket=BUCKET, s3_client=s3_client)
+    store_b = S3ChunkStore("fingerprint-b", bucket=BUCKET, s3_client=s3_client)
+
+    store_a.write("src", "doc-1.pdf", "v1", [_node("a1", "doc-1.pdf", "v1")])
+
+    assert [n.node_id for n in store_a.read("src")] == ["a1"]
+    assert store_b.read("src") == []
+    assert store_b.present("src") == set()
+
+
+def test_s3_store_delete_removes_all_documents(s3_client):
+    store = S3ChunkStore(FINGERPRINT, bucket=BUCKET, s3_client=s3_client)
+    store.write("src", "doc-a.pdf", "v1", [_node("a1", "doc-a.pdf", "v1")])
+    store.write("src", "doc-b.pdf", "v1", [_node("b1", "doc-b.pdf", "v1")])
+
+    store.delete("src")
+
+    assert store.read("src") == []
+    assert store.present("src") == set()
+
+    response = s3_client.list_objects_v2(Bucket=BUCKET, Prefix="src/")
+    assert response.get("KeyCount", 0) == 0
+
+
+def test_s3_store_delete_on_missing_source_is_noop(s3_client):
+    store = S3ChunkStore(FINGERPRINT, bucket=BUCKET, s3_client=s3_client)
+    store.delete("no-such-source")  # must not raise
+
+
 # --- Protocol conformance ---
 
 
-def test_both_stores_satisfy_protocol(tmp_path):
-    stores: list[ChunkStore] = [LocalChunkStore(FINGERPRINT, tmp_path), InMemoryChunkStore(FINGERPRINT)]
+def test_all_stores_satisfy_protocol(tmp_path, s3_client):
+    stores: list[ChunkStore] = [
+        LocalChunkStore(FINGERPRINT, tmp_path),
+        InMemoryChunkStore(FINGERPRINT),
+        S3ChunkStore(FINGERPRINT, bucket=BUCKET, s3_client=s3_client),
+    ]
     for store in stores:
         assert store.present("src") == set()
         assert store.write("src", "doc-1.pdf", "v1", [_node("n1", "doc-1.pdf", "v1")]) == 1

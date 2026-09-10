@@ -12,9 +12,9 @@ from stacks.storage import StorageStack
         (DeploymentEnvironment.PRODUCTION, "prod"),
     ],
 )
-def test_creates_three_buckets(synth, environment, phase):
+def test_creates_five_buckets(synth, environment, phase):
     template = synth(StorageStack, environment)
-    template.resource_count_is("AWS::S3::Bucket", 4)
+    template.resource_count_is("AWS::S3::Bucket", 5)
 
 
 @pytest.mark.parametrize(
@@ -49,10 +49,12 @@ def test_bucket_names_follow_pattern(synth, environment, phase):
     "environment,phase,purpose",
     [
         (DeploymentEnvironment.DEVELOPMENT, "dev", "text-extracted"),
+        (DeploymentEnvironment.DEVELOPMENT, "dev", "chunks"),
         (DeploymentEnvironment.DEVELOPMENT, "dev", "graph-raw"),
         (DeploymentEnvironment.DEVELOPMENT, "dev", "graph-validated"),
         (DeploymentEnvironment.DEVELOPMENT, "dev", "batch"),
         (DeploymentEnvironment.PRODUCTION, "prod", "text-extracted"),
+        (DeploymentEnvironment.PRODUCTION, "prod", "chunks"),
         (DeploymentEnvironment.PRODUCTION, "prod", "graph-raw"),
         (DeploymentEnvironment.PRODUCTION, "prod", "graph-validated"),
         (DeploymentEnvironment.PRODUCTION, "prod", "batch"),
@@ -77,7 +79,7 @@ def test_batch_bucket_has_lifecycle_rule(synth):
     )
 
 
-@pytest.mark.parametrize("purpose", ["text-extracted", "graph-raw", "graph-validated"])
+@pytest.mark.parametrize("purpose", ["text-extracted", "chunks", "graph-raw", "graph-validated"])
 def test_data_buckets_are_versioned(synth, purpose):
     template = synth(StorageStack)
     template.has_resource_properties(
