@@ -76,8 +76,7 @@ def _output(key: str, text: str, **overrides) -> TextExtractionOutput:
 
 
 _LONG_TEXT = (
-    "The first sentence sets the scene. The second sentence follows on. "
-    "The third sentence continues the thought. "
+    "The first sentence sets the scene. The second sentence follows on. The third sentence continues the thought. "
 ) * 6
 
 _MANY_SENTENCES_TEXT = "".join(f"Sentence number {i} discusses a slightly different point. " for i in range(150))
