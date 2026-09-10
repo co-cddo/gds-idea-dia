@@ -1,21 +1,14 @@
 """Global extraction configuration and chunking strategies.
 
-ExtractionConfig holds infrastructure/runtime settings (model, region, chunking
-concurrency) that don't vary per source or document type — they vary per
-deployment.
+ExtractionConfig holds infrastructure/runtime settings (embedding model,
+region, embedding concurrency) that don't vary per source or document type
+— they vary per deployment.
 
 ChunkingConfig holds the text splitting strategy. Per-document-type chunking is
 derived from DocumentType, not configured globally.
 """
 
-from typing import Literal
-
 from pydantic import BaseModel, Field
-
-ApprovedModel = Literal[
-    "eu.anthropic.claude-sonnet-4-6",
-    "anthropic.claude-sonnet-4-5-20250929-v1:0",
-]
 
 
 class ChunkingConfig(BaseModel, frozen=True):
@@ -51,24 +44,37 @@ class ChunkingConfig(BaseModel, frozen=True):
 
 
 class ExtractionConfig(BaseModel, frozen=True):
-    """Global infrastructure settings for the extraction pipeline.
+    """Global infrastructure settings for the chunking/extraction pipeline.
 
-    These settings describe the runtime environment — which model to use,
-    how many workers to run, batch sizes, etc. They don't vary per source
-    or document type; they vary per deployment (e.g. cheaper model in dev).
+    These settings describe the runtime environment - which embedding model
+    to use, how concurrent embedding calls are, etc. They don't vary per
+    source or document type; they vary per deployment.
+
+    Only chunking-related settings live here for now (embeddings_model,
+    region, embed_concurrency). Extraction-stage settings (extraction_model,
+    max_tokens, temperature, etc.) will be added alongside to_llm() when the
+    extraction stage is built, rather than kept here unwired in the
+    meantime - a previous version of this config had exactly that problem:
+    fields that looked configurable but were never actually applied anywhere.
 
     Per-document-type processing decisions (chunking strategy, entity
     classifications) are derived from DocumentType, not from this config.
     """
 
-    extraction_model: ApprovedModel = "eu.anthropic.claude-sonnet-4-6"
     embeddings_model: str = "amazon.titan-embed-text-v2:0"
     region: str = "eu-west-2"
-    chunking_num_workers: int = Field(default=4, gt=0)
-    max_tokens: int = Field(default=42768, gt=0)
-    temperature: float | None = Field(default=0.0, ge=0.0, le=1.0)
-    read_timeout: int = Field(default=600, gt=0)
-    enable_cache: bool = True
+    # Bounds the asyncio.Semaphore BedrockEmbedding uses for concurrent
+    # embedding calls (llama_index's BaseEmbedding.num_workers). Titan
+    # doesn't support batched embedding requests (one text per API call
+    # regardless), so embed_batch_size is fixed at 1 in to_embedding_model()
+    # - this is the only concurrency dial, and in-flight requests are
+    # exactly this number, not a multiple of it.
+    #
+    # ge=2, not ge=1: llama_index only engages the semaphore when
+    # num_workers > 1 - at exactly 1 it falls through to a plain
+    # asyncio.gather with NO concurrency limit at all, the opposite of what
+    # this field says.
+    embed_concurrency: int = Field(default=8, ge=2)
 
     def to_embedding_model(self):
         """Build the embedding model used for semantic chunking."""
@@ -77,6 +83,8 @@ class ExtractionConfig(BaseModel, frozen=True):
         return BedrockEmbedding(
             model_name=self.embeddings_model,
             region_name=self.region,
+            num_workers=self.embed_concurrency,
+            embed_batch_size=1,
         )
 
 

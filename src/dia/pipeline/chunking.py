@@ -2,24 +2,30 @@
 
 Deliberately separate from Stage 2b (graph extraction/LLM propositions and
 topics) — see docs/adr/0001-lower-level-graphrag-toolkit-usage.md for why.
-Chunking is embedding-heavy and slow (~20-30 min for 100 documents); if
-extraction subsequently fails, chunks already produced are untouched in the
-ChunkStore, so a retry doesn't have to redo this stage.
+Chunking is embedding-heavy and slow; if extraction subsequently fails,
+chunks already produced are untouched in the ChunkStore, so a retry
+doesn't have to redo this stage.
 
-Uses llama_index's own IngestionPipeline + num_workers directly, not
-graphrag_toolkit's ExtractionPipeline/run_pipeline — llama_index's version
-does exactly the same thing (spawn a process pool, batch nodes across
-workers) with no extra machinery we need. In particular, no IdRewriter: it
-exists to give the toolkit's own IdGenerator deterministic content-hash IDs
-for incremental graph updates, which we don't use. Without it, chunk IDs are
-llama_index's default random ids, and node.relationships[SOURCE].node_id
-still resolves correctly all the way back to the original document's doc_id
-(verified directly against real Bedrock-produced chunks and by tracing
-llama_index's own NodeParser._postprocess_parsed_nodes) - and to_document()
-already sets doc_id=output.key, so that relationship is a stable, meaningful
-value for free.
+Uses IngestionPipeline.arun(), not .run(num_workers=...). Chunking is
+network-bound (Bedrock embedding calls), not CPU-bound, so async
+concurrency (one process, many in-flight requests, bounded by
+ExtractionConfig.embed_concurrency) is the right tool - not multiple
+processes. This also sidesteps the multiprocessing 'spawn' path entirely,
+which previously required credentials to be resolved once per worker
+process.
+
+In particular, no IdRewriter: it exists to give the toolkit's own
+IdGenerator deterministic content-hash IDs for incremental graph updates,
+which we don't use. Without it, chunk IDs are llama_index's default random
+ids, and node.relationships[SOURCE].node_id still resolves correctly all
+the way back to the original document's doc_id (verified directly against
+real Bedrock-produced chunks and by tracing llama_index's own
+NodeParser._postprocess_parsed_nodes) - and to_document() already sets
+doc_id=output.key, so that relationship is a stable, meaningful value for
+free.
 """
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass
@@ -93,6 +99,10 @@ class ChunkingRunner:
         self._log_file = setup_pipeline_logging(self._source_name, log_dir=log_dir)
 
     def run(self) -> ChunkingResult:
+        """Sync public interface — runs the async pipeline internally."""
+        return asyncio.run(self._run_async())
+
+    async def _run_async(self) -> ChunkingResult:
         """Chunk every Stage 1 output for this source and persist the result.
 
         If chunks already exist for this source and force is False, skips
@@ -123,7 +133,7 @@ class ChunkingRunner:
 
         parsers = _build_chunking_pipeline(self._document_type.chunking, self._extraction_config)
         pipeline = IngestionPipeline(transformations=parsers)
-        nodes = pipeline.run(documents=documents, num_workers=self._extraction_config.chunking_num_workers)
+        nodes = await pipeline.arun(documents=documents)
 
         total_chunks = self._chunk_store.write(self._source_name, nodes)
 

@@ -52,66 +52,51 @@ def test_chunking_config_is_frozen():
 def test_extraction_config_defaults():
     config = ExtractionConfig()
 
-    assert config.extraction_model == "eu.anthropic.claude-sonnet-4-6"
     assert config.embeddings_model == "amazon.titan-embed-text-v2:0"
     assert config.region == "eu-west-2"
-    assert config.chunking_num_workers == 4
-    assert config.max_tokens == 42768
-    assert config.temperature == 0.0
-    assert config.read_timeout == 600
-    assert config.enable_cache is True
+    assert config.embed_concurrency == 8
 
 
 def test_extraction_config_override():
     config = ExtractionConfig(
-        extraction_model="anthropic.claude-sonnet-4-5-20250929-v1:0",
-        chunking_num_workers=8,
+        embeddings_model="amazon.titan-embed-text-v1",
+        embed_concurrency=4,
     )
 
-    assert config.extraction_model == "anthropic.claude-sonnet-4-5-20250929-v1:0"
-    assert config.chunking_num_workers == 8
+    assert config.embeddings_model == "amazon.titan-embed-text-v1"
+    assert config.embed_concurrency == 4
 
 
-def test_extraction_config_rejects_unapproved_model():
+def test_extraction_config_rejects_zero_embed_concurrency():
     with pytest.raises(ValidationError):
-        ExtractionConfig(extraction_model="eu.anthropic.claude-haiku-4-5-20251001-v1:0")
+        ExtractionConfig(embed_concurrency=0)
 
 
-def test_extraction_config_rejects_zero_chunking_workers():
+def test_extraction_config_rejects_embed_concurrency_of_one():
+    """embed_concurrency=1 would silently disable the semaphore (llama_index
+    only applies it when num_workers > 1), so it's rejected rather than
+    accepted-but-misleading."""
     with pytest.raises(ValidationError):
-        ExtractionConfig(chunking_num_workers=0)
-
-
-def test_extraction_config_rejects_negative_temperature():
-    with pytest.raises(ValidationError):
-        ExtractionConfig(temperature=-0.1)
-
-
-def test_extraction_config_rejects_temperature_over_1():
-    with pytest.raises(ValidationError):
-        ExtractionConfig(temperature=1.1)
-
-
-def test_extraction_config_temperature_none():
-    config = ExtractionConfig(temperature=None)
-    assert config.temperature is None
+        ExtractionConfig(embed_concurrency=1)
 
 
 def test_extraction_config_is_frozen():
     config = ExtractionConfig()
     with pytest.raises(ValidationError):
-        config.extraction_model = "something"
+        config.embed_concurrency = 99
 
 
 def test_extraction_config_to_embedding_model():
     from llama_index.embeddings.bedrock import BedrockEmbedding
 
-    config = ExtractionConfig(embeddings_model="amazon.titan-embed-text-v2:0", region="eu-west-2")
+    config = ExtractionConfig(embeddings_model="amazon.titan-embed-text-v2:0", region="eu-west-2", embed_concurrency=6)
     embedding_model = config.to_embedding_model()
 
     assert isinstance(embedding_model, BedrockEmbedding)
     assert embedding_model.model_name == "amazon.titan-embed-text-v2:0"
     assert embedding_model.region_name == "eu-west-2"
+    assert embedding_model.num_workers == 6
+    assert embedding_model.embed_batch_size == 1
 
 
 # --- TextExtractionConfig ---
