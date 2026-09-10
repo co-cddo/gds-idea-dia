@@ -11,8 +11,8 @@ from dia.config import ChunkingConfig, ExtractionConfig, TextExtractionConfig
 def test_chunking_config_defaults():
     config = ChunkingConfig()
 
-    assert config.sentence_chunk_size == 7900
-    assert config.sentence_chunk_overlap == 100
+    assert config.sentence_chunk_size_tokens == 7900
+    assert config.sentence_chunk_overlap_tokens == 100
     assert config.use_semantic_splitting is True
     assert config.semantic_buffer_size == 3
     assert config.semantic_breakpoint_threshold == 97
@@ -22,17 +22,17 @@ def test_chunking_config_no_semantic():
     config = ChunkingConfig(use_semantic_splitting=False)
 
     assert config.use_semantic_splitting is False
-    assert config.sentence_chunk_size == 7900
+    assert config.sentence_chunk_size_tokens == 7900
 
 
 def test_chunking_config_rejects_zero_chunk_size():
     with pytest.raises(ValidationError):
-        ChunkingConfig(sentence_chunk_size=0)
+        ChunkingConfig(sentence_chunk_size_tokens=0)
 
 
 def test_chunking_config_rejects_negative_overlap():
     with pytest.raises(ValidationError):
-        ChunkingConfig(sentence_chunk_overlap=-1)
+        ChunkingConfig(sentence_chunk_overlap_tokens=-1)
 
 
 def test_chunking_config_rejects_threshold_over_100():
@@ -43,7 +43,40 @@ def test_chunking_config_rejects_threshold_over_100():
 def test_chunking_config_is_frozen():
     config = ChunkingConfig()
     with pytest.raises(ValidationError):
-        config.sentence_chunk_size = 1000
+        config.sentence_chunk_size_tokens = 1000
+
+
+def test_chunking_config_fingerprint_is_stable():
+    config = ChunkingConfig()
+    assert config.to_fingerprint("amazon.titan-embed-text-v2:0") == config.to_fingerprint(
+        "amazon.titan-embed-text-v2:0"
+    )
+
+
+def test_chunking_config_fingerprint_differs_for_different_config():
+    default = ChunkingConfig()
+    different = ChunkingConfig(semantic_breakpoint_threshold=95)
+
+    assert default.to_fingerprint("amazon.titan-embed-text-v2:0") != different.to_fingerprint(
+        "amazon.titan-embed-text-v2:0"
+    )
+
+
+def test_chunking_config_fingerprint_differs_for_different_embeddings_model():
+    """embeddings_model isn't a field on ChunkingConfig, but it directly
+    determines where the semantic splitter cuts, so it must affect the
+    fingerprint even though the config object itself is identical."""
+    config = ChunkingConfig()
+
+    assert config.to_fingerprint("amazon.titan-embed-text-v2:0") != config.to_fingerprint("cohere.embed-english-v3")
+
+
+def test_chunking_config_fingerprint_is_short_hex():
+    config = ChunkingConfig()
+    fingerprint = config.to_fingerprint("amazon.titan-embed-text-v2:0")
+
+    assert len(fingerprint) == 8
+    assert all(c in "0123456789abcdef" for c in fingerprint)
 
 
 # --- ExtractionConfig ---
@@ -52,62 +85,51 @@ def test_chunking_config_is_frozen():
 def test_extraction_config_defaults():
     config = ExtractionConfig()
 
-    assert config.extraction_model == "eu.anthropic.claude-sonnet-4-6"
     assert config.embeddings_model == "amazon.titan-embed-text-v2:0"
     assert config.region == "eu-west-2"
-    assert config.extraction_batch_size == 20000
-    assert config.extraction_num_workers == 1
-    assert config.extraction_num_threads_per_worker == 2
-    assert config.max_tokens == 42768
-    assert config.temperature == 0.0
-    assert config.read_timeout == 600
-    assert config.enable_cache is True
+    assert config.embed_concurrency == 8
 
 
 def test_extraction_config_override():
     config = ExtractionConfig(
-        extraction_model="anthropic.claude-sonnet-4-5-20250929-v1:0",
-        extraction_batch_size=5000,
+        embeddings_model="amazon.titan-embed-text-v1",
+        embed_concurrency=4,
     )
 
-    assert config.extraction_model == "anthropic.claude-sonnet-4-5-20250929-v1:0"
-    assert config.extraction_batch_size == 5000
+    assert config.embeddings_model == "amazon.titan-embed-text-v1"
+    assert config.embed_concurrency == 4
 
 
-def test_extraction_config_rejects_unapproved_model():
+def test_extraction_config_rejects_zero_embed_concurrency():
     with pytest.raises(ValidationError):
-        ExtractionConfig(extraction_model="eu.anthropic.claude-haiku-4-5-20251001-v1:0")
+        ExtractionConfig(embed_concurrency=0)
 
 
-def test_extraction_config_rejects_zero_batch_size():
+def test_extraction_config_rejects_embed_concurrency_of_one():
+    """embed_concurrency=1 would silently disable the semaphore (llama_index
+    only applies it when num_workers > 1), so it's rejected rather than
+    accepted-but-misleading."""
     with pytest.raises(ValidationError):
-        ExtractionConfig(extraction_batch_size=0)
-
-
-def test_extraction_config_rejects_zero_workers():
-    with pytest.raises(ValidationError):
-        ExtractionConfig(extraction_num_workers=0)
-
-
-def test_extraction_config_rejects_negative_temperature():
-    with pytest.raises(ValidationError):
-        ExtractionConfig(temperature=-0.1)
-
-
-def test_extraction_config_rejects_temperature_over_1():
-    with pytest.raises(ValidationError):
-        ExtractionConfig(temperature=1.1)
-
-
-def test_extraction_config_temperature_none():
-    config = ExtractionConfig(temperature=None)
-    assert config.temperature is None
+        ExtractionConfig(embed_concurrency=1)
 
 
 def test_extraction_config_is_frozen():
     config = ExtractionConfig()
     with pytest.raises(ValidationError):
-        config.extraction_model = "something"
+        config.embed_concurrency = 99
+
+
+def test_extraction_config_to_embedding_model():
+    from llama_index.embeddings.bedrock import BedrockEmbedding
+
+    config = ExtractionConfig(embeddings_model="amazon.titan-embed-text-v2:0", region="eu-west-2", embed_concurrency=6)
+    embedding_model = config.to_embedding_model()
+
+    assert isinstance(embedding_model, BedrockEmbedding)
+    assert embedding_model.model_name == "amazon.titan-embed-text-v2:0"
+    assert embedding_model.region_name == "eu-west-2"
+    assert embedding_model.num_workers == 6
+    assert embedding_model.embed_batch_size == 1
 
 
 # --- TextExtractionConfig ---

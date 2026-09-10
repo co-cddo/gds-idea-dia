@@ -50,3 +50,13 @@ def resolve_text_output_bucket() -> str:
     """
     env = detect_environment()
     return f"gds-idea-dia-text-extracted-{env.short_name}"
+
+
+def resolve_chunks_bucket() -> str:
+    """Derive the chunks S3 bucket name from the active environment.
+
+    Returns:
+        Bucket name following the pattern: gds-idea-dia-chunks-{phase}
+    """
+    env = detect_environment()
+    return f"gds-idea-dia-chunks-{env.short_name}"

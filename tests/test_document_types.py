@@ -74,7 +74,7 @@ def test_entity_classifications_length():
 def test_business_case_uses_full_chunking():
     chunking = DocumentType.BUSINESS_CASE.chunking
     assert chunking.use_semantic_splitting is True
-    assert chunking.sentence_chunk_size == 7900
+    assert chunking.sentence_chunk_size_tokens == 7900
 
 
 def test_sr_bids_uses_full_chunking():
@@ -85,7 +85,7 @@ def test_sr_bids_uses_full_chunking():
 def test_contract_finder_skips_semantic_splitting():
     chunking = DocumentType.CONTRACT_FINDER.chunking
     assert chunking.use_semantic_splitting is False
-    assert chunking.sentence_chunk_size == 7900
+    assert chunking.sentence_chunk_size_tokens == 7900
 
 
 # --- Base classifications list ---
@@ -116,6 +116,6 @@ def test_document_type_config_frozen():
 def test_document_type_config_custom_chunking():
     config = DocumentTypeConfig(
         id_field="Test ID",
-        chunking=ChunkingConfig(sentence_chunk_size=4000),
+        chunking=ChunkingConfig(sentence_chunk_size_tokens=4000),
     )
-    assert config.chunking.sentence_chunk_size == 4000
+    assert config.chunking.sentence_chunk_size_tokens == 4000
