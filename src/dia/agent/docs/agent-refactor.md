@@ -181,15 +181,17 @@ investigation, etc.) plus a Stage 2 supervisor/router agent to pick between them
 in **skills** based on the query, instead of selecting an entire bespoke system prompt.
 
 **Chose: one agent + skills.** Rationale:
-- Maintaining ~12 near-duplicate system prompts (with real overlap - see the
-  `dbr`/`default` and `supplier_lockin`/`supplier_ecosystem` pairs called out in Stage 2
-  below) doesn't scale, and a router just adds a second LLM call to disambiguate prompts
-  that are already too similar to disambiguate reliably.
+- Maintaining ~12 near-duplicate system prompts doesn't scale, and a router just adds a
+  second LLM call to disambiguate prompts that overlap in scope and are already too
+  similar to disambiguate reliably - notably `dbr` vs `default` (formal whole-department
+  dossier vs general-purpose/less formal) and `supplier_lockin` vs `supplier_ecosystem`
+  (dependency-risk framing vs market-landscape framing).
 - A single agent with composable skills means new capabilities are additive (drop in a
   new skill) rather than requiring a whole new system prompt + factory function +
   router-facing description to keep in sync.
 - This removes the need for a `--agent` flag (Decision 7) and a supervisor/router stage
-  (Stage 2) entirely - both are superseded by this decision.
+  entirely - both are superseded by this decision (see Decision 9 for the concrete
+  skills implementation).
 
 **Not yet decided (explicitly deferred, separate follow-up conversation):**
 - Skills folder/module structure (e.g. `agent/skills/<name>.py`, a registry, how a skill
@@ -216,6 +218,56 @@ in **skills** based on the query, instead of selecting an entire bespoke system 
 `--agent` flag, the CLI-wiring PRs deliberately keep things simple - no agent registry,
 no dispatch logic. `runtime.ask()` calls `agents.make_default_agent(department)` only.
 The skills design is a separate, later piece of work.
+
+---
+
+## Decision 9: Skills implementation - Strands native `AgentSkills` plugin, DBR first
+
+**Considered:** Build a custom skills abstraction (registry, discovery, own loading
+mechanism) vs. using `strands-agents`' own native `AgentSkills` plugin
+(`strands.vended_plugins.skills`), which already implements the AgentSkills.io spec and
+ships in the installed SDK version (1.48.0; `pyproject.toml` currently floors
+`strands-agents>=1.20.0` - needs confirming the plugin exists at that floor before
+merging, may need to bump it).
+
+**Chose: native `AgentSkills` plugin.** Resolves Decision 8's deferred items:
+
+- **Folder structure:** `prompts/skills/<persona>/SKILL.md` - one hand-written markdown
+  file per persona (YAML frontmatter for `name`/`description`, markdown body for
+  `instructions`). No custom registry needed; the plugin's `Skill.from_directory()`
+  loads all of them.
+- **Selection mechanism:** fully autonomous, not code-selected. The plugin injects a
+  `<available_skills>` block (name + description only, not full content) into the
+  system prompt on every invocation. The LLM reads the query and calls a `skills(name)`
+  tool the plugin registers to pull in a skill's full `instructions` on demand. One
+  agent, N skills, model decides - no `--agent` flag, no router/supervisor LLM call
+  needed.
+- **Fragments/templates split:** `prompts/fragments/` keeps only the ~15 fragments
+  reused by 2+ personas (the reuse test becomes "is it in `fragments/`?"). The ~59
+  persona-solo fragments (e.g. DBR's 6: `DBR_INVESTIGATION_METHOD`, `DBR_OUTPUT_SPEC`,
+  `dbr_output_card`, `dbr_required_graph_queries`, `dbr_required_athena_queries`,
+  `dbr_web_searches`) move out of Python into their persona's `SKILL.md` as static
+  markdown - verified zero reuse elsewhere, so this loses no code-sharing and gains
+  direct editability (no `join_sections`/Python tracing to edit persona content).
+  `prompts/templates/*.py` collapses from 12 near-duplicate files to one function
+  assembling the shared base prompt from `fragments/`.
+- **Department `None`-safety:** solved by keeping skill content generic prose (e.g. "the
+  department currently in scope") rather than interpolating `department_name` into
+  skill text. The shared base prompt (built from `fragments/`) remains the only place
+  that receives/handles the actual `department_name`/`None` value, so no skill needs its
+  own None-handling logic.
+- **Tool-calling is unaffected:** the MCP server/tool layer (`mcp/server.py`,
+  `mcp/tools/*.py`) is a separate concern from skills. Skills only supply prompt
+  instructions telling the model what to do and which already-registered tools to call;
+  they do not define or replace tools.
+
+**Scope of this change:** DBR only, as a first migration/proof of concept -
+`templates/dbr.py` retired, `skills/dbr/SKILL.md` added, `AgentSkills` wired into
+`agents.py::make_agent()` via a new `plugins=` argument on the `Agent(...)` call. The
+other 11 personas (`default`, `gats_query`, `graph_cost_aware`, `pitch_deck`,
+`project_investigation`, `sovereign_stack`, `supplier_ecosystem`, `supplier_lockin`,
+`targeted_question`, `ai_transformation` v1+v2) are **not** migrated yet and keep working
+exactly as today; they're expected to follow the same pattern in later, separate PRs.
 
 ---
 
@@ -252,7 +304,7 @@ gds-idea-dia/
 │   │   ├── prompts/                # [done]
 │   │   ├── agents.py                # make_model(), make_agent(), per-prompt factories  [done, but missing imports for 10 prompt functions — PR1 fixes this]
 │   │   ├── runtime.py               # NEW — end-to-end bootstrap: patches -> stores -> mcp server -> agent -> answer  [PR1, gains `tunnel` param in PR2]
-│   │   ├── tunnel.py                 # NEW — open_tunnel() context manager, automates the SSH tunnel + register_tunnel_host dance  [PR2]
+│   │   ├── tunnel.py                 # NEW — ensure_tunnel_open() context manager, automates the SSH tunnel + register_tunnel_host dance  [PR2, renamed from open_tunnel() per review]
 │   │   └── report.py                # markdown response → .docx → S3  [stub, out of scope for PR1/PR2 — Decision 6, deferred, stdout only for now]
 │   └── ... (existing pipeline modules, untouched)
 └── pyproject.toml                   # [project.optional-dependencies] agent = [...]  [done]
@@ -317,7 +369,7 @@ path.
      `ask()` - both are one-liners, not worth their own helper, and `check()` doesn't
      need the response-building step at all. No `--agent` dispatch/registry - matches
      Decision 8, only `make_default_agent()` is wired for now.
-5. **New file `agent/tunnel.py`** - `@contextmanager open_tunnel(phase="dev", port=8182,
+5. **New file `agent/tunnel.py`** - `@contextmanager ensure_tunnel_open(phase="dev", port=8182,
    timeout=30.0)`: if port 8182 already has a live tunnel, reuse it (no teardown on
    exit); otherwise spawns `scripts/neptune-tunnel.sh {phase}` as a background
    subprocess, polls until the port accepts connections or times out, calls
@@ -325,7 +377,9 @@ path.
    in `finally` (only if we started it) kills the subprocess's process group so no
    orphaned `aws ec2-instance-connect ssh` process is left running. `ask()`'s `tunnel`
    param (above) selects between this and `nullcontext()` - `tunnel=False` means zero
-   behaviour change on that path.
+   behaviour change on that path. (Named `open_tunnel()` originally; renamed after
+   review since its actual behaviour is reuse-if-present/open-if-not, not "always
+   opens".)
 6. **`cli.py`** - a thin pass-through, no logic beyond argument wiring:
    ```python
    agent_app = typer.Typer(help="Query the assurance agent.")
@@ -346,9 +400,14 @@ path.
    succeed without stores) - this way a single invocation makes the failure point
    obvious instead of the caller having to run/interpret three separate commands that
    would all fail for the same root cause:
-   - **`tunnel`**: if `tunnel=True`, enter `open_tunnel()` (a `TimeoutError` here means
-     `FAILED`); if `tunnel=False`, reported as `SKIPPED` (explicitly opted out, not a
-     failure).
+   - **`tunnel`**: if `tunnel=True`, a read-only peek at whether something is already
+     listening on the configured host:port (via `_is_port_open()`) - `FAILED` if not,
+     `OK` if so (and `register_tunnel_host()` is called so the stores check below can
+     route through it); if `tunnel=False`, reported as `SKIPPED` (explicitly opted out,
+     not a failure). Does **not** call `ensure_tunnel_open()` - unlike `ask()`, `check()`
+     doesn't own the tunnel's lifecycle; a status check shouldn't have the side effect of
+     spawning/tearing down an SSH tunnel just to answer a health question. (Original
+     PR2 design called `open_tunnel()` here; changed after review.)
    - **`stores`**: `_connect_stores()` - only attempted if `tunnel` was `OK`/`SKIPPED`.
    - **`mcp_server`**: `_start_mcp_server()` - only attempted if `stores` was `OK`.
    - Never calls `_run_agent()`/`agents.make_default_agent()` - no LLM call, no cost.
@@ -409,48 +468,6 @@ path.
 
 ---
 
-## Stage 2 - Agent-to-agent (supervisor/router)
-
-> **Superseded by Decision 8.** This entire stage - a supervisor agent routing between
-> ~12 hand-written specialists - is replaced by the single-agent-plus-skills direction.
-> Kept below for historical context (the overlapping-prompt-pairs table is still useful
-> input for whoever designs the skills split) but should not be built as written.
-
-~~Starts only after Stage 1 fully ships (sequential, not parallel).~~
-
-**Goal:** replace "human manually picks which of the ~12 agents to run" with a
-supervisor agent that routes a query to the right specialist automatically.
-
-**Mechanism:** Strands' built-in **"Agents as Tools"** pattern (officially supported,
-confirmed via Strands docs) - no custom routing code needed:
-
-```python
-supervisor = Agent(
-    system_prompt="Route to the right specialist based on the query...",
-    tools=[dbr_agent, supplier_lockin_agent, supplier_ecosystem_agent,
-           project_agent, gats_query_agent, default_agent, ...],
-)
-```
-
-Each existing `make_*_agent()` factory is passed straight into the supervisor's `tools`
-list (or wrapped with `.as_tool(name=..., description=...)` for finer control). The
-supervisor's own LLM reads the query + department and decides which specialist(s) to
-call - same tool-calling mechanic already used for MCP tools, just the "tool" happens
-to be another whole agent.
-
-**Where it fits:** one more file, `agent/orchestrator.py`, sitting alongside
-`agent/agents.py` - no restructuring of Stage 1's layout needed. `cli.py`'s `ask`
-command evolves to route automatically when `--agent` is omitted.
-
-**Known risk to resolve as part of this stage:** several existing prompts overlap in
-scope and will confuse a router unless their tool-descriptions are made mutually
-exclusive:
-
-| Overlapping pair | Distinction needed |
-|---|---|
-| `dbr` vs `default` | `dbr` = exhaustive, formal, whole-department dossier. `default` = general-purpose, same tools, less formal, narrower questions |
-| `supplier_lockin` vs `supplier_ecosystem` | `lockin` = risk/dependency framing. `ecosystem` = market landscape/capability-coverage framing |
-
-Every agent (old and new, including the 6 stubbed prompts) needs both a full system
-prompt and a short, distinct router-facing description before Stage 2 can route
-reliably.
+_A supervisor/router stage ("Agent-to-agent", using Strands' "Agents as Tools" pattern
+to route between ~12 hand-written specialists) was previously planned here as Stage 2.
+It is superseded by Decision 8/9 (single agent + skills) and has been removed._

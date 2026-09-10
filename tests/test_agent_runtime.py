@@ -141,12 +141,14 @@ def test_ask_propagates_exceptions_from_any_step(failing_step):
 def _patch_check(**overrides):
     """Patch every external dependency of check(), returning the patch objects."""
     patches = {
-        "open_tunnel": patch("dia.agent.runtime.open_tunnel"),
+        "_is_port_open": patch("dia.agent.runtime._is_port_open"),
+        "register_tunnel_host": patch("dia.agent.runtime.register_tunnel_host"),
         "_connect_stores": patch("dia.agent.runtime._connect_stores"),
         "_start_mcp_server": patch("dia.agent.runtime._start_mcp_server"),
         "_run_agent": patch("dia.agent.runtime._run_agent"),
     }
     mocks = {name: p.start() for name, p in patches.items()}
+    mocks["_is_port_open"].return_value = True
     mocks["_connect_stores"].return_value = ("graph_store", "vector_store")
     for name, value in overrides.items():
         mocks[name].side_effect = value
@@ -158,6 +160,7 @@ def test_check_happy_path_all_ok():
     try:
         result = check(tunnel=True)
 
+        mocks["register_tunnel_host"].assert_called_once()
         assert result == {"tunnel": "OK", "stores": "OK", "mcp_server": "OK"}
     finally:
         _stop_all(patches)
@@ -168,7 +171,7 @@ def test_check_tunnel_skipped_when_tunnel_false_but_stores_and_mcp_server_still_
     try:
         result = check(tunnel=False)
 
-        mocks["open_tunnel"].assert_not_called()
+        mocks["_is_port_open"].assert_not_called()
         mocks["_connect_stores"].assert_called_once()
         mocks["_start_mcp_server"].assert_called_once()
         assert result == {"tunnel": "SKIPPED", "stores": "OK", "mcp_server": "OK"}
@@ -177,15 +180,16 @@ def test_check_tunnel_skipped_when_tunnel_false_but_stores_and_mcp_server_still_
 
 
 def test_check_stores_and_mcp_server_skipped_when_tunnel_fails():
-    """Regression guard: open_tunnel() only constructs the context manager - the
-    actual tunnel-opening/TimeoutError happens on __enter__(), not on the call
-    itself. check() must catch failures at __enter__() time, not just at call time."""
+    """check()'s tunnel check is a read-only peek at the port - it should never
+    spawn/tear down a tunnel process. When nothing is listening, stores/mcp_server
+    must be skipped and register_tunnel_host() must not run."""
     patches, mocks = _patch_check()
     try:
-        mocks["open_tunnel"].return_value.__enter__.side_effect = TimeoutError("Neptune tunnel did not open in time")
+        mocks["_is_port_open"].return_value = False
 
         result = check(tunnel=True)
 
+        mocks["register_tunnel_host"].assert_not_called()
         mocks["_connect_stores"].assert_not_called()
         mocks["_start_mcp_server"].assert_not_called()
         assert result == {"tunnel": "FAILED", "stores": "SKIPPED", "mcp_server": "SKIPPED"}
