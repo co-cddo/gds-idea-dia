@@ -25,10 +25,26 @@ class ChunkingConfig(BaseModel, frozen=True):
     Derived from DocumentType — long documents (business cases, SR bids)
     use full 2-stage splitting; short documents (contracts) use sentence
     splitting only.
+
+    sentence_chunk_size_tokens is measured in tokens (~4 chars/token), not
+    characters. Default 7900 + 100 overlap = 8000, chosen to sit just under
+    Titan Text Embeddings V2's 8,192-token input limit.
+
+    With use_semantic_splitting=True, the semantic splitter has no size
+    limit of its own (it cuts purely on topic-shift distance) - this
+    setting is the only thing bounding how much text it ever sees in one
+    go, i.e. a ceiling, not the actual chunk size. Real chunks end up much
+    smaller (~800 tokens in practice).
+
+    With use_semantic_splitting=False, there is no second stage, so this
+    setting *is* the actual chunk size - see issue #51 for why that may be
+    too large for CONTRACT_FINDER. See issue #50 for the broader chunking
+    strategy this leaves open (no max chunk size, pre-split vs post-split,
+    tiny/empty chunk waste).
     """
 
-    sentence_chunk_size: int = Field(default=7900, gt=0)
-    sentence_chunk_overlap: int = Field(default=100, ge=0)
+    sentence_chunk_size_tokens: int = Field(default=7900, gt=0)
+    sentence_chunk_overlap_tokens: int = Field(default=100, ge=0)
     use_semantic_splitting: bool = True
     semantic_buffer_size: int = Field(default=3, gt=0)
     semantic_breakpoint_threshold: int = Field(default=97, gt=0, le=100)
