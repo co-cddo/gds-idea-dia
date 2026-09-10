@@ -14,19 +14,21 @@ here" rather than "stale chunks silently reused". One store instance is
 scoped to one fingerprint - to chunk the same source with a different
 config, construct a new store with the new fingerprint.
 
-One JSONL file per document, one TextNode.to_dict() per line — the same
-serialisation graphrag_toolkit itself uses for its own temp node files
+One JSONL file/object per document, one TextNode.to_dict() per line — the
+same serialisation graphrag_toolkit itself uses for its own temp node files
 (indexing/extract/batch_extractor_base.py), so relationships/metadata/
 exclusions are known to round-trip correctly.
 
-present() answers "what have we already got" purely from stored content
-(each chunk's own metadata['key']/metadata['version'], set by
-to_document()), not from parsing file paths - this sidesteps any question
-of whether a document key or version string (e.g. an S3 ETag, which
-arrives wrapped in literal quote characters) is safe to embed directly in
-a path. File names are content-addressed (a hash of the document key)
-purely to give each document a stable, collision-free, filesystem-safe
-location.
+present() answers "what have we already got" from each chunk's own
+metadata['key']/metadata['version'] (set by to_document()), not from
+parsing file paths - this sidesteps any question of whether a document key
+or version string (e.g. an S3 ETag, which arrives wrapped in literal quote
+characters) is safe to embed directly in a path. File names are
+content-addressed (a hash of the document key) purely to give each
+document a stable, collision-free, path-safe location. LocalChunkStore
+reads this straight from the stored content (cheap on local disk);
+S3ChunkStore writes a tiny companion object instead (see its docstring for
+why).
 """
 
 import hashlib
@@ -35,6 +37,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Protocol
 
+import boto3
 from llama_index.core.schema import BaseNode, TextNode
 
 
@@ -166,3 +169,89 @@ class InMemoryChunkStore:
 
     def delete(self, source_name: str) -> None:
         self._docs.pop(source_name, None)
+
+
+class S3ChunkStore:
+    """Stores chunks as one JSONL object per document in S3, durably.
+
+    Key: {source_name}/{fingerprint}/{hash(doc_key)}.jsonl
+
+    Chunks are kept durably (unlike, say, the transient batch bucket) -
+    embeddings are expensive to compute, and losing them would mean redoing
+    the slow, embedding-heavy chunking stage for no reason.
+
+    present() does not read/parse chunk content to discover (doc_key,
+    version) pairs - S3 has no cheap "read the first line" primitive, and
+    guessing a byte-range large enough to always contain metadata (chunk
+    text length varies enormously, up to ~30k chars observed) adds a lot of
+    complexity for what should be a cheap check. Instead, write() also
+    writes a tiny companion object (.meta.json, a few dozen bytes) holding
+    just {"key": doc_key, "version": version} - present() only needs to
+    list and fetch those, never the (potentially large) chunk content
+    itself.
+    """
+
+    def __init__(self, fingerprint: str, bucket: str, s3_client=None) -> None:
+        self._fingerprint = fingerprint
+        self._bucket = bucket
+        self._s3 = s3_client or boto3.client("s3")
+
+    def _prefix(self, source_name: str) -> str:
+        return f"{source_name}/{self._fingerprint}"
+
+    def _jsonl_key(self, source_name: str, doc_key: str) -> str:
+        return f"{self._prefix(source_name)}/{_doc_hash(doc_key)}.jsonl"
+
+    def _meta_key(self, source_name: str, doc_key: str) -> str:
+        return f"{self._prefix(source_name)}/{_doc_hash(doc_key)}.meta.json"
+
+    def write(self, source_name: str, doc_key: str, version: str, nodes: Sequence[BaseNode]) -> int:
+        body = "\n".join(json.dumps(node.to_dict(), ensure_ascii=False) for node in nodes)
+        self._s3.put_object(
+            Bucket=self._bucket,
+            Key=self._jsonl_key(source_name, doc_key),
+            Body=body.encode("utf-8"),
+            ContentType="application/x-ndjson",
+        )
+        self._s3.put_object(
+            Bucket=self._bucket,
+            Key=self._meta_key(source_name, doc_key),
+            Body=json.dumps({"key": doc_key, "version": version}).encode("utf-8"),
+            ContentType="application/json",
+        )
+        return len(nodes)
+
+    def read(self, source_name: str) -> list[TextNode]:
+        nodes: list[TextNode] = []
+        paginator = self._s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self._bucket, Prefix=f"{self._prefix(source_name)}/"):
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                if not key.endswith(".jsonl"):
+                    continue
+                body = self._s3.get_object(Bucket=self._bucket, Key=key)["Body"].read().decode("utf-8")
+                nodes.extend(TextNode.from_json(line) for line in body.splitlines() if line.strip())
+        return nodes
+
+    def present(self, source_name: str) -> set[tuple[str, str]]:
+        pairs: set[tuple[str, str]] = set()
+        paginator = self._s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self._bucket, Prefix=f"{self._prefix(source_name)}/"):
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                if not key.endswith(".meta.json"):
+                    continue
+                body = self._s3.get_object(Bucket=self._bucket, Key=key)["Body"].read().decode("utf-8")
+                meta = json.loads(body)
+                pairs.add((meta["key"], meta["version"]))
+        return pairs
+
+    def delete(self, source_name: str) -> None:
+        paginator = self._s3.get_paginator("list_objects_v2")
+        keys_to_delete = []
+        for page in paginator.paginate(Bucket=self._bucket, Prefix=f"{self._prefix(source_name)}/"):
+            keys_to_delete.extend({"Key": obj["Key"]} for obj in page.get("Contents", []))
+
+        for i in range(0, len(keys_to_delete), 1000):  # delete_objects caps at 1000 keys per call
+            batch = keys_to_delete[i : i + 1000]
+            self._s3.delete_objects(Bucket=self._bucket, Delete={"Objects": batch})

@@ -17,6 +17,9 @@ class StorageStack(cdk.Stack):
     Resources:
         S3 Buckets:
             - text-extracted: Extracted text JSON (staging area between text and graph extraction)
+            - chunks: Persisted chunks (staging area between chunking and graph extraction) -
+              durable because embeddings are expensive to recompute; per-document objects,
+              scoped by chunking-config fingerprint (see ChunkingConfig.to_fingerprint)
             - graph-raw: Raw graph extraction JSON output
             - graph-validated: Normalised/validated output ready for Neptune/AOSS
             - batch: Bedrock batch inference working area (transient)
@@ -36,6 +39,17 @@ class StorageStack(cdk.Stack):
             self,
             "TextExtracted",
             bucket_name=config.bucket("text-extracted"),
+            versioned=True,
+            encryption=s3.BucketEncryption.S3_MANAGED,
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            enforce_ssl=True,
+            removal_policy=cdk.RemovalPolicy.RETAIN,
+        )
+
+        self.chunks_bucket = s3.Bucket(
+            self,
+            "Chunks",
+            bucket_name=config.bucket("chunks"),
             versioned=True,
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
