@@ -33,9 +33,7 @@ def check(*, tunnel: bool = True) -> dict[str, CheckStatus]:
             register_tunnel_host(settings.neptune_endpoint)
             result["tunnel"] = CheckStatus.OK
         else:
-            logger.error(
-                "tunnel check failed: nothing listening on %s:%s", settings.tunnel_host, settings.tunnel_port
-            )
+            logger.error("tunnel check failed: nothing listening on %s:%s", settings.tunnel_host, settings.tunnel_port)
             result["tunnel"] = CheckStatus.FAILED
             return result
 
