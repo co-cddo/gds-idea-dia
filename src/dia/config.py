@@ -1,7 +1,8 @@
 """Global extraction configuration and chunking strategies.
 
-ExtractionConfig holds infrastructure/runtime settings (model, batch size, workers)
-that don't vary per source or document type — they vary per deployment.
+ExtractionConfig holds infrastructure/runtime settings (model, region, chunking
+concurrency) that don't vary per source or document type — they vary per
+deployment.
 
 ChunkingConfig holds the text splitting strategy. Per-document-type chunking is
 derived from DocumentType, not configured globally.
@@ -47,9 +48,7 @@ class ExtractionConfig(BaseModel, frozen=True):
     extraction_model: ApprovedModel = "eu.anthropic.claude-sonnet-4-6"
     embeddings_model: str = "amazon.titan-embed-text-v2:0"
     region: str = "eu-west-2"
-    extraction_batch_size: int = Field(default=20000, gt=0)
-    extraction_num_workers: int = Field(default=1, gt=0)
-    extraction_num_threads_per_worker: int = Field(default=2, gt=0)
+    chunking_num_workers: int = Field(default=4, gt=0)
     max_tokens: int = Field(default=42768, gt=0)
     temperature: float | None = Field(default=0.0, ge=0.0, le=1.0)
     read_timeout: int = Field(default=600, gt=0)

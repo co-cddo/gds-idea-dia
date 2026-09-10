@@ -55,9 +55,7 @@ def test_extraction_config_defaults():
     assert config.extraction_model == "eu.anthropic.claude-sonnet-4-6"
     assert config.embeddings_model == "amazon.titan-embed-text-v2:0"
     assert config.region == "eu-west-2"
-    assert config.extraction_batch_size == 20000
-    assert config.extraction_num_workers == 1
-    assert config.extraction_num_threads_per_worker == 2
+    assert config.chunking_num_workers == 4
     assert config.max_tokens == 42768
     assert config.temperature == 0.0
     assert config.read_timeout == 600
@@ -67,11 +65,11 @@ def test_extraction_config_defaults():
 def test_extraction_config_override():
     config = ExtractionConfig(
         extraction_model="anthropic.claude-sonnet-4-5-20250929-v1:0",
-        extraction_batch_size=5000,
+        chunking_num_workers=8,
     )
 
     assert config.extraction_model == "anthropic.claude-sonnet-4-5-20250929-v1:0"
-    assert config.extraction_batch_size == 5000
+    assert config.chunking_num_workers == 8
 
 
 def test_extraction_config_rejects_unapproved_model():
@@ -79,14 +77,9 @@ def test_extraction_config_rejects_unapproved_model():
         ExtractionConfig(extraction_model="eu.anthropic.claude-haiku-4-5-20251001-v1:0")
 
 
-def test_extraction_config_rejects_zero_batch_size():
+def test_extraction_config_rejects_zero_chunking_workers():
     with pytest.raises(ValidationError):
-        ExtractionConfig(extraction_batch_size=0)
-
-
-def test_extraction_config_rejects_zero_workers():
-    with pytest.raises(ValidationError):
-        ExtractionConfig(extraction_num_workers=0)
+        ExtractionConfig(chunking_num_workers=0)
 
 
 def test_extraction_config_rejects_negative_temperature():
