@@ -46,6 +46,39 @@ def test_chunking_config_is_frozen():
         config.sentence_chunk_size_tokens = 1000
 
 
+def test_chunking_config_fingerprint_is_stable():
+    config = ChunkingConfig()
+    assert config.to_fingerprint("amazon.titan-embed-text-v2:0") == config.to_fingerprint(
+        "amazon.titan-embed-text-v2:0"
+    )
+
+
+def test_chunking_config_fingerprint_differs_for_different_config():
+    default = ChunkingConfig()
+    different = ChunkingConfig(semantic_breakpoint_threshold=95)
+
+    assert default.to_fingerprint("amazon.titan-embed-text-v2:0") != different.to_fingerprint(
+        "amazon.titan-embed-text-v2:0"
+    )
+
+
+def test_chunking_config_fingerprint_differs_for_different_embeddings_model():
+    """embeddings_model isn't a field on ChunkingConfig, but it directly
+    determines where the semantic splitter cuts, so it must affect the
+    fingerprint even though the config object itself is identical."""
+    config = ChunkingConfig()
+
+    assert config.to_fingerprint("amazon.titan-embed-text-v2:0") != config.to_fingerprint("cohere.embed-english-v3")
+
+
+def test_chunking_config_fingerprint_is_short_hex():
+    config = ChunkingConfig()
+    fingerprint = config.to_fingerprint("amazon.titan-embed-text-v2:0")
+
+    assert len(fingerprint) == 8
+    assert all(c in "0123456789abcdef" for c in fingerprint)
+
+
 # --- ExtractionConfig ---
 
 

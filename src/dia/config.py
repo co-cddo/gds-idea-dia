@@ -42,6 +42,32 @@ class ChunkingConfig(BaseModel, frozen=True):
     semantic_buffer_size: int = Field(default=3, gt=0)
     semantic_breakpoint_threshold: int = Field(default=97, gt=0, le=100)
 
+    def to_fingerprint(self, embeddings_model: str) -> str:
+        """Short hash of everything that affects chunk boundaries.
+
+        Used as a key/prefix for persisted chunks (see ChunkStore) so a
+        chunking config change invalidates cached chunks automatically -
+        a different fingerprint means "no chunks found", not "stale chunks
+        silently reused".
+
+        Takes embeddings_model explicitly rather than reading it from
+        ExtractionConfig: it isn't a field on this class, but it directly
+        determines where the semantic splitter cuts, so it must be part of
+        the fingerprint - this class's fields alone aren't sufficient to
+        identify a chunk set.
+
+        Known limitation: doesn't include the llama_index/toolkit version,
+        so a library upgrade that changes splitter behaviour wouldn't
+        invalidate existing chunks. Deliberate - including it would force a
+        full re-chunk on every dependency bump.
+        """
+        import hashlib
+        import json
+
+        payload = {**self.model_dump(), "embeddings_model": embeddings_model}
+        canonical = json.dumps(payload, sort_keys=True)
+        return hashlib.sha256(canonical.encode()).hexdigest()[:8]
+
 
 class ExtractionConfig(BaseModel, frozen=True):
     """Global infrastructure settings for the chunking/extraction pipeline.
