@@ -3,6 +3,7 @@
 import hashlib
 
 from llama_index.core.base.embeddings.base import BaseEmbedding
+from llama_index.core.bridge.pydantic import PrivateAttr
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.node_parser.text.semantic_splitter import SemanticSplitterNodeParser
 from llama_index.core.schema import NodeRelationship
@@ -17,21 +18,27 @@ from dia.pipeline.models import TextExtractionOutput
 class _FakeEmbedding(BaseEmbedding):
     """Deterministic, offline stand-in for BedrockEmbedding.
 
-    Module-level (not nested/local) so it survives pickling into
-    multiprocessing worker processes — a lambda or a class defined inside a
-    test function can't be pickled for the 'spawn' start method.
+    Implements both sync and async methods so tests can assert on which
+    path IngestionPipeline.arun() actually exercises.
     """
 
+    _sync_calls: int = PrivateAttr(default=0)
+    _async_calls: int = PrivateAttr(default=0)
+
     def _get_query_embedding(self, query):
+        self._sync_calls += 1
         return self._vec(query)
 
     def _get_text_embedding(self, text):
+        self._sync_calls += 1
         return self._vec(text)
 
     async def _aget_query_embedding(self, query):
+        self._async_calls += 1
         return self._vec(query)
 
     async def _aget_text_embedding(self, text):
+        self._async_calls += 1
         return self._vec(text)
 
     @staticmethod
@@ -74,10 +81,16 @@ _LONG_TEXT = (
 _MANY_SENTENCES_TEXT = "".join(f"Sentence number {i} discusses a slightly different point. " for i in range(150))
 
 
-def _extraction_config(monkeypatch, **overrides) -> ExtractionConfig:
+def _extraction_config(monkeypatch, embedding: "_FakeEmbedding | None" = None, **overrides) -> ExtractionConfig:
     """ExtractionConfig wired to return _FakeEmbedding instead of a real
-    BedrockEmbedding, so tests never touch AWS."""
-    monkeypatch.setattr(ExtractionConfig, "to_embedding_model", lambda self: _FakeEmbedding())
+    BedrockEmbedding, so tests never touch AWS.
+
+    Pass an explicit `embedding` instance to inspect its call counts after
+    a run - to_embedding_model() always returns that same instance rather
+    than constructing a fresh one each call.
+    """
+    embedding = embedding or _FakeEmbedding()
+    monkeypatch.setattr(ExtractionConfig, "to_embedding_model", lambda self: embedding)
     return ExtractionConfig(**overrides)
 
 
@@ -129,7 +142,7 @@ def test_build_pipeline_uses_chunking_config_values(monkeypatch):
 
 
 def test_runner_produces_chunks(monkeypatch, tmp_path):
-    config = _extraction_config(monkeypatch, chunking_num_workers=1)
+    config = _extraction_config(monkeypatch)
     output_source = _FakeOutputSource([_output("doc-1.pdf", _LONG_TEXT)])
     chunk_store = InMemoryChunkStore()
 
@@ -151,7 +164,7 @@ def test_runner_produces_chunks(monkeypatch, tmp_path):
 
 
 def test_runner_preserves_source_relationship(monkeypatch, tmp_path):
-    config = _extraction_config(monkeypatch, chunking_num_workers=1)
+    config = _extraction_config(monkeypatch)
     output_source = _FakeOutputSource([_output("files/report.pdf", _LONG_TEXT)])
     chunk_store = InMemoryChunkStore()
 
@@ -175,7 +188,7 @@ def test_runner_preserves_source_relationship(monkeypatch, tmp_path):
 
 
 def test_runner_no_outputs_is_a_noop(monkeypatch, tmp_path):
-    config = _extraction_config(monkeypatch, chunking_num_workers=1)
+    config = _extraction_config(monkeypatch)
     chunk_store = InMemoryChunkStore()
 
     runner = ChunkingRunner(
@@ -195,7 +208,7 @@ def test_runner_no_outputs_is_a_noop(monkeypatch, tmp_path):
 
 
 def test_runner_skips_if_chunks_already_exist(monkeypatch, tmp_path):
-    config = _extraction_config(monkeypatch, chunking_num_workers=1)
+    config = _extraction_config(monkeypatch)
     output_source = _FakeOutputSource([_output("doc-1.pdf", _LONG_TEXT)])
     chunk_store = InMemoryChunkStore()
 
@@ -232,7 +245,7 @@ def test_runner_skips_if_chunks_already_exist(monkeypatch, tmp_path):
 
 
 def test_runner_force_rechunks_even_if_chunks_exist(monkeypatch, tmp_path):
-    config = _extraction_config(monkeypatch, chunking_num_workers=1)
+    config = _extraction_config(monkeypatch)
     output_source = _FakeOutputSource([_output("doc-1.pdf", _LONG_TEXT)])
     chunk_store = InMemoryChunkStore()
 
@@ -267,7 +280,7 @@ def test_runner_without_semantic_splitting_produces_fewer_larger_chunks(monkeypa
     should produce fewer, larger chunks than BUSINESS_CASE's two-stage split
     for the same input text (enough sentences for the semantic splitter's
     97th-percentile breakpoint threshold to reliably fire more than once)."""
-    config = _extraction_config(monkeypatch, chunking_num_workers=1)
+    config = _extraction_config(monkeypatch)
     output_source = _FakeOutputSource([_output("doc-1.pdf", _MANY_SENTENCES_TEXT)])
 
     semantic_store = InMemoryChunkStore()
@@ -296,11 +309,13 @@ def test_runner_without_semantic_splitting_produces_fewer_larger_chunks(monkeypa
     assert len(sentence_only_chunks) < len(semantic_chunks)
 
 
-def test_runner_uses_multiple_workers(monkeypatch, tmp_path):
-    """Real multiprocessing (spawn), not mocked - proves the embedding model
-    and parsers survive being pickled to worker processes and chunks come
-    back correctly attributed to their source document."""
-    config = _extraction_config(monkeypatch, chunking_num_workers=3)
+def test_runner_uses_async_embedding_path(monkeypatch, tmp_path):
+    """IngestionPipeline.arun() should exercise the embedding model's async
+    methods, not the sync ones - that's the whole point of the switch away
+    from multiprocessing (concurrency via asyncio.Semaphore instead of
+    worker processes)."""
+    embedding = _FakeEmbedding()
+    config = _extraction_config(monkeypatch, embedding=embedding)
     outputs = [_output(f"doc-{i}.pdf", _LONG_TEXT) for i in range(6)]
     chunk_store = InMemoryChunkStore()
 
@@ -319,3 +334,6 @@ def test_runner_uses_multiple_workers(monkeypatch, tmp_path):
     assert len(nodes) == result.total_chunks
     represented_keys = {n.relationships[NodeRelationship.SOURCE].node_id for n in nodes}
     assert represented_keys == {f"doc-{i}.pdf" for i in range(6)}
+
+    assert embedding._async_calls > 0
+    assert embedding._sync_calls == 0
