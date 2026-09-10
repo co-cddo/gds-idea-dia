@@ -1,9 +1,9 @@
 """Smoke + unit tests for dia.agent.prompts — system prompt templates and fragment helpers."""
 
 from dia.agent.prompts.fragments.common_rules import hard_gates
-from dia.agent.prompts.fragments.output_specs import dbr_output_card
 from dia.agent.prompts.fragments.tools_and_sources import department_matching_rules
 from dia.agent.prompts.fragments.utils import block, bullet_list, clean, join_sections
+from dia.agent.prompts.templates.dbr import dbr_output_card
 from dia.agent.prompts.templates import (
     get_ai_transformation_system_prompt,
     get_ai_transformation_system_prompt_v2,
