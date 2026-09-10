@@ -40,36 +40,6 @@ COMMON_INVESTIGATION_METHODOLOGY = block(
 )
 
 
-DBR_INVESTIGATION_METHOD = block(
-    "dbr_investigation_method",
-    """
-    DBR INVESTIGATION FLOW:
-
-    PHASE 1 — Graph Discovery:
-    - Identify digital programmes, suppliers, platforms, systems, technologies, risks, and dependencies.
-    - Run data/AI-focused queries, legacy/debt queries, and broad supplier / technology discovery.
-
-    PHASE 2 — Graph Drill-Down:
-    - Drill into the top programmes and suppliers found in Phase 1.
-    - Identify cross-government overlaps and repeated dependencies.
-
-    PHASE 3 — Knowledge Bases:
-    - For each major programme: query business cases and SR25
-    - For programmes with historical lineage: query SR21
-    - For major programmes, suppliers, and issues: query NAO / PAC material
-
-    PHASE 4 — Athena:
-    - Quantify contract value, spend by category, GATS pipeline, risk, GMPP confidence, and any other structured metrics relevant to the review
-
-    PHASE 5 — Published Context:
-    - Look for digital strategies, transformation plans, published programme references, and public assurance context
-
-    FINAL STEP:
-    - Produce a cross-source, evidence-tagged report with diagnostics and intelligence gaps.
-    """,
-)
-
-
 PROJECT_INVESTIGATION_METHOD = block(
     "project_investigation_method",
     """
