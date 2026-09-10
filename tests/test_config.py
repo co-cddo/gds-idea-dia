@@ -11,8 +11,8 @@ from dia.config import ChunkingConfig, ExtractionConfig, TextExtractionConfig
 def test_chunking_config_defaults():
     config = ChunkingConfig()
 
-    assert config.sentence_chunk_size == 7900
-    assert config.sentence_chunk_overlap == 100
+    assert config.sentence_chunk_size_tokens == 7900
+    assert config.sentence_chunk_overlap_tokens == 100
     assert config.use_semantic_splitting is True
     assert config.semantic_buffer_size == 3
     assert config.semantic_breakpoint_threshold == 97
@@ -22,17 +22,17 @@ def test_chunking_config_no_semantic():
     config = ChunkingConfig(use_semantic_splitting=False)
 
     assert config.use_semantic_splitting is False
-    assert config.sentence_chunk_size == 7900
+    assert config.sentence_chunk_size_tokens == 7900
 
 
 def test_chunking_config_rejects_zero_chunk_size():
     with pytest.raises(ValidationError):
-        ChunkingConfig(sentence_chunk_size=0)
+        ChunkingConfig(sentence_chunk_size_tokens=0)
 
 
 def test_chunking_config_rejects_negative_overlap():
     with pytest.raises(ValidationError):
-        ChunkingConfig(sentence_chunk_overlap=-1)
+        ChunkingConfig(sentence_chunk_overlap_tokens=-1)
 
 
 def test_chunking_config_rejects_threshold_over_100():
@@ -43,7 +43,7 @@ def test_chunking_config_rejects_threshold_over_100():
 def test_chunking_config_is_frozen():
     config = ChunkingConfig()
     with pytest.raises(ValidationError):
-        config.sentence_chunk_size = 1000
+        config.sentence_chunk_size_tokens = 1000
 
 
 # --- ExtractionConfig ---
