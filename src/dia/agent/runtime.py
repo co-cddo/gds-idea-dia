@@ -91,5 +91,5 @@ def ask(department: str | None, query: str, *, tunnel: bool = False) -> AgentRes
         except Exception as e:
             logger.error("failed building response object: %s", e)
             raise
-
+        print(response)
         return response
