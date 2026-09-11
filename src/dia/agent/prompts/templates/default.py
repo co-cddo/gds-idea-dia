@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dia.agent.config import settings
 from dia.agent.prompts.fragments import (
     ATHENA_SCHEMA_REFERENCE,
     COMMON_CITATION_RULES,
@@ -60,10 +61,10 @@ def get_default_system_prompt(department_name: str = "") -> str:
         SOURCE_DIAGNOSTICS,
         COMMON_CITATION_RULES,
         hard_gates(
-            min_words=2000,
-            min_graph_calls=5,
-            first_n_must_be_graph=4,
-            min_web_calls=1,
+            min_words=settings.default_persona_min_words,
+            min_graph_calls=settings.default_persona_min_graph_calls,
+            first_n_must_be_graph=settings.default_persona_first_n_must_be_graph,
+            min_web_calls=settings.default_persona_min_web_calls,
             extra_rules=[
                 "Prioritise entities that appear across multiple document sources — these are highest confidence.",
                 "When data is ambiguous or missing, explicitly state uncertainty.",

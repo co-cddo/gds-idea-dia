@@ -1,9 +1,10 @@
 """Model/agent factory: make_model(), make_agent()."""
 
+from pathlib import Path
 from typing import Any
 
 from mcp.client.streamable_http import streamable_http_client
-from strands import Agent
+from strands import Agent, AgentSkills
 from strands.handlers import PrintingCallbackHandler
 from strands.models import BedrockModel
 from strands.tools.mcp.mcp_client import MCPClient
@@ -14,15 +15,17 @@ from dia.agent.prompts.templates import (
     get_default_system_prompt,
 )
 
+skills = AgentSkills(skills=Path(__file__).resolve().parent / "prompts" / "skills")
+
 
 def make_model(
     *,
     model_id: str = settings.model_id,
-    max_tokens: int = 20_000,
-    temperature: float = 1.0,
-    thinking_budget_tokens: int = 8192,
-    effort: str = "high",
-    thinking_display: str = "summarized",
+    max_tokens: int = settings.model_max_tokens,
+    temperature: float = settings.model_temperature,
+    thinking_budget_tokens: int = settings.model_thinking_budget_tokens,
+    effort: str = settings.model_thinking_effort,
+    thinking_display: str = settings.model_thinking_display,
 ) -> BedrockModel:
     """Build a BedrockModel with extended thinking enabled by default.
 
@@ -118,6 +121,7 @@ def make_agent(
 
     return Agent(
         model=model,
+        plugins=[skills],
         tools=[mcp_client],
         system_prompt=system_prompt,
         callback_handler=callback_handler,
