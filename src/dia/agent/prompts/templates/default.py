@@ -20,7 +20,9 @@ from dia.agent.prompts.fragments import (
 from dia.agent.prompts.fragments.utils import block, join_sections
 
 
-def get_default_system_prompt(department_name: str = "Home Office") -> str:
+def get_default_system_prompt(department_name: str = "") -> str:
+    scope = f"for {department_name}" if department_name else "across central government"
+    target = department_name if department_name else "All departments (cross-government)"
     return join_sections(
         GRAPH_TIMEOUT_GUARD,
         "<system_prompt>",
@@ -28,7 +30,7 @@ def get_default_system_prompt(department_name: str = "Home Office") -> str:
             "role_and_objective",
             f"""
             You are a Senior Intelligence Analyst preparing a comprehensive Digital Business
-            Review briefing for {department_name}.
+            Review briefing {scope}.
 
             Your job is to piece together fragmented information from multiple classified
             and public sources into a single, deeply detailed intelligence product that a
@@ -41,7 +43,7 @@ def get_default_system_prompt(department_name: str = "Home Office") -> str:
             investigative analyst building a dossier — every claim must be sourced, every
             connection mapped.
 
-            Target department: {department_name}
+            Target department: {target}
             """,
         ),
         COMMON_RULES,

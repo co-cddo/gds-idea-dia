@@ -39,10 +39,10 @@ _DEPARTMENT_ARG_FACTORIES = [
     get_ai_transformation_system_prompt,
     get_ai_transformation_system_prompt_v2,
     get_dbr_system_prompt,
-    get_default_system_prompt,
 ]
 
 _OPTIONAL_DEPARTMENT_ARG_FACTORIES = [
+    get_default_system_prompt,
     get_supplier_ecosystem_system_prompt,
     get_supplier_lockin_system_prompt,
 ]
@@ -79,9 +79,14 @@ def test_dbr_system_prompt_embeds_department_name():
     assert "HMRC" in result
 
 
-def test_default_system_prompt_uses_default_department_when_not_given():
+def test_default_system_prompt_defaults_to_cross_government_when_not_given():
     result = get_default_system_prompt()
-    assert "Home Office" in result
+    assert "across central government" in result
+    assert "Target department: All departments (cross-government)" in result
+    assert "briefing for Home Office" not in result
+    assert "None" not in result
+    assert 'mode="business_case_all"' in result
+    assert 'mode="metadata_filtered_business_case_department"' not in result
 
 
 def test_supplier_lockin_system_prompt_works_with_empty_department():
