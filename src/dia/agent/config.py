@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     # -- MCP server defaults --
     mcp_port: int = Field(default=8000)
 
+    # -- Neptune SSH tunnel defaults --
+
+    tunnel_port: int = Field(default=8182)
+    tunnel_timeout: float = Field(default=30.0)
+    tunnel_host: str = Field(default="127.0.0.1")
+
     @computed_field
     @property
     def mcp_url(self) -> str:
