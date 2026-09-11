@@ -18,33 +18,45 @@ from dia.agent.prompts.fragments.utils import block
 # -----------------------------------------------------------------------------
 
 
-def default_required_graph_sequence(department_name: str = "Home Office") -> str:
+def default_required_graph_sequence(department_name: str = "") -> str:
+    if department_name:
+        all_mode = "department_all_sources"
+        bc_mode = "metadata_filtered_business_case_department"
+        sr_mode = "metadata_filtered_sr_bids_department"
+        cf_mode = "metadata_filtered_contract_finder_department"
+        dept_filter = f'entity_name="{department_name}"'
+    else:
+        all_mode = "default"
+        bc_mode = "business_case_all"
+        sr_mode = "sr_bids_all"
+        cf_mode = "contract_finder_all"
+        dept_filter = 'entity_name=""'
     return block(
         "default_required_graph_sequence",
         f"""
         DEFAULT — REQUIRED GRAPH QUERY SEQUENCE (minimum 5, sequential):
 
         1. `default_(query="major digital programmes, suppliers, platforms, and capabilities",
-                     mode="department_all_sources",
-                     entity_name="{department_name}")`
+                     mode="{all_mode}",
+                     {dept_filter})`
 
         2. `default_(query="programmes with business cases, suppliers, costs, risks, and systems",
-                     mode="metadata_filtered_business_case_department",
-                     entity_name="{department_name}")`
+                     mode="{bc_mode}",
+                     {dept_filter})`
 
         3. `default_(query="spending review investment priorities, funding asks, capabilities,
                             and transformation programmes",
-                     mode="metadata_filtered_sr_bids_department",
-                     entity_name="{department_name}")`
+                     mode="{sr_mode}",
+                     {dept_filter})`
 
         4. `default_(query="contracts, suppliers, technologies, and procurement activity",
-                     mode="metadata_filtered_contract_finder_department",
-                     entity_name="{department_name}")`
+                     mode="{cf_mode}",
+                     {dept_filter})`
 
         5. Entity drill-downs for top programmes / suppliers found above:
            `default_(query="What is connected to [Entity X]? suppliers, risks, contracts, dependencies",
-                    mode="department_all_sources",
-                    entity_name="{department_name}")`
+                    mode="{all_mode}",
+                    {dept_filter})`
 
         6. Cross-government:
            `default_(query="Which departments use [Supplier/Platform Y]?",
