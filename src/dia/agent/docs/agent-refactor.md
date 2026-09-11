@@ -191,9 +191,15 @@ in **skills** based on the query, instead of selecting an entire bespoke system 
 - This removes the need for a `--agent` flag (Decision 7) and a supervisor/router stage
   (Stage 2) entirely - both are superseded by this decision.
 
+**Decided: skills folder structure.** Skills live at `prompts/skills/<name>/SKILL.md`
+(one directory per skill; `dbr` is the first). They're loaded via
+`strands.AgentSkills(skills=Path(__file__).parent / "prompts" / "skills")`, wired into
+every agent in `agents.py::make_agent()`. The path is resolved relative to the `agents.py`
+module file, not the process's cwd, so it works regardless of where `dia` is invoked from -
+unlike the cwd-relative convention used for `scripts/neptune-tunnel.sh` elsewhere in this
+codebase.
+
 **Not yet decided (explicitly deferred, separate follow-up conversation):**
-- Skills folder/module structure (e.g. `agent/skills/<name>.py`, a registry, how a skill
-  is declared/discovered).
 - How the agent selects which skill(s) to use for a given query (tool-calling into a
   skill-listing tool? Always-loaded skill index? Something else?).
 - What happens to the existing 12 `make_*_agent()` factories and their prompt files -
@@ -211,6 +217,26 @@ in **skills** based on the query, instead of selecting an entire bespoke system 
   government"`). Whichever skill(s) replace these prompts must build in that same
   "no department = cross-government, not a crash and not the literal string None"
   handling from the start, rather than re-inheriting the gap.
+- **Steering as a replacement for some of `prompts/fragments/*.py`'s enforcement
+  rules.** Rather than baking every rule into the upfront system prompt as static
+  prose, Strands'
+  [steering](https://strandsagents.com/docs/user-guide/concepts/plugins/steering/)
+  mechanism can enforce rules at runtime, at two points in the agent loop: before a
+  tool call (gatekeeps whether an action should proceed - right tool, right order, safe
+  query) and after a model response (gatekeeps output quality before it's accepted).
+  Two implementation styles, chosen per-rule:
+  - Deterministic (code, no LLM cost) - for countable/checkable rules against the tool-
+    call ledger: `hard_gates()`'s `min_words`, `min_graph_calls`,
+    `first_n_must_be_graph`, `min_web_calls`, "must use the Tavily tool for web
+    search," etc. No extra model call needed - just inspect the ledger and
+    cancel/retry with feedback if violated.
+  - LLM-based (`LLMSteeringHandler`) - for judgment calls that can't be counted: "does
+    this citation's content actually support the claim," "does the draft address
+    supplier lock-in in depth." Scope these sparingly (e.g. once at final-answer time,
+    not on every tool call) to control added cost/latency.
+
+  Not started; want to first confirm the single default agent + `dbr` skill actually
+  works end-to-end before restructuring the prompt system further.
 
 **What this means for the CLI-wiring work (PR1/PR2, see below):** since there's no
 `--agent` flag, the CLI-wiring PRs deliberately keep things simple - no agent registry,
@@ -222,7 +248,7 @@ The skills design is a separate, later piece of work.
 ## Stage 1 structure
 
 **Status: steps 1-9 below are done (on `dev`).** Only step 10 (CLI wiring) remains -
-see "Stage 1b - CLI wiring (PR1 + PR2)" further down for the detailed breakdown of what
+see "Stage 1b - CLI wiring (PR2)" further down for the detailed breakdown of what
 that step actually involves.
 
 ```
@@ -269,21 +295,23 @@ gds-idea-dia/
 7. ~~Move model/agent factories into `agents.py`.~~ **Done** (missing 10 imports - PR1 fixes).
 8. `report.py` (markdown → docx → S3 upload). **Deferred** - out of scope for PR1/PR2, stdout only (see Decision 6 note above).
 9. ~~Add `[project.optional-dependencies] agent` to `pyproject.toml`.~~ **Done.**
-10. Add `agent_app` Typer sub-app + `ask` command to `cli.py`, and everything needed to actually run the chain end-to-end. **This is PR1 + PR2 - see breakdown below.**
-11. Tests: patches (idempotency, existing), retrieval_modes (existing), plus new tests per PR1/PR2 below.
+10. Add `agent_app` Typer sub-app + `ask` command to `cli.py`, and everything needed to actually run the chain end-to-end. **This is PR2 - see breakdown below.**
+11. Tests: patches (idempotency, existing), retrieval_modes (existing), plus new tests per PR2 below.
 
 ---
 
-## Stage 1b - CLI wiring (PR1 + PR2)
+## Stage 1b - CLI wiring (PR2)
 
 This is the detailed breakdown of migration step 10 above - the only step not yet done.
-Split into two PRs so PR1 (pure wiring, fully mockable) can land and be reviewed
-independently of PR2 (CLI + live-AWS tunnel concerns).
+Ships as a single PR: internal wiring, the `ask` CLI command, automated tunnel, and the
+`agent status` connectivity check all land together (no PR1/PR2/PR3 split).
 
-### PR1 - Internal wiring (no CLI, no networking)
+### PR2 - Internal wiring, CLI command, automated tunnel, and status check
 
-Makes the existing pieces actually connect, provable via mocked tests, before any CLI
-exists.
+Makes the existing pieces actually connect, adds the `dia agent ask`/`dia agent status`
+entrypoints, and automates what `scripts/neptune-agent-tunnel.py` currently demonstrates
+by hand (open the SSH tunnel, then `register_tunnel_host(...)`) into the real agent code
+path.
 
 1. **`agents.py`** - add the missing import block for the 10 prompt-template functions
    it calls but never imports (currently masked by a `ruff` per-file-ignore for
@@ -295,86 +323,115 @@ exists.
    returning, so the finished server exposes `default_` (1) + Athena (3) + graph-timeout
    helper (1) + KB search (5) + web search (1) = **11 tools across the 4 registered
    modules** (satisfies the "all 4 MCP tools registered" AC).
-4. **New file `agent/runtime.py`** - the orchestration chain:
-   ```python
-   """End-to-end agent bootstrap: config -> stores -> MCP server -> agent -> answer."""
-
-   from dia.agent import agents, stores
-   from dia.agent.config import settings
-   from dia.agent.mcp import server as mcp_server
-   from dia.agent.patches import apply_all
-
-   def ask(department: str, query: str) -> str:
-       apply_all()
-       graph_store = stores.build_graph_store(settings.neptune_endpoint)
-       vector_store = stores.build_vector_store(settings.aoss_endpoint)
-       stores.build_graph_index(graph_store, vector_store)
-       server = mcp_server.build_mcp_server(graph_store, vector_store)
-       mcp_server.start_server(server)
-       agent = agents.make_default_agent(department)
-       result = agent(query)
-       return str(result)
-   ```
-   No `--agent` dispatch/registry - matches Decision 8, only `make_default_agent()` is
-   wired for now.
-5. **Tests:** `test_agent_mcp_tools_init.py` (register_all_tools calls all 4
-   `register()`s), extended MCP-server test (build_mcp_server results in all 11 tools
-   registered), extended `test_agent_agents.py` (all `make_*_agent()` factories build
-   their prompt string without `NameError` now that imports are fixed), new
-   `test_agent_runtime.py` (`@pytest.mark.integration`, mocks `stores.*`,
-   `mcp.server.build_mcp_server/start_server`, `agents.make_default_agent` at the
-   boundary; asserts `apply_all()` runs before store construction, full chain called in
-   order, fake agent receives `query`, `ask()` returns `str(result)`).
-
-### PR2 - CLI command + automated tunnel
-
-Adds the actual `dia agent ask` entrypoint and automates what
-`scripts/neptune-agent-tunnel.py` currently demonstrates by hand (open the SSH tunnel,
-then `register_tunnel_host(...)`) into the real agent code path.
-
-1. **New file `agent/tunnel.py`** - `@contextmanager open_tunnel(phase="dev", port=8182,
+4. **New file `agent/runtime.py`** - the orchestration chain, split into small private
+   helpers from the start (rather than one inlined chain) so `check()` below can reuse
+   the connect/start steps without duplicating them:
+   - `_connect_stores() -> tuple[graph_store, vector_store]`: wraps
+     `stores.build_graph_store()` / `build_vector_store()` / `build_graph_index()`.
+   - `_start_mcp_server(graph_store, vector_store)`: wraps
+     `mcp_server.build_mcp_server()` / `start_server()`. Takes helper 1's return values
+     as input.
+   - `_run_agent(department, query) -> str`: wraps
+     `agents.make_default_agent(department)` + `agent(query)`. Doesn't need helper 1/2's
+     return values directly (the agent talks to Neptune/AOSS *through* the MCP server,
+     not the Python objects) but does need helper 2 to have already run so the server is
+     listening. Isolating this step also gives the future skills work (Decision 8) one
+     clear seam to modify later, instead of it being buried inside `ask()`.
+   - `ask(department: str | None, query: str, *, tunnel: bool = False) -> AgentResponse`:
+     applies patches, calls the three helpers above in order, then builds the response.
+     Patches (`apply_all()`) and the final `AgentResponse`-building step stay inline in
+     `ask()` - both are one-liners, not worth their own helper, and `check()` doesn't
+     need the response-building step at all. No `--agent` dispatch/registry - matches
+     Decision 8, only `make_default_agent()` is wired for now.
+5. **New file `agent/tunnel.py`** - `@contextmanager open_tunnel(phase="dev", port=8182,
    timeout=30.0)`: if port 8182 already has a live tunnel, reuse it (no teardown on
    exit); otherwise spawns `scripts/neptune-tunnel.sh {phase}` as a background
    subprocess, polls until the port accepts connections or times out, calls
    `dia.clients.neptune.register_tunnel_host(settings.neptune_endpoint)`, yields, then
    in `finally` (only if we started it) kills the subprocess's process group so no
-   orphaned `aws ec2-instance-connect ssh` process is left running.
-2. **`runtime.py`** - `ask()` gains a `tunnel: bool = False` keyword param:
-   ```python
-   from contextlib import nullcontext
-
-   def ask(department: str, query: str, *, tunnel: bool = False) -> str:
-       ctx = nullcontext()
-       if tunnel:
-           from dia.agent.tunnel import open_tunnel
-           ctx = open_tunnel()
-       with ctx:
-           ...  # same body as PR1
-   ```
-   `tunnel=False` (PR1's tests) is unaffected - `nullcontext()` means zero behaviour
-   change on that path.
-3. **`cli.py`** - a thin pass-through, no logic beyond argument wiring:
+   orphaned `aws ec2-instance-connect ssh` process is left running. `ask()`'s `tunnel`
+   param (above) selects between this and `nullcontext()` - `tunnel=False` means zero
+   behaviour change on that path.
+6. **`cli.py`** - a thin pass-through, no logic beyond argument wiring:
    ```python
    agent_app = typer.Typer(help="Query the assurance agent.")
    app.add_typer(agent_app, name="agent")
 
    @agent_app.command("ask")
    def agent_ask(
-       department: Annotated[str, typer.Option("--department", help="Department to scope the query to.")],
        query: Annotated[str, typer.Option("--query", help="Natural-language question for the agent.")],
+       department: Annotated[str | None, typer.Option("--department", help="Department to scope the query to.")] = None,
        tunnel: Annotated[bool, typer.Option("--tunnel", help="Auto-open the Neptune dev SSH tunnel for this run.")] = False,
    ):
        from dia.agent import runtime
        typer.echo(runtime.ask(department, query, tunnel=tunnel))
    ```
-4. **Tests:** `test_cli_agent.py` (`CliRunner` invokes `dia agent ask --department ...
-   --query ...` with `dia.agent.runtime.ask` mocked, asserts pass-through + echoed
-   output, including that `--tunnel` maps to `tunnel=True`), `test_agent_tunnel.py`
-   (mocks `subprocess.Popen`/socket-connect to test readiness-poll/reuse-existing/
-   timeout/teardown logic without real AWS/SSH), and an extension to
-   `test_agent_runtime.py` covering the `tunnel=True` path (mocks `open_tunnel`, asserts
-   it wraps the chain). Manual (non-automated) verification, since it needs real AWS/SSH:
-   `uv run dia agent ask --department "Home Office" --query "..." --tunnel` against dev.
+7. **`runtime.py`** - new `check(*, tunnel: bool = True)`: one command, three named
+   checks, run in dependency order, each **skipped rather than attempted** once an
+   earlier one has failed (stores can't succeed without a tunnel; the MCP server can't
+   succeed without stores) - this way a single invocation makes the failure point
+   obvious instead of the caller having to run/interpret three separate commands that
+   would all fail for the same root cause:
+   - **`tunnel`**: if `tunnel=True`, enter `open_tunnel()` (a `TimeoutError` here means
+     `FAILED`); if `tunnel=False`, reported as `SKIPPED` (explicitly opted out, not a
+     failure).
+   - **`stores`**: `_connect_stores()` - only attempted if `tunnel` was `OK`/`SKIPPED`.
+   - **`mcp_server`**: `_start_mcp_server()` - only attempted if `stores` was `OK`.
+   - Never calls `_run_agent()`/`agents.make_default_agent()` - no LLM call, no cost.
+   - Returns a small structured result (e.g. a dict/dataclass with one
+     `OK`/`FAILED`/`SKIPPED` per component) rather than a bare `bool`, so `cli.py` can
+     print a line per component plus one overall summary line.
+
+   > **Known limitation (deferred, revisit later):** `start_server()`'s internal MCP
+   > verification step (in `mcp/server.py`, the block that connects a short-lived
+   > `MCPClient` and calls `list_tools_sync()` right after launching the server) wraps
+   > that check in a `try/except Exception` that only `print()`s on failure - it never
+   > re-raises. That means `_start_mcp_server()` can succeed (no exception) even when
+   > the server didn't come up correctly. `check()`, as designed above, only detects
+   > "failed to build/start" - it currently has no way to detect "started but not
+   > actually responding," because that specific failure is swallowed before it ever
+   > reaches `check()`. Not being fixed as part of this PR - come back to this if
+   > `agent status` needs a harder guarantee than "didn't crash."
+8. **`cli.py`** - `agent_app` gains a second command that prints one line per component
+   plus an overall result:
+   ```python
+   @agent_app.command("status")
+   def agent_status(
+       tunnel: Annotated[
+           bool, typer.Option("--tunnel", help="Auto-open the Neptune dev SSH tunnel for this check.")
+       ] = True,
+   ):
+       from dia.agent import runtime
+       result = runtime.check(tunnel=tunnel)
+       for component, status in result.items():
+           typer.echo(f"{component}: {status}")
+       typer.echo("OK" if all(s == "OK" for s in result.values()) else "FAILED")
+   ```
+   Example output when the tunnel is down:
+   ```
+   tunnel: FAILED
+   stores: SKIPPED
+   mcp_server: SKIPPED
+   FAILED
+   ```
+9. **Tests:** `test_agent_mcp_tools_init.py` (register_all_tools calls all 4
+   `register()`s), extended MCP-server test (build_mcp_server results in all 11 tools
+   registered), extended `test_agent_agents.py` (all `make_*_agent()` factories build
+   their prompt string without `NameError` now that imports are fixed),
+   `test_agent_runtime.py` (`@pytest.mark.integration`, mocks `stores.*`,
+   `mcp.server.build_mcp_server/start_server`, `agents.make_default_agent` at the
+   boundary; asserts `apply_all()` runs before store construction, full chain called in
+   order, fake agent receives `query`, `ask()` returns an `AgentResponse` wrapping
+   `str(result)`, and `check()`: reports `tunnel`/`stores`/`mcp_server` correctly on the
+   happy path, reports `stores`/`mcp_server` as `SKIPPED` when `tunnel` fails, reports
+   `mcp_server` as `SKIPPED` when `stores` fails, never calls `_run_agent()`),
+   `test_agent_tunnel.py` (mocks `subprocess.Popen`/socket-connect to test
+   readiness-poll/reuse-existing/timeout/teardown logic without real AWS/SSH),
+   `test_cli_agent.py` (`CliRunner` invokes `dia agent ask --department ... --query ...`
+   and `dia agent status` with `dia.agent.runtime.ask`/`check` mocked, asserts
+   pass-through + echoed output per component, including that `--tunnel` maps to
+   `tunnel=True`). Manual (non-automated) verification, since it needs real AWS/SSH:
+   `uv run dia agent ask --query "..." --department "Home Office" --tunnel` against dev.
 
 ---
 

@@ -15,6 +15,9 @@ app = typer.Typer(
 ledger_app = typer.Typer(help="Inspect and manage the processing ledger.")
 app.add_typer(ledger_app, name="ledger")
 
+agent_app = typer.Typer(help="Query the digital intelligence agent.")
+app.add_typer(agent_app, name="agent")
+
 
 @app.callback(invoke_without_command=True)
 def main(
@@ -328,3 +331,23 @@ def _report_result(result) -> None:
     typer.echo(f"Failed:    {result.failed}")
     if result.failed_keys:
         typer.echo(f"Failed keys: {', '.join(result.failed_keys)}")
+
+
+@agent_app.command("ask")
+def agent_ask(
+    query: Annotated[str, typer.Option("--query", help="Natural-language question for the agent.")],
+    department: Annotated[str | None, typer.Option("--department", help="Department to scope the query to.")] = None,
+):
+    from dia.agent import runtime
+
+    typer.echo(runtime.ask(department, query, tunnel=True))
+
+
+@agent_app.command("status")
+def agent_status():
+    from dia.agent import runtime
+
+    result = runtime.check(tunnel=True)
+    for component, status in result.items():
+        typer.echo(f"{component}: {status}")
+    typer.echo("OK" if all(s == "OK" for s in result.values()) else "FAILED")

@@ -1,9 +1,18 @@
 """Response model for a completed agent query."""
 
 from datetime import date
+from enum import StrEnum
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
+
+
+class CheckStatus(StrEnum):
+    """Outcome of a single component check in runtime.check()."""
+
+    OK = "OK"
+    FAILED = "FAILED"
+    SKIPPED = "SKIPPED"
 
 
 class AgentInput(BaseModel, frozen=True):

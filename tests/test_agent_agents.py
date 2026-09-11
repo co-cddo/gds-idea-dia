@@ -1,34 +1,23 @@
-"""Tests for dia.agent.agents — make_model() and the per-prompt agent factories.
+"""Tests for dia.agent.agents — make_model() and the default agent factory.
 
 make_model() is pure branching logic (which Bedrock models need adaptive vs.
 manual thinking config) with no AWS/Strands side effects at construction time.
 
-The make_*_agent() factories are tested only for plumbing: that each one calls
-the shared make_agent() helper with a non-empty prompt string, built without
-raising (this is what would have caught the missing get_default_system_prompt
-import). make_agent()'s internals (real MCPClient/Strands Agent construction)
+make_default_agent() is tested only for plumbing: that it calls the shared
+make_agent() helper with a non-empty prompt string, built without raising, for
+both a given department and no department (None/omitted -> cross-government
+prompt). make_agent()'s internals (real MCPClient/Strands Agent construction)
 are deliberately not tested here — that needs a running MCP server / AWS.
+
+The other per-persona factories (make_dbr_agent, make_gats_query_agent, etc.)
+were removed from dia.agent.agents as part of the migration to Strands
+AgentSkills (see docs/agent-refactor.md) — only the default persona is wired
+up as a plain factory function today.
 """
 
 from unittest.mock import patch
 
-import pytest
-
-from dia.agent.agents import (
-    make_ai_transformation_agent,
-    make_ai_transformation_agent_v2,
-    make_dbr_agent,
-    make_default_agent,
-    make_gats_query_agent,
-    make_graph_cost_aware_agent,
-    make_model,
-    make_pitch_deck_agent,
-    make_project_investigation_agent,
-    make_sovereign_stack_agent,
-    make_supplier_ecosystem_agent,
-    make_supplier_lockin_agent,
-    make_targeted_question_agent,
-)
+from dia.agent.agents import make_default_agent, make_model
 
 
 def test_manual_thinking_model_gets_enabled_type_and_budget_tokens():
@@ -113,31 +102,12 @@ def test_uses_settings_model_id_by_default():
     assert config["model_id"] == settings.model_id
 
 
-# --- make_*_agent() factories (plumbing only) ---
-
-_FACTORIES_WITH_DEPARTMENT = [
-    make_default_agent,
-    make_dbr_agent,
-    make_supplier_lockin_agent,
-    make_supplier_ecosystem_agent,
-    make_ai_transformation_agent,
-    make_ai_transformation_agent_v2,
-]
-
-_FACTORIES_WITHOUT_DEPARTMENT = [
-    make_gats_query_agent,
-    make_project_investigation_agent,
-    make_targeted_question_agent,
-    make_sovereign_stack_agent,
-    make_graph_cost_aware_agent,
-    make_pitch_deck_agent,
-]
+# --- make_default_agent() (plumbing only) ---
 
 
-@pytest.mark.parametrize("factory", _FACTORIES_WITH_DEPARTMENT)
-def test_department_factory_calls_make_agent_with_nonempty_prompt(factory):
+def test_default_agent_calls_make_agent_with_nonempty_prompt():
     with patch("dia.agent.agents.make_agent") as mock_make_agent:
-        factory("Home Office")
+        make_default_agent("Home Office")
 
         mock_make_agent.assert_called_once()
         prompt = mock_make_agent.call_args[0][0]
@@ -145,12 +115,23 @@ def test_department_factory_calls_make_agent_with_nonempty_prompt(factory):
         assert prompt != ""
 
 
-@pytest.mark.parametrize("factory", _FACTORIES_WITHOUT_DEPARTMENT)
-def test_no_department_factory_calls_make_agent_with_nonempty_prompt(factory):
+def test_default_agent_handles_missing_department():
     with patch("dia.agent.agents.make_agent") as mock_make_agent:
-        factory()
+        make_default_agent()
 
         mock_make_agent.assert_called_once()
         prompt = mock_make_agent.call_args[0][0]
         assert isinstance(prompt, str)
         assert prompt != ""
+        assert "None" not in prompt
+
+
+def test_default_agent_handles_none_department():
+    with patch("dia.agent.agents.make_agent") as mock_make_agent:
+        make_default_agent(None)
+
+        mock_make_agent.assert_called_once()
+        prompt = mock_make_agent.call_args[0][0]
+        assert isinstance(prompt, str)
+        assert prompt != ""
+        assert "None" not in prompt

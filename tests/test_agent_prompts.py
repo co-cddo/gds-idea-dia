@@ -1,7 +1,6 @@
 """Smoke + unit tests for dia.agent.prompts — system prompt templates and fragment helpers."""
 
 from dia.agent.prompts.fragments.common_rules import hard_gates
-from dia.agent.prompts.fragments.output_specs import dbr_output_card
 from dia.agent.prompts.fragments.tools_and_sources import department_matching_rules
 from dia.agent.prompts.fragments.utils import block, bullet_list, clean, join_sections
 from dia.agent.prompts.templates import (
@@ -18,6 +17,7 @@ from dia.agent.prompts.templates import (
     get_supplier_lockin_system_prompt,
     get_targeted_question_system_prompt,
 )
+from dia.agent.prompts.templates.dbr import dbr_output_card
 
 # --- template factories: smoke tests (importability + non-empty output) ---
 #
@@ -39,10 +39,10 @@ _DEPARTMENT_ARG_FACTORIES = [
     get_ai_transformation_system_prompt,
     get_ai_transformation_system_prompt_v2,
     get_dbr_system_prompt,
-    get_default_system_prompt,
 ]
 
 _OPTIONAL_DEPARTMENT_ARG_FACTORIES = [
+    get_default_system_prompt,
     get_supplier_ecosystem_system_prompt,
     get_supplier_lockin_system_prompt,
 ]
@@ -79,9 +79,14 @@ def test_dbr_system_prompt_embeds_department_name():
     assert "HMRC" in result
 
 
-def test_default_system_prompt_uses_default_department_when_not_given():
+def test_default_system_prompt_defaults_to_cross_government_when_not_given():
     result = get_default_system_prompt()
-    assert "Home Office" in result
+    assert "across central government" in result
+    assert "Target department: All departments (cross-government)" in result
+    assert "briefing for Home Office" not in result
+    assert "None" not in result
+    assert 'mode="business_case_all"' in result
+    assert 'mode="metadata_filtered_business_case_department"' not in result
 
 
 def test_supplier_lockin_system_prompt_works_with_empty_department():
