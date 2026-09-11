@@ -217,12 +217,26 @@ codebase.
   government"`). Whichever skill(s) replace these prompts must build in that same
   "no department = cross-government, not a crash and not the literal string None"
   handling from the start, rather than re-inheriting the gap.
-- **Steering prompts as a replacement for `prompts/fragments/*.py`.** Worth exploring
-  Strands' steering-prompt mechanism as a home for today's reusable prose fragments
-  (`common_rules.py`, `tools_and_sources.py`, etc.) instead of plain Python string
-  builders - e.g. `hard_gates()`'s word-count/tool-call minimums could live there. Not
-  started; want to first confirm the single default agent + `dbr` skill actually works
-  end-to-end before restructuring the prompt system further.
+- **Steering as a replacement for some of `prompts/fragments/*.py`'s enforcement
+  rules.** Rather than baking every rule into the upfront system prompt as static
+  prose, Strands'
+  [steering](https://strandsagents.com/docs/user-guide/concepts/plugins/steering/)
+  mechanism can enforce rules at runtime, at two points in the agent loop: before a
+  tool call (gatekeeps whether an action should proceed - right tool, right order, safe
+  query) and after a model response (gatekeeps output quality before it's accepted).
+  Two implementation styles, chosen per-rule:
+  - Deterministic (code, no LLM cost) - for countable/checkable rules against the tool-
+    call ledger: `hard_gates()`'s `min_words`, `min_graph_calls`,
+    `first_n_must_be_graph`, `min_web_calls`, "must use the Tavily tool for web
+    search," etc. No extra model call needed - just inspect the ledger and
+    cancel/retry with feedback if violated.
+  - LLM-based (`LLMSteeringHandler`) - for judgment calls that can't be counted: "does
+    this citation's content actually support the claim," "does the draft address
+    supplier lock-in in depth." Scope these sparingly (e.g. once at final-answer time,
+    not on every tool call) to control added cost/latency.
+
+  Not started; want to first confirm the single default agent + `dbr` skill actually
+  works end-to-end before restructuring the prompt system further.
 
 **What this means for the CLI-wiring work (PR1/PR2, see below):** since there's no
 `--agent` flag, the CLI-wiring PRs deliberately keep things simple - no agent registry,
