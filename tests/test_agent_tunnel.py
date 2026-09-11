@@ -1,4 +1,4 @@
-"""Tests for dia.agent.tunnel — ensure_tunnel_open()'s readiness-poll/reuse/timeout/
+"""Tests for dia.agent.tunnel — open_tunnel()'s readiness-poll/reuse/timeout/
 teardown logic.
 
 Every external dependency (subprocess.Popen, socket-connect via
@@ -13,11 +13,11 @@ from unittest.mock import MagicMock, PropertyMock, patch
 import pytest
 
 from dia.agent.config import Settings
-from dia.agent.tunnel import ensure_tunnel_open
+from dia.agent.tunnel import open_tunnel
 
 
 def _patch_all(**overrides):
-    """Patch every external dependency of ensure_tunnel_open(), returning (patches, mocks)."""
+    """Patch every external dependency of open_tunnel(), returning (patches, mocks)."""
     patches = {
         "Popen": patch("dia.agent.tunnel.subprocess.Popen"),
         "_is_port_open": patch("dia.agent.tunnel._is_port_open"),
@@ -55,7 +55,7 @@ def _stop_all(patches):
 def test_reuses_existing_tunnel_without_spawning_subprocess():
     patches, mocks = _patch_all(_is_port_open=[True])
     try:
-        with ensure_tunnel_open(phase="dev", port=8182, timeout=30.0, host="127.0.0.1"):
+        with open_tunnel(phase="dev", port=8182, timeout=30.0, host="127.0.0.1"):
             pass
 
         mocks["Popen"].assert_not_called()
@@ -66,7 +66,7 @@ def test_reuses_existing_tunnel_without_spawning_subprocess():
 def test_registers_tunnel_host_with_configured_endpoint_when_reused():
     patches, mocks = _patch_all(_is_port_open=[True])
     try:
-        with ensure_tunnel_open(phase="dev", port=8182, timeout=30.0, host="127.0.0.1"):
+        with open_tunnel(phase="dev", port=8182, timeout=30.0, host="127.0.0.1"):
             pass
 
         mocks["register_tunnel_host"].assert_called_once_with("neptune-tunnel-host.example.com")
@@ -77,7 +77,7 @@ def test_registers_tunnel_host_with_configured_endpoint_when_reused():
 def test_does_not_kill_process_when_tunnel_was_already_running():
     patches, mocks = _patch_all(_is_port_open=[True])
     try:
-        with ensure_tunnel_open(phase="dev", port=8182, timeout=30.0, host="127.0.0.1"):
+        with open_tunnel(phase="dev", port=8182, timeout=30.0, host="127.0.0.1"):
             pass
 
         mocks["killpg"].assert_not_called()
@@ -93,7 +93,7 @@ def test_does_not_kill_process_when_tunnel_was_already_running():
 def test_spawns_subprocess_when_port_not_already_open():
     patches, mocks = _patch_all(_is_port_open=[False, True])
     try:
-        with ensure_tunnel_open(phase="dev", port=8182, timeout=30.0, host="127.0.0.1"):
+        with open_tunnel(phase="dev", port=8182, timeout=30.0, host="127.0.0.1"):
             pass
 
         mocks["Popen"].assert_called_once_with(["scripts/neptune-tunnel.sh", "dev"], start_new_session=True)
@@ -104,7 +104,7 @@ def test_spawns_subprocess_when_port_not_already_open():
 def test_registers_tunnel_host_after_spawning():
     patches, mocks = _patch_all(_is_port_open=[False, True])
     try:
-        with ensure_tunnel_open(phase="dev", port=8182, timeout=30.0, host="127.0.0.1"):
+        with open_tunnel(phase="dev", port=8182, timeout=30.0, host="127.0.0.1"):
             pass
 
         mocks["register_tunnel_host"].assert_called_once_with("neptune-tunnel-host.example.com")
@@ -115,7 +115,7 @@ def test_registers_tunnel_host_after_spawning():
 def test_kills_process_group_on_exit_when_we_started_it():
     patches, mocks = _patch_all(_is_port_open=[False, True])
     try:
-        with ensure_tunnel_open(phase="dev", port=8182, timeout=30.0, host="127.0.0.1"):
+        with open_tunnel(phase="dev", port=8182, timeout=30.0, host="127.0.0.1"):
             pass
 
         mocks["getpgid"].assert_called_once_with(12345)
@@ -127,7 +127,7 @@ def test_kills_process_group_on_exit_when_we_started_it():
 def test_default_phase_uses_detect_environment_short_name():
     patches, mocks = _patch_all(_is_port_open=[False, True])
     try:
-        with ensure_tunnel_open(port=8182, timeout=30.0, host="127.0.0.1"):
+        with open_tunnel(port=8182, timeout=30.0, host="127.0.0.1"):
             pass
 
         mocks["Popen"].assert_called_once_with(["scripts/neptune-tunnel.sh", "dev"], start_new_session=True)
@@ -147,7 +147,7 @@ def test_raises_timeout_error_when_port_never_opens():
     )
     try:
         with pytest.raises(TimeoutError, match="Neptune tunnel did not open in time"):
-            with ensure_tunnel_open(phase="dev", port=8182, timeout=30.0, host="127.0.0.1"):
+            with open_tunnel(phase="dev", port=8182, timeout=30.0, host="127.0.0.1"):
                 pass
     finally:
         _stop_all(patches)
@@ -163,7 +163,7 @@ def test_kills_process_group_even_on_timeout():
     )
     try:
         with pytest.raises(TimeoutError):
-            with ensure_tunnel_open(phase="dev", port=8182, timeout=30.0, host="127.0.0.1"):
+            with open_tunnel(phase="dev", port=8182, timeout=30.0, host="127.0.0.1"):
                 pass
 
         mocks["getpgid"].assert_called_once_with(12345)
@@ -179,7 +179,7 @@ def test_does_not_register_tunnel_host_on_timeout():
     )
     try:
         with pytest.raises(TimeoutError):
-            with ensure_tunnel_open(phase="dev", port=8182, timeout=30.0, host="127.0.0.1"):
+            with open_tunnel(phase="dev", port=8182, timeout=30.0, host="127.0.0.1"):
                 pass
 
         mocks["register_tunnel_host"].assert_not_called()

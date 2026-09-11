@@ -1,56 +1,49 @@
 """End-to-end agent bootstrap: config -> stores -> MCP server -> agent -> answer."""
 
 import logging
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 
-from dia.agent.config import settings
 from dia.agent.models import AgentInput, AgentResponse, CheckStatus
 from dia.agent.patches import apply_all
 from dia.agent.steps import _connect_stores, _run_agent, _start_mcp_server
-from dia.agent.tunnel import _is_port_open, ensure_tunnel_open
-from dia.clients.neptune import register_tunnel_host
+from dia.agent.tunnel import open_tunnel
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
 def check(*, tunnel: bool = True) -> dict[str, CheckStatus]:
-    """Connectivity check: tunnel -> stores -> mcp_server, skipping later steps on failure. No LLM call.
-
-    The tunnel check is read-only - it verifies something is already
-    listening on the configured tunnel port. It does not spawn or tear
-    down a tunnel process (unlike ask(), which owns the tunnel's lifecycle
-    for the duration of the call).
-    """
+    """Connectivity check: tunnel -> stores -> mcp_server, skipping later steps on failure. No LLM call."""
     result: dict[str, CheckStatus] = {
         "tunnel": CheckStatus.SKIPPED,
         "stores": CheckStatus.SKIPPED,
         "mcp_server": CheckStatus.SKIPPED,
     }
 
-    if tunnel:
-        if _is_port_open(settings.tunnel_port, settings.tunnel_host):
-            register_tunnel_host(settings.neptune_endpoint)
-            result["tunnel"] = CheckStatus.OK
-        else:
-            logger.error("tunnel check failed: nothing listening on %s:%s", settings.tunnel_host, settings.tunnel_port)
-            result["tunnel"] = CheckStatus.FAILED
+    with ExitStack() as stack:
+        if tunnel:
+            try:
+                stack.enter_context(open_tunnel())
+                result["tunnel"] = CheckStatus.OK
+            except Exception as e:
+                logger.error("tunnel check failed: %s", e)
+                result["tunnel"] = CheckStatus.FAILED
+                return result
+
+        try:
+            graph_store, vector_store = _connect_stores()
+            result["stores"] = CheckStatus.OK
+        except Exception as e:
+            logger.error("stores check failed: %s", e)
+            result["stores"] = CheckStatus.FAILED
             return result
 
-    try:
-        graph_store, vector_store = _connect_stores()
-        result["stores"] = CheckStatus.OK
-    except Exception as e:
-        logger.error("stores check failed: %s", e)
-        result["stores"] = CheckStatus.FAILED
-        return result
-
-    try:
-        _start_mcp_server(graph_store, vector_store)
-        result["mcp_server"] = CheckStatus.OK
-    except Exception as e:
-        logger.error("mcp_server check failed: %s", e)
-        result["mcp_server"] = CheckStatus.FAILED
+        try:
+            _start_mcp_server(graph_store, vector_store)
+            result["mcp_server"] = CheckStatus.OK
+        except Exception as e:
+            logger.error("mcp_server check failed: %s", e)
+            result["mcp_server"] = CheckStatus.FAILED
 
     return result
 
@@ -63,7 +56,7 @@ def ask(department: str | None, query: str, *, tunnel: bool = False) -> AgentRes
     SSH tunnel for the duration of the call.
     """
     agent_input = AgentInput(department=department, query=query)
-    ctx = ensure_tunnel_open() if tunnel else nullcontext()
+    ctx = open_tunnel() if tunnel else nullcontext()
     with ctx:
         try:
             apply_all()
