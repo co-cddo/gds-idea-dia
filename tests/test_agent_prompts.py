@@ -3,7 +3,6 @@
 from dia.agent.prompts.fragments.common_rules import hard_gates
 from dia.agent.prompts.fragments.tools_and_sources import department_matching_rules
 from dia.agent.prompts.fragments.utils import block, bullet_list, clean, join_sections
-from dia.agent.prompts.templates.dbr import dbr_output_card
 from dia.agent.prompts.templates import (
     get_ai_transformation_system_prompt,
     get_ai_transformation_system_prompt_v2,
@@ -18,6 +17,7 @@ from dia.agent.prompts.templates import (
     get_supplier_lockin_system_prompt,
     get_targeted_question_system_prompt,
 )
+from dia.agent.prompts.templates.dbr import dbr_output_card
 
 # --- template factories: smoke tests (importability + non-empty output) ---
 #
