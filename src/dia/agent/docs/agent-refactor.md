@@ -191,9 +191,15 @@ in **skills** based on the query, instead of selecting an entire bespoke system 
 - This removes the need for a `--agent` flag (Decision 7) and a supervisor/router stage
   (Stage 2) entirely - both are superseded by this decision.
 
+**Decided: skills folder structure.** Skills live at `prompts/skills/<name>/SKILL.md`
+(one directory per skill; `dbr` is the first). They're loaded via
+`strands.AgentSkills(skills=Path(__file__).parent / "prompts" / "skills")`, wired into
+every agent in `agents.py::make_agent()`. The path is resolved relative to the `agents.py`
+module file, not the process's cwd, so it works regardless of where `dia` is invoked from -
+unlike the cwd-relative convention used for `scripts/neptune-tunnel.sh` elsewhere in this
+codebase.
+
 **Not yet decided (explicitly deferred, separate follow-up conversation):**
-- Skills folder/module structure (e.g. `agent/skills/<name>.py`, a registry, how a skill
-  is declared/discovered).
 - How the agent selects which skill(s) to use for a given query (tool-calling into a
   skill-listing tool? Always-loaded skill index? Something else?).
 - What happens to the existing 12 `make_*_agent()` factories and their prompt files -
@@ -211,6 +217,12 @@ in **skills** based on the query, instead of selecting an entire bespoke system 
   government"`). Whichever skill(s) replace these prompts must build in that same
   "no department = cross-government, not a crash and not the literal string None"
   handling from the start, rather than re-inheriting the gap.
+- **Steering prompts as a replacement for `prompts/fragments/*.py`.** Worth exploring
+  Strands' steering-prompt mechanism as a home for today's reusable prose fragments
+  (`common_rules.py`, `tools_and_sources.py`, etc.) instead of plain Python string
+  builders - e.g. `hard_gates()`'s word-count/tool-call minimums could live there. Not
+  started; want to first confirm the single default agent + `dbr` skill actually works
+  end-to-end before restructuring the prompt system further.
 
 **What this means for the CLI-wiring work (PR1/PR2, see below):** since there's no
 `--agent` flag, the CLI-wiring PRs deliberately keep things simple - no agent registry,
