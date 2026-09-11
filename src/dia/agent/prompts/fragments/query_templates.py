@@ -18,7 +18,7 @@ from dia.agent.prompts.fragments.utils import block
 # -----------------------------------------------------------------------------
 
 
-def default_required_graph_sequence(department_name: str = "") -> str:
+def default_required_graph_sequence(department_name: str = "", min_calls: int = 5) -> str:
     if department_name:
         all_mode = "department_all_sources"
         bc_mode = "metadata_filtered_business_case_department"
@@ -34,7 +34,7 @@ def default_required_graph_sequence(department_name: str = "") -> str:
     return block(
         "default_required_graph_sequence",
         f"""
-        DEFAULT — REQUIRED GRAPH QUERY SEQUENCE (minimum 5, sequential):
+        DEFAULT — REQUIRED GRAPH QUERY SEQUENCE (minimum {min_calls}, sequential):
 
         1. `default_(query="major digital programmes, suppliers, platforms, and capabilities",
                      mode="{all_mode}",

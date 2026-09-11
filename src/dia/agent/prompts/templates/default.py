@@ -54,7 +54,7 @@ def get_default_system_prompt(department_name: str = "") -> str:
         department_matching_rules(),
         ATHENA_SCHEMA_REFERENCE,
         COMMON_INVESTIGATION_METHODOLOGY,
-        default_required_graph_sequence(department_name),
+        default_required_graph_sequence(department_name, min_calls=settings.default_persona_min_graph_calls),
         SQL_HARD_RULES,
         COMMON_OUTPUT_RULES,
         DEFAULT_OUTPUT_SPEC,
