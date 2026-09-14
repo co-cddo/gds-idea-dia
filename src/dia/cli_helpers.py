@@ -50,3 +50,13 @@ def resolve_text_output_bucket() -> str:
     """
     env = detect_environment()
     return f"gds-idea-dia-text-extracted-{env.short_name}"
+
+
+def resolve_agent_report_bucket() -> str:
+    """Derive the agent report output S3 bucket name from the active environment.
+
+    Returns:
+        Bucket name following the pattern: gds-idea-dia-agent-reports-{phase}
+    """
+    env = detect_environment()
+    return f"gds-idea-dia-agent-reports-{env.short_name}"
