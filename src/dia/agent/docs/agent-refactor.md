@@ -193,9 +193,15 @@ in **skills** based on the query, instead of selecting an entire bespoke system 
   entirely - both are superseded by this decision (see Decision 9 for the concrete
   skills implementation).
 
+**Decided: skills folder structure.** Skills live at `prompts/skills/<name>/SKILL.md`
+(one directory per skill; `dbr` is the first). They're loaded via
+`strands.AgentSkills(skills=Path(__file__).parent / "prompts" / "skills")`, wired into
+every agent in `agents.py::make_agent()`. The path is resolved relative to the `agents.py`
+module file, not the process's cwd, so it works regardless of where `dia` is invoked from -
+unlike the cwd-relative convention used for `scripts/neptune-tunnel.sh` elsewhere in this
+codebase.
+
 **Not yet decided (explicitly deferred, separate follow-up conversation):**
-- Skills folder/module structure (e.g. `agent/skills/<name>.py`, a registry, how a skill
-  is declared/discovered).
 - How the agent selects which skill(s) to use for a given query (tool-calling into a
   skill-listing tool? Always-loaded skill index? Something else?).
 - What happens to the existing 12 `make_*_agent()` factories and their prompt files -
@@ -213,6 +219,26 @@ in **skills** based on the query, instead of selecting an entire bespoke system 
   government"`). Whichever skill(s) replace these prompts must build in that same
   "no department = cross-government, not a crash and not the literal string None"
   handling from the start, rather than re-inheriting the gap.
+- **Steering as a replacement for some of `prompts/fragments/*.py`'s enforcement
+  rules.** Rather than baking every rule into the upfront system prompt as static
+  prose, Strands'
+  [steering](https://strandsagents.com/docs/user-guide/concepts/plugins/steering/)
+  mechanism can enforce rules at runtime, at two points in the agent loop: before a
+  tool call (gatekeeps whether an action should proceed - right tool, right order, safe
+  query) and after a model response (gatekeeps output quality before it's accepted).
+  Two implementation styles, chosen per-rule:
+  - Deterministic (code, no LLM cost) - for countable/checkable rules against the tool-
+    call ledger: `hard_gates()`'s `min_words`, `min_graph_calls`,
+    `first_n_must_be_graph`, `min_web_calls`, "must use the Tavily tool for web
+    search," etc. No extra model call needed - just inspect the ledger and
+    cancel/retry with feedback if violated.
+  - LLM-based (`LLMSteeringHandler`) - for judgment calls that can't be counted: "does
+    this citation's content actually support the claim," "does the draft address
+    supplier lock-in in depth." Scope these sparingly (e.g. once at final-answer time,
+    not on every tool call) to control added cost/latency.
+
+  Not started; want to first confirm the single default agent + `dbr` skill actually
+  works end-to-end before restructuring the prompt system further.
 
 **What this means for the CLI-wiring work (PR1/PR2, see below):** since there's no
 `--agent` flag, the CLI-wiring PRs deliberately keep things simple - no agent registry,
