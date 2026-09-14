@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     # -- Bedrock model config --
     aws_region: str = Field(default="eu-west-2")
     model_id: str = Field(default="global.anthropic.claude-sonnet-5")
-    model_max_tokens: int = Field(default=8000)
+    model_max_tokens: int = Field(default=20000)
     model_temperature: float = Field(default=1.0)
     model_thinking_budget_tokens: int = Field(default=8192)
     model_thinking_effort: str = Field(default="high")
@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     # Neptune is empty (graph queries return nothing useful right now, so forcing
     # the agent through them just burns tool calls/tokens). Restore to
     # min_graph_calls=5, first_n_must_be_graph=4 once Neptune has data.
-    default_persona_min_words: int = Field(default=2_000)
+    default_persona_min_words: int = Field(default=2000)
     default_persona_min_graph_calls: int = Field(default=0)
     default_persona_first_n_must_be_graph: int = Field(default=0)
     default_persona_min_web_calls: int = Field(default=1)
