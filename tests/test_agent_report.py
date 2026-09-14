@@ -141,8 +141,23 @@ def test_to_docx_italic_span_becomes_italic_run():
 def test_to_docx_code_span_uses_monospace_font():
     doc = _render("Run `get_table_schema` first.")
 
-    code_runs = [r for r in doc.paragraphs[0].runs if r.font.name == "Consolas"]
+    code_runs = [r for r in doc.paragraphs[0].runs if r.font.name == "Courier"]
     assert [r.text for r in code_runs] == ["get_table_schema"]
+
+
+def test_to_docx_handles_nested_emphasis():
+    """Regression test: the old regex-based inline parser couldn't tell the two literal
+    `*` characters of a nested bold span apart from the outer italic markers, so nested
+    emphasis rendered incorrectly. A real markdown parser handles nesting correctly.
+    """
+    doc = _render("*emphasis with **nested bold** inside*")
+
+    runs = doc.paragraphs[0].runs
+    bold_runs = [r for r in runs if r.bold]
+    italic_runs = [r for r in runs if r.italic and not r.bold]
+
+    assert [r.text for r in bold_runs] == ["nested bold"]
+    assert [r.text for r in italic_runs] == ["emphasis with ", " inside"]
 
 
 def test_to_docx_preserves_pound_sign():

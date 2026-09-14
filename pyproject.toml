@@ -30,10 +30,13 @@ dependencies = [
     "boto3>=1.35.0",
     "gds-idea-cdk-constructs>=0.3.0",
     "graphrag-lexical-graph>=3.19.1",
+    "html-for-docx>=1.2.0",
     "llama-index-vector-stores-opensearch>=0.6.2",
+    "markdown>=3.10.3",
     "numpy<2",                          # pinned: blis (spacy, via graphrag-lexical-graph) requires numpy<2
     "pdfplumber>=0.11.9",
     "pydantic>=2.9.0",
+    "pymdown-extensions>=11.0.2",
     "pypdf>=6.4.2",
     "python-docx>=1.2.0",
     "rapidfuzz>=3.14.3",

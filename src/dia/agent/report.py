@@ -4,19 +4,11 @@ import re
 from io import BytesIO
 
 import boto3
+import markdown as markdown_lib
 from docx import Document
-from docx.document import Document as DocumentObject
-from docx.table import Table
-from docx.text.paragraph import Paragraph
+from html4docx import HtmlToDocx
 
 from dia.agent.models import AgentResponse
-
-_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
-_NUMBERED_LIST_RE = re.compile(r"^\s*\d+[.)]\s+(.*)$")
-_BULLET_LIST_RE = re.compile(r"^\s*[-*]\s+(.*)$")
-_TABLE_ROW_RE = re.compile(r"^\s*\|(.+)\|\s*$")
-_TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$")
-_INLINE_SPLIT_RE = re.compile(r"(\*\*.+?\*\*|\*.+?\*|`.+?`)")
 
 
 class ReportUploader:
@@ -91,114 +83,25 @@ class ReportUploader:
         short_id = response.id[:8]
         return f"{dept_slug}/{response.run_date.isoformat()}_{short_id}.{extension}"
 
-    @classmethod
-    def _to_docx(cls, markdown: str) -> bytes:
+    @staticmethod
+    def _to_docx(markdown_text: str) -> bytes:
         """Render markdown into a .docx using built-in Word styles only.
 
-        Supports headings (#-######), bullet/numbered lists, GFM pipe tables
-        (header row + separator row), and inline **bold**/*italic*/`code` spans.
-        No colors, emoji, or custom styling — a plain, professional document.
+        Converts markdown -> HTML (via the `markdown` library, with the GFM
+        `tables` extension and `pymdownx.betterem` for correctly-nested
+        emphasis, e.g. `*italic with **bold** inside*`) -> .docx (via
+        `html4docx`, which walks the HTML into python-docx calls). Headings,
+        bullet/numbered lists, tables, and inline **bold**/*italic*/`code`
+        spans all map onto built-in Word styles. No colors, emoji, or custom
+        styling — a plain, professional document.
         """
+        html = markdown_lib.markdown(markdown_text, extensions=["tables", "pymdownx.betterem"])
+
         document = Document()
-        lines = markdown.splitlines()
-
-        i = 0
-        while i < len(lines):
-            line = lines[i]
-
-            if not line.strip():
-                i += 1
-                continue
-
-            if cls._is_table_start(lines, i):
-                table_lines, i = cls._consume_table(lines, i)
-                cls._render_table(document, table_lines)
-                continue
-
-            heading_match = _HEADING_RE.match(line)
-            if heading_match:
-                level = min(len(heading_match.group(1)), 9)
-                paragraph = document.add_heading(level=level)
-                cls._add_inline_runs(paragraph, heading_match.group(2).strip())
-                i += 1
-                continue
-
-            bullet_match = _BULLET_LIST_RE.match(line)
-            if bullet_match:
-                paragraph = document.add_paragraph(style="List Bullet")
-                cls._add_inline_runs(paragraph, bullet_match.group(1).strip())
-                i += 1
-                continue
-
-            numbered_match = _NUMBERED_LIST_RE.match(line)
-            if numbered_match:
-                paragraph = document.add_paragraph(style="List Number")
-                cls._add_inline_runs(paragraph, numbered_match.group(1).strip())
-                i += 1
-                continue
-
-            paragraph = document.add_paragraph()
-            cls._add_inline_runs(paragraph, line.strip())
-            i += 1
+        parser = HtmlToDocx()
+        parser.table_style = "Table Grid"
+        parser.add_html_to_document(html, document)
 
         buffer = BytesIO()
         document.save(buffer)
         return buffer.getvalue()
-
-    @staticmethod
-    def _is_table_start(lines: list[str], index: int) -> bool:
-        """A table starts when a '| ... |' row is immediately followed by a separator row."""
-        if index + 1 >= len(lines):
-            return False
-        return bool(_TABLE_ROW_RE.match(lines[index]) and _TABLE_SEPARATOR_RE.match(lines[index + 1]))
-
-    @staticmethod
-    def _consume_table(lines: list[str], index: int) -> tuple[list[str], int]:
-        """Collect consecutive '| ... |' rows starting at index (skipping the separator row)."""
-        table_lines = [lines[index]]
-        i = index + 2  # skip the header row (kept) and the separator row (discarded)
-        while i < len(lines) and _TABLE_ROW_RE.match(lines[i]):
-            table_lines.append(lines[i])
-            i += 1
-        return table_lines, i
-
-    @classmethod
-    def _render_table(cls, document: DocumentObject, table_lines: list[str]) -> None:
-        rows = [[cell.strip() for cell in row.strip().strip("|").split("|")] for row in table_lines]
-        num_cols = max(len(row) for row in rows)
-
-        table: Table = document.add_table(rows=0, cols=num_cols)
-        table.style = "Table Grid"
-
-        for row_index, row_cells in enumerate(rows):
-            row = table.add_row()
-            for col_index in range(num_cols):
-                cell_text = row_cells[col_index] if col_index < len(row_cells) else ""
-                paragraph = row.cells[col_index].paragraphs[0]
-                cls._add_inline_runs(paragraph, cell_text, bold=(row_index == 0))
-
-    @staticmethod
-    def _add_inline_runs(paragraph: Paragraph, text: str, *, bold: bool = False) -> None:
-        """Split text on **bold**/*italic*/`code` markers and add formatted runs."""
-        for chunk in _INLINE_SPLIT_RE.split(text):
-            if not chunk:
-                continue
-            if chunk.startswith("**") and chunk.endswith("**"):
-                run = paragraph.add_run(chunk[2:-2])
-                run.bold = True
-            elif chunk.startswith("`") and chunk.endswith("`"):
-                run = paragraph.add_run(chunk[1:-1])
-                run.font.name = "Consolas"
-            elif chunk.startswith("*") and chunk.endswith("*"):
-                run = paragraph.add_run(chunk[1:-1])
-                run.italic = True
-            else:
-                run = paragraph.add_run(chunk)
-
-            if bold:
-                run.bold = True
-
-        if not paragraph.runs:
-            paragraph.add_run("")
-            if bold:
-                paragraph.runs[0].bold = True
