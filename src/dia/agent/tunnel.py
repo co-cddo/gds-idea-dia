@@ -20,7 +20,7 @@ def _is_port_open(port: int, host: str) -> bool:
 
 
 @contextmanager
-def open_tunnel(
+def ensure_tunnel_open(
     phase: str | None = None,
     port: int = settings.tunnel_port,
     timeout: float = settings.tunnel_timeout,
