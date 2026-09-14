@@ -8,7 +8,7 @@ import markdown as markdown_lib
 from docx import Document
 from html4docx import HtmlToDocx
 
-from dia.agent.models import AgentResponse
+from dia.agent.models import AgentResponse, UploadResult
 
 
 class ReportUploader:
@@ -23,7 +23,7 @@ class ReportUploader:
         self._bucket = bucket
         self._s3 = s3_client or boto3.client("s3")
 
-    def upload(self, response: AgentResponse, *, url_expiry_seconds: int = 86_400) -> dict[str, str]:
+    def upload(self, response: AgentResponse, *, url_expiry_seconds: int = 86_400) -> UploadResult:
         """Upload markdown and docx renderings of `response` to S3.
 
         Args:
@@ -33,11 +33,8 @@ class ReportUploader:
                 AWS session, if using temporary/assumed-role credentials.
 
         Returns:
-            {
-                "markdown_uri": "s3://...", "docx_uri": "s3://...",
-                "markdown_download_url": "https://...",
-                "docx_download_url": "https://...",
-            }
+            An UploadResult with markdown_uri, docx_uri, markdown_download_url,
+            and docx_download_url.
         """
         md_key = self._build_key(response, "md")
         self._s3.put_object(
@@ -55,12 +52,12 @@ class ReportUploader:
             ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         )
 
-        return {
-            "markdown_uri": f"s3://{self._bucket}/{md_key}",
-            "docx_uri": f"s3://{self._bucket}/{docx_key}",
-            "markdown_download_url": self._presign(md_key, url_expiry_seconds),
-            "docx_download_url": self._presign(docx_key, url_expiry_seconds),
-        }
+        return UploadResult(
+            markdown_uri=f"s3://{self._bucket}/{md_key}",
+            docx_uri=f"s3://{self._bucket}/{docx_key}",
+            markdown_download_url=self._presign(md_key, url_expiry_seconds),
+            docx_download_url=self._presign(docx_key, url_expiry_seconds),
+        )
 
     def _presign(self, key: str, expiry_seconds: int) -> str:
         return self._s3.generate_presigned_url(

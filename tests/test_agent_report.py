@@ -249,10 +249,10 @@ def test_upload_returns_uris_and_download_urls(s3_client):
 
     result = uploader.upload(response)
 
-    assert result["markdown_uri"] == f"s3://{BUCKET}/home-office/2026-09-11_a1b2c3d4.md"
-    assert result["docx_uri"] == f"s3://{BUCKET}/home-office/2026-09-11_a1b2c3d4.docx"
-    assert result["markdown_download_url"].startswith(f"https://{BUCKET}.s3.amazonaws.com/")
-    assert result["docx_download_url"].startswith(f"https://{BUCKET}.s3.amazonaws.com/")
+    assert result.markdown_uri == f"s3://{BUCKET}/home-office/2026-09-11_a1b2c3d4.md"
+    assert result.docx_uri == f"s3://{BUCKET}/home-office/2026-09-11_a1b2c3d4.docx"
+    assert result.markdown_download_url.startswith(f"https://{BUCKET}.s3.amazonaws.com/")
+    assert result.docx_download_url.startswith(f"https://{BUCKET}.s3.amazonaws.com/")
 
 
 def test_upload_uses_cross_government_folder_when_no_department(s3_client):
@@ -261,7 +261,7 @@ def test_upload_uses_cross_government_folder_when_no_department(s3_client):
 
     result = uploader.upload(response)
 
-    assert result["markdown_uri"] == f"s3://{BUCKET}/cross-government/2026-09-11_a1b2c3d4.md"
+    assert result.markdown_uri == f"s3://{BUCKET}/cross-government/2026-09-11_a1b2c3d4.md"
 
 
 def test_upload_respects_custom_expiry(s3_client):
@@ -270,4 +270,4 @@ def test_upload_respects_custom_expiry(s3_client):
 
     result = uploader.upload(response, url_expiry_seconds=3_600)
 
-    assert "X-Amz-Expires=3600" in result["docx_download_url"]
+    assert "X-Amz-Expires=3600" in result.docx_download_url
