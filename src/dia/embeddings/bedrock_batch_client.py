@@ -103,11 +103,35 @@ def _split_into_jobs(
     requests: list[BatchEmbeddingRequest],
     max_records_per_job: int,
     max_bytes_per_job: int,
+    min_records_per_job: int = BEDROCK_MIN_BATCH_SIZE,
 ) -> list[list[BatchEmbeddingRequest]]:
     """Split requests into groups that each respect both the record-count
-    and file-size limits. At today's real usage this is a no-op (one
+    and file-size limits, and each individually clear `min_records_per_job`
+    (defaults to Bedrock's real per-job minimum; overridable so the pure
+    count/byte-size chunking mechanics can be unit-tested independently of
+    that real-world constant). At today's real usage this is a no-op (one
     group) - it only engages once volume approaches Bedrock's per-job
-    limits."""
+    limits.
+
+    Naive fixed-size chunking can leave an undersized final group (e.g.
+    120 requests at max_records_per_job=100 naively gives [100, 20] - the
+    second group would be rejected by the real Bedrock API). When that
+    happens, the last two groups are combined and split evenly instead
+    (giving [60, 60] for that example) rather than left as an oversized
+    group plus an invalid straggler.
+
+    This only works if max_records_per_job >= 2 * min_records_per_job: the
+    last full group is exactly max_records_per_job in size, and an
+    undersized remainder is at most min_records_per_job - 1, so the
+    combined tail is always > max_records_per_job >= 2 * minimum - large
+    enough that splitting it in half always clears the minimum on both
+    sides. Below that threshold this guarantee doesn't hold;
+    submit_and_await_batch_embeddings rejects that configuration outright
+    rather than risk silently producing an invalid job (this function
+    itself doesn't enforce that - it's the public entry point's job, so
+    that tests can still exercise this function directly with a smaller
+    min_records_per_job).
+    """
     groups: list[list[BatchEmbeddingRequest]] = []
     current: list[BatchEmbeddingRequest] = []
     current_bytes = 0
@@ -128,6 +152,11 @@ def _split_into_jobs(
 
     if current:
         groups.append(current)
+
+    if len(groups) > 1 and len(groups[-1]) < min_records_per_job:
+        combined = groups[-2] + groups[-1]
+        midpoint = len(combined) // 2
+        groups[-2:] = [combined[:midpoint], combined[midpoint:]]
 
     return groups
 
@@ -265,6 +294,10 @@ def submit_and_await_batch_embeddings(
             not fall back to one itself - that decision belongs to the
             caller, since only the caller knows whether an on-demand
             alternative exists).
+        ValueError: max_records_per_job is too small for job splitting to
+            guarantee every resulting job clears the minimum (see
+            _split_into_jobs) - must be at least 2 * BEDROCK_MIN_BATCH_SIZE.
+            Never a real constraint at the default (50,000).
         BatchEmbeddingJobError: any job ended Failed/Stopped/Expired.
     """
     if len(requests) < BEDROCK_MIN_BATCH_SIZE:
@@ -272,6 +305,13 @@ def submit_and_await_batch_embeddings(
             f"submit_and_await_batch_embeddings called with {len(requests)} requests, "
             f"below Bedrock's minimum of {BEDROCK_MIN_BATCH_SIZE} per job. "
             "Use an on-demand embedding path for small counts instead."
+        )
+
+    if max_records_per_job < 2 * BEDROCK_MIN_BATCH_SIZE:
+        raise ValueError(
+            f"max_records_per_job={max_records_per_job} is too small - job splitting can "
+            f"only guarantee every job clears Bedrock's {BEDROCK_MIN_BATCH_SIZE}-record minimum "
+            f"if max_records_per_job is at least {2 * BEDROCK_MIN_BATCH_SIZE}."
         )
 
     bedrock_client = bedrock_client or boto3.client("bedrock")

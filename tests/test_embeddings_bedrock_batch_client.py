@@ -80,8 +80,11 @@ def test_split_into_jobs_no_split_when_under_limits():
 
 
 def test_split_into_jobs_splits_by_record_count():
+    """min_records_per_job=1: this test is about the count-based chunking
+    mechanics specifically, independent of the real Bedrock minimum -
+    rebalancing behaviour has its own tests below."""
     requests = [BatchEmbeddingRequest(token=str(i), text="hello") for i in range(7)]
-    groups = _split_into_jobs(requests, max_records_per_job=3, max_bytes_per_job=1_000_000)
+    groups = _split_into_jobs(requests, max_records_per_job=3, max_bytes_per_job=1_000_000, min_records_per_job=1)
     assert [len(g) for g in groups] == [3, 3, 1]
 
 
@@ -96,6 +99,43 @@ def test_split_into_jobs_splits_by_byte_size():
 
 def test_split_into_jobs_empty_input():
     assert _split_into_jobs([], max_records_per_job=100, max_bytes_per_job=1_000_000) == []
+
+
+def test_split_into_jobs_rebalances_undersized_tail():
+    """120 requests at max_records_per_job=100 naively gives [100, 20] -
+    the 20 would be rejected by the real Bedrock API. Rebalanced to
+    [60, 60] instead - both clear a minimum of 50."""
+    requests = [BatchEmbeddingRequest(token=str(i), text="hello") for i in range(120)]
+    groups = _split_into_jobs(requests, max_records_per_job=100, max_bytes_per_job=1_000_000, min_records_per_job=50)
+    assert [len(g) for g in groups] == [60, 60]
+
+
+def test_split_into_jobs_rebalances_with_multiple_full_groups():
+    """320 requests at max_records_per_job=100 naively gives
+    [100, 100, 100, 20] - rebalances the last two groups to [60, 60],
+    giving [100, 100, 60, 60]."""
+    requests = [BatchEmbeddingRequest(token=str(i), text="hello") for i in range(320)]
+    groups = _split_into_jobs(requests, max_records_per_job=100, max_bytes_per_job=1_000_000, min_records_per_job=50)
+    assert [len(g) for g in groups] == [100, 100, 60, 60]
+
+
+def test_split_into_jobs_no_rebalance_when_tail_already_at_minimum():
+    """300 requests at max_records_per_job=100 naively gives [100, 100, 100]
+    - no undersized tail, nothing to rebalance."""
+    requests = [BatchEmbeddingRequest(token=str(i), text="hello") for i in range(300)]
+    groups = _split_into_jobs(requests, max_records_per_job=100, max_bytes_per_job=1_000_000, min_records_per_job=50)
+    assert [len(g) for g in groups] == [100, 100, 100]
+
+
+def test_split_into_jobs_rebalances_at_real_bedrock_minimum():
+    """Same shape as test_split_into_jobs_rebalances_with_multiple_full_groups,
+    scaled 2x to exercise the actual BEDROCK_MIN_BATCH_SIZE (100) rather
+    than an illustrative smaller minimum: 640 requests at
+    max_records_per_job=200 naively gives [200, 200, 200, 40], rebalanced
+    to [200, 200, 120, 120]."""
+    requests = [BatchEmbeddingRequest(token=str(i), text="hello") for i in range(640)]
+    groups = _split_into_jobs(requests, max_records_per_job=200, max_bytes_per_job=1_000_000)
+    assert [len(g) for g in groups] == [200, 200, 120, 120]
 
 
 # --- _submit_job ---
@@ -315,6 +355,24 @@ def test_submit_and_await_batch_embeddings_below_minimum_raises():
         submit_and_await_batch_embeddings(requests, model_id=MODEL_ID, role_arn=ROLE_ARN, bucket=BUCKET, key_prefix="p")
 
 
+def test_submit_and_await_batch_embeddings_rejects_max_records_per_job_too_small():
+    """max_records_per_job must be at least 2x the real minimum, or job
+    splitting can't guarantee every resulting job is individually valid
+    (see _split_into_jobs) - this must be rejected outright, not silently
+    produce a job the real Bedrock API would reject."""
+    requests = [BatchEmbeddingRequest(token=str(i), text="x") for i in range(300)]
+
+    with pytest.raises(ValueError, match="max_records_per_job=150 is too small"):
+        submit_and_await_batch_embeddings(
+            requests,
+            model_id=MODEL_ID,
+            role_arn=ROLE_ARN,
+            bucket=BUCKET,
+            key_prefix="p",
+            max_records_per_job=150,
+        )
+
+
 def test_submit_and_await_batch_embeddings_end_to_end_single_job(s3_client):
     bedrock = FakeBedrockControlClient()
     requests = [BatchEmbeddingRequest(token=f"tok-{i}", text=f"text-{i}") for i in range(BEDROCK_MIN_BATCH_SIZE)]
@@ -350,7 +408,8 @@ def test_submit_and_await_batch_embeddings_end_to_end_single_job(s3_client):
 
 def test_submit_and_await_batch_embeddings_splits_into_multiple_jobs(s3_client):
     bedrock = FakeBedrockControlClient()
-    requests = [BatchEmbeddingRequest(token=f"tok-{i}", text=f"text-{i}") for i in range(BEDROCK_MIN_BATCH_SIZE + 20)]
+    max_records_per_job = 2 * BEDROCK_MIN_BATCH_SIZE
+    requests = [BatchEmbeddingRequest(token=f"tok-{i}", text=f"text-{i}") for i in range(max_records_per_job + 20)]
 
     def create_and_seed_output(**kwargs):
         response = FakeBedrockControlClient.create_model_invocation_job(bedrock, **kwargs)
@@ -376,7 +435,7 @@ def test_submit_and_await_batch_embeddings_splits_into_multiple_jobs(s3_client):
         key_prefix="p",
         bedrock_client=bedrock,
         s3_client=s3_client,
-        max_records_per_job=BEDROCK_MIN_BATCH_SIZE,
+        max_records_per_job=max_records_per_job,
         poll_interval_seconds=0,
     )
 
