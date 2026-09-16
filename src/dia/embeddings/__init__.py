@@ -17,6 +17,7 @@ See docs/adr/0001-lower-level-graphrag-toolkit-usage.md and issue #52 for
 the background on why this module exists.
 """
 
+from dia.embeddings.batch_semantic_splitter import batch_semantic_split
 from dia.embeddings.bedrock_batch_client import (
     BatchEmbeddingJobError,
     BatchEmbeddingRequest,
@@ -30,5 +31,6 @@ __all__ = [
     "BatchEmbeddingRequest",
     "BatchEmbeddingResult",
     "PooledBedrockEmbedding",
+    "batch_semantic_split",
     "submit_and_await_batch_embeddings",
 ]
