@@ -132,7 +132,15 @@ async def test_multiple_documents_each_chunked_independently(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_empty_document_produces_no_chunks(monkeypatch):
+async def test_empty_document_produces_one_empty_chunk(monkeypatch):
+    """SemanticSplitterNodeParser's own _build_node_chunks emits one
+    empty-text chunk for a document with zero sentences (its `else`
+    branch, taken whenever `distances` is empty) - this must match, not
+    silently drop the document. Caught via a live 20-document test this
+    session: one real document's stage-1 chunking produced an empty
+    trailing chunk, and an earlier `if not sentences: continue` guard
+    here silently dropped it, diverging from the on-demand path by one
+    chunk."""
     monkeypatch.setattr(splitter_module, "submit_and_await_batch_embeddings", _fake_submit_and_await)
     empty_doc = Document(doc_id="empty.pdf", text="", metadata={"key": "empty.pdf"})
     real_doc = Document(doc_id="real.pdf", text=_MANY_SENTENCES_TEXT, metadata={"key": "real.pdf"})
@@ -146,7 +154,17 @@ async def test_empty_document_produces_no_chunks(monkeypatch):
         key_prefix="test",
     )
 
-    assert all(n.relationships[NodeRelationship.SOURCE].node_id == "real.pdf" for n in nodes)
+    empty_doc_nodes = [n for n in nodes if n.relationships[NodeRelationship.SOURCE].node_id == "empty.pdf"]
+    assert len(empty_doc_nodes) == 1
+    assert empty_doc_nodes[0].text == ""
+
+    real_doc_nodes = [n for n in nodes if n.relationships[NodeRelationship.SOURCE].node_id == "real.pdf"]
+    assert len(real_doc_nodes) > 1  # sanity: real breakpoints were found, not one giant chunk
+
+    # Cross-check against the stock splitter directly, for both documents.
+    stock_splitter = SemanticSplitterNodeParser(embed_model=_FakeEmbedding())
+    expected_nodes = stock_splitter.build_semantic_nodes_from_documents([empty_doc, real_doc])
+    assert [n.text for n in nodes] == [n.text for n in expected_nodes]
 
 
 @pytest.mark.asyncio

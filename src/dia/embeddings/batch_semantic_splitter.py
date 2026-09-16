@@ -3,13 +3,18 @@ embed-then-cut logic into record -> batch-embed -> replay, using Bedrock
 batch inference for the embedding step (measured this session as ~97% of
 total chunking time) instead of one call per sentence window.
 
-Verified this session that this decomposition produces byte-identical
-output to calling SemanticSplitterNodeParser.build_semantic_nodes_from_documents
-directly, given the same embeddings - the three private methods used here
+Verified this session (including against a live 20-document/7,448-window
+run) that this decomposition produces byte-identical output to calling
+SemanticSplitterNodeParser.build_semantic_nodes_from_documents directly,
+given the same embeddings - the three private methods used here
 (_build_sentence_groups, _calculate_distances_between_sentence_groups,
 _build_node_chunks) are exactly what that method calls internally; this
 module only replaces *how* the embeddings for each sentence window are
-obtained, not any of the grouping/distance/cut logic.
+obtained, not any of the grouping/distance/cut logic. That live run also
+caught a real divergence an earlier, smaller test had missed: a
+zero-sentence document (e.g. an empty stage-1 chunk) must still flow
+through the normal per-document path below rather than being skipped -
+see the comment at that loop for why.
 
 Below Bedrock's batch minimum (BEDROCK_MIN_BATCH_SIZE, 100 records), falls
 back to on-demand embedding via `embed_model` directly - loudly (a WARNING
@@ -134,9 +139,17 @@ async def batch_semantic_split(
 
     all_nodes: list[TextNode] = []
     for doc_index, (doc, sentences) in enumerate(zip(documents, per_document_sentences, strict=True)):
-        if not sentences:
-            continue
-
+        # No `if not sentences: continue` here - an empty `sentences` list
+        # (a document that sentence-split to nothing, e.g. an empty or
+        # whitespace-only stage-1 chunk) must still produce a node, to
+        # match SemanticSplitterNodeParser's behaviour exactly:
+        # _calculate_distances_between_sentence_groups([]) returns [],
+        # and _build_node_chunks's `len(distances) > 0` check then falls
+        # into its "no distances" branch, which emits chunks=[""] - one
+        # empty-text node - rather than zero nodes. Confirmed via a live
+        # 20-document/7,448-window test this session: skipping empty
+        # documents here silently dropped one real (empty-text) chunk
+        # that the on-demand path always produced.
         for window_index, sentence in enumerate(sentences):
             sentence["combined_sentence_embedding"] = token_to_embedding[_token(doc_index, window_index)]
 
