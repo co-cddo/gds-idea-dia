@@ -16,6 +16,36 @@ zero-sentence document (e.g. an empty stage-1 chunk) must still flow
 through the normal per-document path below rather than being skipped -
 see the comment at that loop for why.
 
+Also caught (via wiring this into a real two-stage pipeline downstream,
+not by this module's own tests): "byte-identical" above was only true
+for chunk *text*. build_nodes_from_splits() - called at the end of the
+per-document loop below - never copies `document.metadata` and sets the
+SOURCE relationship to `document` itself, whatever was passed in as the
+immediate parent. That's exactly right for a single-stage split, but
+`documents` here is typically itself the *output* of an earlier stage
+(e.g. SentenceSplitter), not the original source document - so without
+correcting for it, every returned chunk would have empty metadata and a
+SOURCE relationship pointing at that intermediate node's random id,
+instead of the original document. NodeParser.aget_nodes_from_documents()
+normally fixes exactly this via _postprocess_parsed_nodes() (merges the
+immediate parent's metadata, flattens SOURCE to whatever the immediate
+parent's own SOURCE already points to) - this function deliberately
+never goes through that machinery at all (no embed-then-postprocess
+dance, just record -> batch-embed -> replay), so it has to be replicated
+explicitly - see the loop below for where.
+
+Deliberately NOT replicated: PREVIOUS/NEXT relationships and
+start_char_idx/end_char_idx (also set by _postprocess_parsed_nodes).
+Verified directly against real SemanticSplitterNodeParser output that
+NEXT is never actually set correctly even in the on-demand path in the
+first place - a genuine ordering bug in llama_index's own
+_postprocess_parsed_nodes (SOURCE is flattened per-node inside the same
+loop that sets NEXT, so by the time node i checks nodes[i+1].source_node,
+node i+1 hasn't been flattened yet - always a mismatch). Callers needing
+these should treat this as a known gap, not an oversight - not worth
+matching a bug that produces relationships no downstream code has been
+seen to read.
+
 Below Bedrock's batch minimum (BEDROCK_MIN_BATCH_SIZE, 100 records), falls
 back to on-demand embedding via `embed_model` directly - loudly (a WARNING
 log), since it's a real behaviour change (slower) the caller should be
@@ -29,7 +59,7 @@ from collections.abc import Sequence
 from llama_index.core.base.embeddings.base import BaseEmbedding
 from llama_index.core.node_parser.node_utils import build_nodes_from_splits
 from llama_index.core.node_parser.text.semantic_splitter import SemanticSplitterNodeParser
-from llama_index.core.schema import BaseNode, TextNode
+from llama_index.core.schema import BaseNode, NodeRelationship, TextNode
 
 from dia.embeddings.bedrock_batch_client import (
     BEDROCK_MIN_BATCH_SIZE,
@@ -155,6 +185,18 @@ async def batch_semantic_split(
 
         distances = splitter._calculate_distances_between_sentence_groups(sentences)
         chunks = splitter._build_node_chunks(sentences, distances)
-        all_nodes.extend(build_nodes_from_splits(chunks, doc, id_func=splitter.id_func))
+        for node in build_nodes_from_splits(chunks, doc, id_func=splitter.id_func):
+            # build_nodes_from_splits() doesn't copy `doc.metadata`, and
+            # sets SOURCE to `doc` itself - both wrong if `doc` isn't the
+            # original document (see module docstring for the full
+            # explanation). Replicate NodeParser._postprocess_parsed_
+            # nodes()'s equivalent fix-up: merge `doc`'s metadata in, and
+            # flatten SOURCE to whatever `doc`'s own SOURCE already
+            # points to (correct, because `doc` went through this same
+            # postprocessing when its own parser produced it).
+            node.metadata = {**doc.metadata, **node.metadata}
+            if doc.source_node is not None:
+                node.relationships[NodeRelationship.SOURCE] = doc.source_node
+            all_nodes.append(node)
 
     return all_nodes

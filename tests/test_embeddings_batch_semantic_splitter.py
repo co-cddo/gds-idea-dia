@@ -6,6 +6,7 @@ import logging
 import pytest
 from llama_index.core.base.embeddings.base import BaseEmbedding
 from llama_index.core.bridge.pydantic import PrivateAttr
+from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.node_parser.text.semantic_splitter import SemanticSplitterNodeParser
 from llama_index.core.schema import Document, NodeRelationship
 
@@ -64,10 +65,17 @@ _FEW_SENTENCES_TEXT = "First sentence here. Second sentence follows. Third sente
 @pytest.mark.asyncio
 async def test_batch_path_matches_stock_splitter_output(monkeypatch):
     """The core correctness claim: given the same embeddings, the batch
-    decomposition must produce byte-identical output to calling
-    SemanticSplitterNodeParser directly - this is the same guarantee
-    verified manually earlier this session, now pinned as a regression
-    test."""
+    decomposition must produce byte-identical output - text, metadata,
+    and SOURCE relationship - to running the same document through
+    SemanticSplitterNodeParser's real NodeParser entry point
+    (aget_nodes_from_documents, what IngestionPipeline.arun() actually
+    calls) - not the bypassed-postprocessing build_semantic_nodes_from_
+    documents() private-ish method, which was the comparison used here
+    previously and is *not* representative of real usage (nothing in
+    this codebase calls it directly - IngestionPipeline always goes via
+    the NodeParser wrapper, which runs _postprocess_parsed_nodes()).
+    That gap is exactly what let a real bug through undetected earlier
+    this session - see the module docstring."""
     monkeypatch.setattr(splitter_module, "submit_and_await_batch_embeddings", _fake_submit_and_await)
 
     doc = Document(doc_id="files/report.pdf", text=_MANY_SENTENCES_TEXT, metadata={"key": "files/report.pdf"})
@@ -76,7 +84,7 @@ async def test_batch_path_matches_stock_splitter_output(monkeypatch):
     stock_splitter = SemanticSplitterNodeParser(
         embed_model=embed_model, buffer_size=1, breakpoint_percentile_threshold=95
     )
-    expected_nodes = stock_splitter.build_semantic_nodes_from_documents([doc])
+    expected_nodes = await stock_splitter.aget_nodes_from_documents([doc])
 
     actual_nodes = await batch_semantic_split(
         [doc],
@@ -90,6 +98,10 @@ async def test_batch_path_matches_stock_splitter_output(monkeypatch):
     )
 
     assert [n.text for n in actual_nodes] == [n.text for n in expected_nodes]
+    assert [n.metadata for n in actual_nodes] == [n.metadata for n in expected_nodes]
+    assert [n.relationships[NodeRelationship.SOURCE].node_id for n in actual_nodes] == [
+        n.relationships[NodeRelationship.SOURCE].node_id for n in expected_nodes
+    ]
     assert len(actual_nodes) > 1  # sanity: real breakpoints were found, not one giant chunk
 
 
@@ -161,10 +173,14 @@ async def test_empty_document_produces_one_empty_chunk(monkeypatch):
     real_doc_nodes = [n for n in nodes if n.relationships[NodeRelationship.SOURCE].node_id == "real.pdf"]
     assert len(real_doc_nodes) > 1  # sanity: real breakpoints were found, not one giant chunk
 
-    # Cross-check against the stock splitter directly, for both documents.
+    # Cross-check against the stock splitter's real NodeParser entry
+    # point (not build_semantic_nodes_from_documents() directly - see
+    # test_batch_path_matches_stock_splitter_output for why that's not
+    # a representative comparison).
     stock_splitter = SemanticSplitterNodeParser(embed_model=_FakeEmbedding())
-    expected_nodes = stock_splitter.build_semantic_nodes_from_documents([empty_doc, real_doc])
+    expected_nodes = await stock_splitter.aget_nodes_from_documents([empty_doc, real_doc])
     assert [n.text for n in nodes] == [n.text for n in expected_nodes]
+    assert [n.metadata for n in nodes] == [n.metadata for n in expected_nodes]
 
 
 @pytest.mark.asyncio
@@ -243,7 +259,7 @@ async def test_fallback_path_matches_stock_splitter_output():
     stock_splitter = SemanticSplitterNodeParser(
         embed_model=embed_model, buffer_size=1, breakpoint_percentile_threshold=95
     )
-    expected_nodes = stock_splitter.build_semantic_nodes_from_documents([doc])
+    expected_nodes = await stock_splitter.aget_nodes_from_documents([doc])
 
     actual_nodes = await batch_semantic_split(
         [doc],
@@ -257,3 +273,61 @@ async def test_fallback_path_matches_stock_splitter_output():
     )
 
     assert [n.text for n in actual_nodes] == [n.text for n in expected_nodes]
+    assert [n.metadata for n in actual_nodes] == [n.metadata for n in expected_nodes]
+
+
+# --- two-stage pipeline (SentenceSplitter -> this) ---
+
+
+@pytest.mark.asyncio
+async def test_batch_path_matches_two_stage_pipeline(monkeypatch):
+    """The real-world usage this module is actually built for: `documents`
+    here is the *output* of an earlier SentenceSplitter stage, not the
+    original source Document. This is exactly the scenario that exposed
+    the metadata/SOURCE bug this session - a bare single-document
+    comparison (as in test_batch_path_matches_stock_splitter_output)
+    isn't enough on its own, because build_nodes_from_splits() only
+    fails to flatten SOURCE/merge metadata correctly when `doc` (its
+    second argument) isn't the *original* document - which is only true
+    once there's an intermediate stage in between."""
+    monkeypatch.setattr(splitter_module, "submit_and_await_batch_embeddings", _fake_submit_and_await)
+
+    docs = [
+        Document(doc_id="files/report-a.pdf", text=_MANY_SENTENCES_TEXT, metadata={"department": "Home Office"}),
+        Document(doc_id="files/report-b.pdf", text=_MANY_SENTENCES_TEXT, metadata={"department": "Cabinet Office"}),
+    ]
+    embed_model = _FakeEmbedding()
+
+    sentence_splitter = SentenceSplitter(chunk_size=500, chunk_overlap=10)
+
+    # --- on-demand: the real two-stage pipeline, exactly as
+    # IngestionPipeline.arun([SentenceSplitter(), SemanticSplitterNodeParser()])
+    # would run it.
+    stage1_expected = sentence_splitter.get_nodes_from_documents(docs)
+    stock_splitter = SemanticSplitterNodeParser(
+        embed_model=embed_model, buffer_size=3, breakpoint_percentile_threshold=97
+    )
+    expected_nodes = await stock_splitter.aget_nodes_from_documents(stage1_expected)
+
+    # --- batch path: same stage-1 nodes, fed through batch_semantic_split.
+    stage1_actual = sentence_splitter.get_nodes_from_documents(docs)
+    actual_nodes = await batch_semantic_split(
+        stage1_actual,
+        embed_model=embed_model,
+        model_id=MODEL_ID,
+        role_arn=ROLE_ARN,
+        bucket=BUCKET,
+        key_prefix="test",
+        buffer_size=3,
+        breakpoint_percentile_threshold=97,
+    )
+
+    assert [n.text for n in actual_nodes] == [n.text for n in expected_nodes]
+    assert [n.metadata for n in actual_nodes] == [n.metadata for n in expected_nodes]
+    assert [n.relationships[NodeRelationship.SOURCE].node_id for n in actual_nodes] == [
+        n.relationships[NodeRelationship.SOURCE].node_id for n in expected_nodes
+    ]
+    # SOURCE must point at the *original* documents, not the intermediate
+    # stage-1 nodes - the whole point of this test.
+    represented = {n.relationships[NodeRelationship.SOURCE].node_id for n in actual_nodes}
+    assert represented == {"files/report-a.pdf", "files/report-b.pdf"}
