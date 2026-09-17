@@ -38,14 +38,15 @@ uv sync --group zscaler
 ./scripts/neptune-tunnel.sh dev   # in a separate terminal
 
 export RUN_LIVE_AWS_TESTS=1
-export NEPTUNE_ENDPOINT=<neptune-cluster-endpoint>
-export AOSS_ENDPOINT=<aoss-endpoint>
+export AWS_PROFILE=<your-profile>
 uv run pytest tests/test_lexical_graph_integration.py -m live_aws -v
 ```
 
-You may see a `DeprecationWarning: There is no current event loop` — this
-comes from `graphrag_toolkit`'s own import-time compatibility shim, not
-this codebase, and is safe to ignore.
+Only those two exports are required — Neptune/AOSS endpoints are looked up
+automatically via CloudFormation (override with `export NEPTUNE_ENDPOINT=...`
+/ `export AOSS_ENDPOINT=...` if needed). `AWS_REGION` and model choices can
+be set the same way, or persisted locally in a git-ignored `.env` file — see
+`src/dia/clients/graph_rag_config.py`.
 
 ## CDK
 
