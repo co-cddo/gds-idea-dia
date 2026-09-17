@@ -41,6 +41,20 @@ class ChunkingConfig(BaseModel, frozen=True):
     use_semantic_splitting: bool = True
     semantic_buffer_size: int = Field(default=3, gt=0)
     semantic_breakpoint_threshold: int = Field(default=97, gt=0, le=100)
+    # Crossover point for the semantic-splitting embedding step only (has
+    # no effect when use_semantic_splitting=False - sentence splitting
+    # alone needs no embeddings either way). Below this many pending
+    # documents, embed on-demand (one Bedrock call per sentence window);
+    # at or above it, use Bedrock batch inference instead (dia.embeddings.
+    # batch_semantic_split) - real end-to-end tests this session measured
+    # batch inference at ~10 min fixed overhead regardless of volume
+    # (flat from 1,278 to 7,448 sentence windows), which loses badly below
+    # some volume and wins decisively above it. Document count, not
+    # sentence-window count, deliberately: free to check (no extra local
+    # computation before deciding), at the cost of being a rougher proxy
+    # (document size varies) - not precise, but neither is 100 itself; the
+    # exact crossover point isn't pinned down yet (see #52).
+    semantic_batch_threshold_documents: int = Field(default=100, gt=0)
 
     def to_fingerprint(self, embeddings_model: str) -> str:
         """Short hash of everything that affects chunk boundaries.
@@ -112,6 +126,42 @@ class ExtractionConfig(BaseModel, frozen=True):
             num_workers=self.embed_concurrency,
             embed_batch_size=1,
         )
+
+    def to_pooled_embedding_model(self):
+        """Same as to_embedding_model(), but returns PooledBedrockEmbedding
+        (one persistent client reused across calls) instead of stock
+        BedrockEmbedding. Used for the Bedrock batch inference path's
+        fallback-below-minimum case and for local similarity() calls -
+        verified byte-identical output to stock BedrockEmbedding; the
+        caller is responsible for calling `.aclose()` when done (it holds
+        an open connection)."""
+        from dia.embeddings import PooledBedrockEmbedding
+
+        return PooledBedrockEmbedding(
+            model_name=self.embeddings_model,
+            region_name=self.region,
+            num_workers=self.embed_concurrency,
+            embed_batch_size=1,
+        )
+
+
+class BatchConfig(BaseModel, frozen=True):
+    """Infrastructure for Bedrock batch inference - the IAM role and S3
+    bucket provisioned by stacks/storage.py (BatchInferenceRole, the
+    "batch" bucket). Only required once a chunking run crosses
+    ChunkingConfig.semantic_batch_threshold_documents; omit it (leave
+    ChunkingRunner's batch_config=None) for deployments/tests that never
+    approach that volume.
+
+    role_arn/bucket vary per deployment (dev vs prod), same as
+    ExtractionConfig - kept as a separate class rather than folded into
+    ExtractionConfig since it's optional infrastructure, not always-on
+    runtime settings.
+    """
+
+    role_arn: str
+    bucket: str
+    key_prefix: str = "chunking"
 
 
 class TextExtractionConfig(BaseModel, frozen=True):

@@ -29,6 +29,12 @@ real Bedrock-produced chunks and by tracing llama_index's own
 NodeParser._postprocess_parsed_nodes) - and to_document() already sets
 doc_id=output.key, so that relationship is a stable, meaningful value for
 free.
+
+Above ChunkingConfig.semantic_batch_threshold_documents pending documents,
+semantic splitting's embedding step switches to Bedrock batch inference
+(dia.embeddings.batch_semantic_split) instead of on-demand per-window
+calls - see #52/#56 for why, and _chunk_via_batch()/_finalize_batch_nodes()
+below for what bridging the two paths' output actually requires.
 """
 
 import asyncio
@@ -40,10 +46,11 @@ from dataclasses import dataclass
 from llama_index.core.ingestion import IngestionPipeline
 from llama_index.core.node_parser import NodeParser, SentenceSplitter
 from llama_index.core.node_parser.text.semantic_splitter import SemanticSplitterNodeParser
-from llama_index.core.schema import BaseNode
+from llama_index.core.schema import BaseNode, NodeRelationship
 
-from dia.config import ChunkingConfig, ExtractionConfig
+from dia.config import BatchConfig, ChunkingConfig, ExtractionConfig
 from dia.document_types import DocumentType
+from dia.embeddings import batch_semantic_split
 from dia.pipeline.chunk_store import ChunkStore
 from dia.pipeline.graph_extraction_adapter import to_document
 from dia.pipeline.graph_extraction_source import TextExtractionOutputSource
@@ -54,7 +61,11 @@ logger = logging.getLogger(PIPELINE_LOGGER_NAME)
 
 
 def _build_chunking_pipeline(chunking: ChunkingConfig, extraction_config: ExtractionConfig) -> list[NodeParser]:
-    """ChunkingConfig -> the ordered NodeParsers documents are chunked with."""
+    """ChunkingConfig -> the ordered NodeParsers documents are chunked with.
+
+    On-demand path only - the batch path (_chunk_via_batch) doesn't use
+    IngestionPipeline/NodeParser at all, so doesn't go through this.
+    """
     parsers: list[NodeParser] = [
         SentenceSplitter(
             chunk_size=chunking.sentence_chunk_size_tokens,
@@ -70,6 +81,38 @@ def _build_chunking_pipeline(chunking: ChunkingConfig, extraction_config: Extrac
             )
         )
     return parsers
+
+
+def _finalize_batch_nodes(nodes: list[BaseNode], stage1_nodes: list[BaseNode]) -> list[BaseNode]:
+    """batch_semantic_split() bypasses NodeParser.aget_nodes_from_documents
+    entirely (deliberately - that's the whole point, no embed-then-
+    postprocess machinery, just record -> batch-embed -> replay), so it
+    never runs NodeParser._postprocess_parsed_nodes - the step that
+    normally merges parent-document metadata into each chunk and flattens
+    the SOURCE relationship past the intermediate stage-1 node, straight
+    to the original document. Replicate exactly that (metadata merge +
+    SOURCE-flattening) so batch output matches on-demand output -
+    verified this session (see test_chunking.py) with identical metadata
+    and SOURCE relationships between the two paths given the same input.
+
+    Deliberately NOT replicated: PREVIOUS/NEXT relationships and
+    start_char_idx/end_char_idx. Verified this session that neither is
+    consumed anywhere in this codebase, and that llama_index's own
+    on-demand path has a genuine ordering bug in _postprocess_parsed_nodes
+    that means NEXT is never actually set correctly there either (SOURCE
+    is flattened per-node inside the same loop that sets NEXT, so by the
+    time node i checks nodes[i+1].source_node, node i+1 hasn't been
+    flattened yet - always a mismatch, confirmed directly against real
+    SemanticSplitterNodeParser output, not just read from source). Not
+    worth replicating a bug for relationships nothing reads.
+    """
+    stage1_by_id = {n.node_id: n for n in stage1_nodes}
+    for node in nodes:
+        stage1_node = stage1_by_id[node.relationships[NodeRelationship.SOURCE].node_id]
+        node.metadata = {**stage1_node.metadata, **node.metadata}
+        if stage1_node.source_node is not None:
+            node.relationships[NodeRelationship.SOURCE] = stage1_node.source_node
+    return nodes
 
 
 def _group_by_document(nodes: list[BaseNode]) -> dict[str, list[BaseNode]]:
@@ -120,6 +163,7 @@ class ChunkingRunner:
         output_source: TextExtractionOutputSource,
         chunk_store: ChunkStore,
         extraction_config: ExtractionConfig,
+        batch_config: BatchConfig | None = None,
         force: bool = False,
         log_dir: str | None = None,
     ) -> None:
@@ -128,6 +172,7 @@ class ChunkingRunner:
         self._output_source = output_source
         self._chunk_store = chunk_store
         self._extraction_config = extraction_config
+        self._batch_config = batch_config
         self._force = force
         self._log_file = setup_pipeline_logging(self._source_name, log_dir=log_dir)
 
@@ -179,9 +224,17 @@ class ChunkingRunner:
 
         documents = [to_document(output) for output in pending]
 
-        parsers = _build_chunking_pipeline(self._document_type.chunking, self._extraction_config)
-        pipeline = IngestionPipeline(transformations=parsers)
-        nodes = await pipeline.arun(documents=documents)
+        chunking_config = self._document_type.chunking
+        use_batch = (
+            chunking_config.use_semantic_splitting
+            and len(pending) >= chunking_config.semantic_batch_threshold_documents
+        )
+        if use_batch:
+            nodes = await self._chunk_via_batch(documents, chunking_config)
+        else:
+            parsers = _build_chunking_pipeline(chunking_config, self._extraction_config)
+            pipeline = IngestionPipeline(transformations=parsers)
+            nodes = await pipeline.arun(documents=documents)
 
         total_chunks = 0
         for doc_key, doc_nodes in _group_by_document(nodes).items():
@@ -204,3 +257,48 @@ class ChunkingRunner:
             total_chunks=total_chunks,
             duration_seconds=duration,
         )
+
+    async def _chunk_via_batch(self, documents: list, chunking_config: ChunkingConfig) -> list[BaseNode]:
+        """Semantic splitting's embedding step via Bedrock batch inference
+        instead of on-demand per-window calls - used once a run's pending
+        document count crosses semantic_batch_threshold_documents.
+
+        Real end-to-end tests this session measured batch inference at a
+        flat ~10 min fixed overhead regardless of volume (1,278 to 7,448
+        sentence windows, single job or split across several) -
+        decisively faster than on-demand's per-call cost above that
+        threshold, decisively slower below it.
+
+        Sentence splitting runs first, exactly as in the on-demand path
+        (_build_chunking_pipeline's first stage) - batch_semantic_split
+        expects already-sentence-split input, not raw documents.
+        """
+        if self._batch_config is None:
+            raise RuntimeError(
+                f"{len(documents)} pending documents crosses semantic_batch_threshold_documents "
+                f"({chunking_config.semantic_batch_threshold_documents}) for source {self._source_name!r}, "
+                "but no BatchConfig was provided to this ChunkingRunner - required for Bedrock batch inference."
+            )
+
+        sentence_splitter = SentenceSplitter(
+            chunk_size=chunking_config.sentence_chunk_size_tokens,
+            chunk_overlap=chunking_config.sentence_chunk_overlap_tokens,
+        )
+        stage1_nodes = sentence_splitter(documents)
+
+        embed_model = self._extraction_config.to_pooled_embedding_model()
+        try:
+            nodes = await batch_semantic_split(
+                stage1_nodes,
+                embed_model=embed_model,
+                model_id=self._extraction_config.embeddings_model,
+                role_arn=self._batch_config.role_arn,
+                bucket=self._batch_config.bucket,
+                key_prefix=f"{self._batch_config.key_prefix}/{self._source_name}",
+                buffer_size=chunking_config.semantic_buffer_size,
+                breakpoint_percentile_threshold=chunking_config.semantic_breakpoint_threshold,
+            )
+        finally:
+            await embed_model.aclose()
+
+        return _finalize_batch_nodes(nodes, stage1_nodes)

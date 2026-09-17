@@ -2,16 +2,21 @@
 
 import hashlib
 
+import pytest
 from llama_index.core.base.embeddings.base import BaseEmbedding
 from llama_index.core.bridge.pydantic import PrivateAttr
+from llama_index.core.ingestion import IngestionPipeline
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.node_parser.text.semantic_splitter import SemanticSplitterNodeParser
 from llama_index.core.schema import NodeRelationship
 
-from dia.config import ChunkingConfig, ExtractionConfig
+from dia.config import BatchConfig, ChunkingConfig, ExtractionConfig
 from dia.document_types import DocumentType
+from dia.embeddings import batch_semantic_splitter as batch_splitter_module
+from dia.embeddings.bedrock_batch_client import BatchEmbeddingResult
+from dia.pipeline import chunking as chunking_module
 from dia.pipeline.chunk_store import InMemoryChunkStore
-from dia.pipeline.chunking import ChunkingRunner, _build_chunking_pipeline
+from dia.pipeline.chunking import ChunkingRunner, _build_chunking_pipeline, _finalize_batch_nodes
 from dia.pipeline.models import TextExtractionOutput
 
 FINGERPRINT = "test-fingerprint"
@@ -42,6 +47,12 @@ class _FakeEmbedding(BaseEmbedding):
     async def _aget_text_embedding(self, text):
         self._async_calls += 1
         return self._vec(text)
+
+    async def aclose(self) -> None:
+        """No-op - real PooledBedrockEmbedding holds a connection to
+        release; this fake holds nothing. Present so it can stand in for
+        to_pooled_embedding_model() too (_chunk_via_batch always calls
+        aclose() on whatever it gets back)."""
 
     @staticmethod
     def _vec(text: str) -> list[float]:
@@ -92,7 +103,30 @@ def _extraction_config(monkeypatch, embedding: "_FakeEmbedding | None" = None, *
     """
     embedding = embedding or _FakeEmbedding()
     monkeypatch.setattr(ExtractionConfig, "to_embedding_model", lambda self: embedding)
+    monkeypatch.setattr(ExtractionConfig, "to_pooled_embedding_model", lambda self: embedding)
     return ExtractionConfig(**overrides)
+
+
+def _batch_config(**overrides) -> BatchConfig:
+    defaults = dict(role_arn="arn:aws:iam::123456789012:role/batch-role", bucket="test-batch-bucket")
+    defaults.update(overrides)
+    return BatchConfig(**defaults)
+
+
+def _low_batch_threshold(monkeypatch, document_type: DocumentType, threshold: int = 2) -> None:
+    """Patch DocumentType.chunking so a test can exercise the batch path
+    with a handful of documents instead of needing semantic_batch_
+    threshold_documents' real default (100) worth of fixtures."""
+    patched = document_type.chunking.model_copy(update={"semantic_batch_threshold_documents": threshold})
+    monkeypatch.setattr(DocumentType, "chunking", property(lambda self: patched))
+
+
+def _fake_submit_and_await(requests, **kwargs):
+    """Stands in for submit_and_await_batch_embeddings - already tested in
+    isolation (test_embeddings_bedrock_batch_client.py). Uses the same
+    deterministic _vec() as _FakeEmbedding so cross-path output
+    comparisons (batch vs on-demand) are meaningful."""
+    return [BatchEmbeddingResult(token=r.token, embedding=_FakeEmbedding._vec(r.text)) for r in requests]
 
 
 # --- _build_chunking_pipeline ---
@@ -414,3 +448,187 @@ def test_runner_uses_async_embedding_path(monkeypatch, tmp_path):
 
     assert embedding._async_calls > 0
     assert embedding._sync_calls == 0
+
+
+# --- Batch inference path (semantic_batch_threshold_documents) ---
+
+
+def test_runner_stays_on_demand_below_batch_threshold(monkeypatch, tmp_path):
+    """Below the (default: 100) document threshold, chunking must never
+    touch the batch path at all - not even to check whether it could."""
+
+    def _exploding_batch_split(*args, **kwargs):
+        raise AssertionError("batch_semantic_split should not be called below the batch threshold")
+
+    monkeypatch.setattr(chunking_module, "batch_semantic_split", _exploding_batch_split)
+
+    config = _extraction_config(monkeypatch)
+    outputs = [_output(f"doc-{i}.pdf", _LONG_TEXT) for i in range(3)]
+    chunk_store = InMemoryChunkStore(FINGERPRINT)
+
+    runner = ChunkingRunner(
+        source_name="test-source",
+        document_type=DocumentType.BUSINESS_CASE,
+        output_source=_FakeOutputSource(outputs),
+        chunk_store=chunk_store,
+        extraction_config=config,
+        log_dir=str(tmp_path),
+    )
+    result = runner.run()
+
+    assert result.processed == 3
+    assert result.total_chunks > 0
+
+
+def test_runner_uses_batch_path_at_or_above_threshold(monkeypatch, tmp_path):
+    """At/above the threshold, chunking must use batch_semantic_split
+    (via Bedrock batch inference), not the on-demand IngestionPipeline
+    path - proven two ways: the low-level batch submit function is
+    actually invoked, and to_embedding_model() (only used by the
+    on-demand path) is never touched."""
+    _low_batch_threshold(monkeypatch, DocumentType.BUSINESS_CASE, threshold=2)
+
+    submit_calls = []
+
+    def _counting_submit(requests, **kwargs):
+        submit_calls.append(len(requests))
+        return _fake_submit_and_await(requests, **kwargs)
+
+    monkeypatch.setattr(batch_splitter_module, "submit_and_await_batch_embeddings", _counting_submit)
+
+    def _exploding_on_demand(self):
+        raise AssertionError("to_embedding_model (on-demand path) should not be called at/above the batch threshold")
+
+    monkeypatch.setattr(ExtractionConfig, "to_embedding_model", _exploding_on_demand)
+    monkeypatch.setattr(ExtractionConfig, "to_pooled_embedding_model", lambda self: _FakeEmbedding())
+
+    config = ExtractionConfig()
+    outputs = [_output(f"doc-{i}.pdf", _MANY_SENTENCES_TEXT) for i in range(2)]
+    chunk_store = InMemoryChunkStore(FINGERPRINT)
+
+    runner = ChunkingRunner(
+        source_name="test-source",
+        document_type=DocumentType.BUSINESS_CASE,
+        output_source=_FakeOutputSource(outputs),
+        chunk_store=chunk_store,
+        extraction_config=config,
+        batch_config=_batch_config(),
+        log_dir=str(tmp_path),
+    )
+    result = runner.run()
+
+    assert result.processed == 2
+    assert result.total_chunks > 0
+    assert len(submit_calls) == 1  # one real batch job submitted
+    assert submit_calls[0] > 100  # well above Bedrock's minimum - not the internal fallback
+
+    nodes = chunk_store.read("test-source")
+    represented_keys = {n.metadata["key"] for n in nodes}
+    assert represented_keys == {"doc-0.pdf", "doc-1.pdf"}
+
+
+def test_runner_batch_path_requires_batch_config(monkeypatch, tmp_path):
+    """Crossing the threshold with no BatchConfig provided must fail
+    loudly and clearly, not with some deep, confusing AttributeError from
+    inside _chunk_via_batch."""
+    _low_batch_threshold(monkeypatch, DocumentType.BUSINESS_CASE, threshold=2)
+    config = _extraction_config(monkeypatch)
+    outputs = [_output(f"doc-{i}.pdf", _MANY_SENTENCES_TEXT) for i in range(2)]
+    chunk_store = InMemoryChunkStore(FINGERPRINT)
+
+    runner = ChunkingRunner(
+        source_name="test-source",
+        document_type=DocumentType.BUSINESS_CASE,
+        output_source=_FakeOutputSource(outputs),
+        chunk_store=chunk_store,
+        extraction_config=config,
+        batch_config=None,
+        log_dir=str(tmp_path),
+    )
+
+    with pytest.raises(RuntimeError, match="BatchConfig"):
+        runner.run()
+
+
+def test_runner_without_semantic_splitting_never_uses_batch(monkeypatch, tmp_path):
+    """CONTRACT_FINDER (use_semantic_splitting=False) has no embedding
+    step at all, regardless of document count - the batch/on-demand
+    distinction only applies to semantic splitting's embedding calls."""
+
+    def _exploding_batch_split(*args, **kwargs):
+        raise AssertionError("batch_semantic_split should not be called - no semantic splitting configured")
+
+    monkeypatch.setattr(chunking_module, "batch_semantic_split", _exploding_batch_split)
+    _low_batch_threshold(monkeypatch, DocumentType.CONTRACT_FINDER, threshold=2)
+
+    config = _extraction_config(monkeypatch)
+    outputs = [_output(f"doc-{i}.pdf", _LONG_TEXT) for i in range(3)]
+    chunk_store = InMemoryChunkStore(FINGERPRINT)
+
+    runner = ChunkingRunner(
+        source_name="test-source",
+        document_type=DocumentType.CONTRACT_FINDER,
+        output_source=_FakeOutputSource(outputs),
+        chunk_store=chunk_store,
+        extraction_config=config,
+        log_dir=str(tmp_path),
+    )
+    result = runner.run()
+
+    assert result.processed == 3
+    assert result.total_chunks > 0
+
+
+def test_finalize_batch_nodes_matches_on_demand_metadata_and_source(monkeypatch):
+    """The core correctness claim for the batch/on-demand bridge: given
+    the same embeddings, batch_semantic_split()'s output, after
+    _finalize_batch_nodes(), must carry the exact same metadata and
+    SOURCE relationship as calling the on-demand IngestionPipeline
+    directly - verified this session by tracing exactly what
+    NodeParser._postprocess_parsed_nodes does that batch_semantic_split
+    bypasses (metadata merge + SOURCE-relationship flattening past the
+    intermediate stage-1 node)."""
+    monkeypatch.setattr(batch_splitter_module, "submit_and_await_batch_embeddings", _fake_submit_and_await)
+
+    embed_model = _FakeEmbedding()
+    docs = [
+        _output("files/report-a.pdf", _MANY_SENTENCES_TEXT, metadata={"department": "Home Office"}),
+        _output("files/report-b.pdf", _MANY_SENTENCES_TEXT, metadata={"department": "Cabinet Office"}),
+    ]
+    from dia.pipeline.graph_extraction_adapter import to_document
+
+    documents = [to_document(o) for o in docs]
+
+    # --- on-demand path ---
+    parsers = [
+        SentenceSplitter(chunk_size=7900, chunk_overlap=100),
+        SemanticSplitterNodeParser(buffer_size=3, breakpoint_percentile_threshold=97, embed_model=embed_model),
+    ]
+    expected_nodes = IngestionPipeline(transformations=parsers).run(documents=documents)
+
+    # --- batch path ---
+    from dia.embeddings import batch_semantic_split
+
+    sentence_splitter = SentenceSplitter(chunk_size=7900, chunk_overlap=100)
+    stage1_nodes = sentence_splitter(documents)
+    import asyncio
+
+    actual_nodes = asyncio.run(
+        batch_semantic_split(
+            stage1_nodes,
+            embed_model=embed_model,
+            model_id="m",
+            role_arn="r",
+            bucket="b",
+            key_prefix="p",
+            buffer_size=3,
+            breakpoint_percentile_threshold=97,
+        )
+    )
+    actual_nodes = _finalize_batch_nodes(actual_nodes, stage1_nodes)
+
+    assert [n.text for n in actual_nodes] == [n.text for n in expected_nodes]
+    assert [n.metadata for n in actual_nodes] == [n.metadata for n in expected_nodes]
+    assert [n.relationships[NodeRelationship.SOURCE].node_id for n in actual_nodes] == [
+        n.relationships[NodeRelationship.SOURCE].node_id for n in expected_nodes
+    ]

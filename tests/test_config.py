@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from dia.config import ChunkingConfig, ExtractionConfig, TextExtractionConfig
+from dia.config import BatchConfig, ChunkingConfig, ExtractionConfig, TextExtractionConfig
 
 # --- ChunkingConfig ---
 
@@ -16,6 +16,12 @@ def test_chunking_config_defaults():
     assert config.use_semantic_splitting is True
     assert config.semantic_buffer_size == 3
     assert config.semantic_breakpoint_threshold == 97
+    assert config.semantic_batch_threshold_documents == 100
+
+
+def test_chunking_config_rejects_zero_batch_threshold():
+    with pytest.raises(ValidationError):
+        ChunkingConfig(semantic_batch_threshold_documents=0)
 
 
 def test_chunking_config_no_semantic():
@@ -130,6 +136,36 @@ def test_extraction_config_to_embedding_model():
     assert embedding_model.region_name == "eu-west-2"
     assert embedding_model.num_workers == 6
     assert embedding_model.embed_batch_size == 1
+
+
+def test_extraction_config_to_pooled_embedding_model():
+    from dia.embeddings import PooledBedrockEmbedding
+
+    config = ExtractionConfig(embeddings_model="amazon.titan-embed-text-v2:0", region="eu-west-2", embed_concurrency=6)
+    embedding_model = config.to_pooled_embedding_model()
+
+    assert isinstance(embedding_model, PooledBedrockEmbedding)
+    assert embedding_model.model_name == "amazon.titan-embed-text-v2:0"
+    assert embedding_model.region_name == "eu-west-2"
+    assert embedding_model.num_workers == 6
+    assert embedding_model.embed_batch_size == 1
+
+
+# --- BatchConfig ---
+
+
+def test_batch_config_defaults():
+    config = BatchConfig(role_arn="arn:aws:iam::123456789012:role/batch-role", bucket="my-batch-bucket")
+
+    assert config.role_arn == "arn:aws:iam::123456789012:role/batch-role"
+    assert config.bucket == "my-batch-bucket"
+    assert config.key_prefix == "chunking"
+
+
+def test_batch_config_is_frozen():
+    config = BatchConfig(role_arn="arn:aws:iam::123456789012:role/batch-role", bucket="my-batch-bucket")
+    with pytest.raises(ValidationError):
+        config.bucket = "other-bucket"
 
 
 # --- TextExtractionConfig ---
