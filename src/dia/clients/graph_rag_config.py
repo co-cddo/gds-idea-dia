@@ -1,9 +1,11 @@
-"""Shared AWS access settings: which login, which region, which models.
+"""Settings for connecting to the graph toolkit's AWS-backed services.
 
-Settings here can be set via environment variables or a local, git-ignored
-`.env` file (environment variables always win over `.env`) — so anything
-that uses this doesn't need the same `export` commands typed out every
-session.
+`graphrag_toolkit` (Neptune + OpenSearch Serverless, via Bedrock) reads its
+AWS login, region, and model choices lazily from the environment. This
+class is the one place those values are defined, loadable from environment
+variables or a local, git-ignored `.env` file (environment variables always
+win over `.env`) — so anything that uses this doesn't need the same
+`export` commands typed out every session.
 
 Two things are deliberately *not* here, and never should be:
 
@@ -14,10 +16,11 @@ Two things are deliberately *not* here, and never should be:
   `dia.clients.cloudformation.resolve_stack_output`) rather than typed in —
   see that module's docstring for why.
 
-Currently used by `tests/test_lexical_graph_integration.py`. Intended for
-`src/dia/agent/` to adopt too, once its own config wiring lands (see
-`pyproject.toml`'s per-file-ignores comment on `src/dia/agent/agents.py` —
-that wiring is deliberately deferred to a separate PR, not done here).
+Currently used by `tests/test_lexical_graph_integration.py`. `src/dia/agent/`
+doesn't use this yet — it has its own separate `aws_region`/`model_id`
+fields in `dia.agent.config.Settings` — but this is written to be reusable
+there too, since `dia.agent.stores.build_graph_store`/`build_vector_store`
+go through the same `graphrag_toolkit` and need the same environment setup.
 """
 
 from __future__ import annotations
@@ -27,8 +30,8 @@ import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class AwsSettings(BaseSettings):
-    """AWS login, region, and Bedrock model choices, shared across the project."""
+class GraphRagSettings(BaseSettings):
+    """AWS login, region, and Bedrock model choices for graphrag_toolkit."""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -56,4 +59,4 @@ class AwsSettings(BaseSettings):
         os.environ["EMBEDDINGS_MODEL"] = self.embeddings_model
 
 
-aws_settings = AwsSettings()
+graph_rag_settings = GraphRagSettings()

@@ -30,7 +30,7 @@ automatically or has a sensible default:
     something non-standard instead, `export NEPTUNE_ENDPOINT=...` /
     `export AOSS_ENDPOINT=...` — these always win over the lookup.
   - `AWS_REGION`, model IDs, and the deployment phase used for the
-    CloudFormation lookup all come from `dia.clients.config.AwsSettings`,
+    CloudFormation lookup all come from `dia.clients.graph_rag_config.GraphRagSettings`,
     which can also be set via a local, git-ignored `.env` file instead of
     repeated `export`s — see that module's docstring.
 
@@ -52,7 +52,7 @@ import boto3
 import pytest
 
 from dia.clients.cloudformation import resolve_stack_output
-from dia.clients.config import aws_settings
+from dia.clients.graph_rag_config import graph_rag_settings
 from dia.clients.neptune import LocalNeptuneClient
 
 _SKIP_REASON = (
@@ -131,7 +131,7 @@ def live_aws_setup(request) -> LiveAwsSetup:
     """
     available = _available_profiles()
 
-    if not aws_settings.aws_profile:
+    if not graph_rag_settings.aws_profile:
         pytest.fail(
             "AWS_PROFILE is not set — these live tests will not guess which "
             "AWS login to use.\n"
@@ -142,33 +142,33 @@ def live_aws_setup(request) -> LiveAwsSetup:
         )
 
     try:
-        session = boto3.Session(profile_name=aws_settings.aws_profile, region_name=aws_settings.aws_region)
+        session = boto3.Session(profile_name=graph_rag_settings.aws_profile, region_name=graph_rag_settings.aws_region)
         identity = session.client("sts").get_caller_identity()
     except Exception as e:  # noqa: BLE001 - any failure here means creds aren't usable
         pytest.fail(
             "Could not resolve AWS credentials for these live tests.\n"
-            f"  AWS_PROFILE : {aws_settings.aws_profile}\n"
-            f"  AWS_REGION  : {aws_settings.aws_region}\n"
+            f"  AWS_PROFILE : {graph_rag_settings.aws_profile}\n"
+            f"  AWS_REGION  : {graph_rag_settings.aws_region}\n"
             f"  error       : {type(e).__name__}: {e}\n"
             f"  available   : {', '.join(available) or '<none found>'}\n"
-            f"Run:  aws sso login --profile {aws_settings.aws_profile}",
+            f"Run:  aws sso login --profile {graph_rag_settings.aws_profile}",
             pytrace=False,
         )
 
     neptune_endpoint = _resolve_endpoint(
-        session, "NEPTUNE_ENDPOINT", f"dia-neptune-{aws_settings.phase}", "NeptuneEndpoint"
+        session, "NEPTUNE_ENDPOINT", f"dia-neptune-{graph_rag_settings.phase}", "NeptuneEndpoint"
     )
     aoss_endpoint = _resolve_endpoint(
-        session, "AOSS_ENDPOINT", f"dia-opensearch-{aws_settings.phase}", "AossCollectionEndpoint"
+        session, "AOSS_ENDPOINT", f"dia-opensearch-{graph_rag_settings.phase}", "AossCollectionEndpoint"
     )
 
-    aws_settings.export_to_environ()
+    graph_rag_settings.export_to_environ()
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
     reporter = request.config.pluginmanager.get_plugin("terminalreporter")
     reporter.write_line(
-        f"live_aws: profile={aws_settings.aws_profile} account={identity['Account']} "
-        f"region={aws_settings.aws_region}\n"
+        f"live_aws: profile={graph_rag_settings.aws_profile} account={identity['Account']} "
+        f"region={graph_rag_settings.aws_region}\n"
         f"          arn={identity['Arn']}\n"
         f"          neptune={neptune_endpoint}\n"
         f"          aoss={aoss_endpoint}"
@@ -181,7 +181,7 @@ def test_neptune_connectivity(live_aws_setup: LiveAwsSetup):
 
     The dev cluster is currently empty, so this should return an empty list.
     """
-    client = LocalNeptuneClient(endpoint=live_aws_setup.neptune_endpoint, profile_name=aws_settings.aws_profile)
+    client = LocalNeptuneClient(endpoint=live_aws_setup.neptune_endpoint, profile_name=graph_rag_settings.aws_profile)
 
     result = client.query("MATCH (n) RETURN labels(n) AS labels, count(n) AS count")
 

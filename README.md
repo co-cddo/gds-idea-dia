@@ -46,7 +46,7 @@ Only those two exports are required — Neptune/AOSS endpoints are looked up
 automatically via CloudFormation (override with `export NEPTUNE_ENDPOINT=...`
 / `export AOSS_ENDPOINT=...` if needed). `AWS_REGION` and model choices can
 be set the same way, or persisted locally in a git-ignored `.env` file — see
-`src/dia/clients/config.py`.
+`src/dia/clients/graph_rag_config.py`.
 
 ## CDK
 
