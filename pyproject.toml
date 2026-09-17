@@ -38,6 +38,7 @@ dependencies = [
     "numpy<2",                          # pinned: blis (spacy, via graphrag-lexical-graph) requires numpy<2
     "pdfplumber>=0.11.9",
     "pydantic>=2.9.0",
+    "pydantic-settings>=2.0.0",
     "pypdf>=6.4.2",
     "python-docx>=1.2.0",
     "rapidfuzz>=3.14.3",
