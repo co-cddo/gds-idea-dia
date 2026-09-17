@@ -1149,6 +1149,9 @@ dev = [
     { name = "pytest-cov" },
     { name = "ruff" },
 ]
+zscaler = [
+    { name = "gds-idea-pkg-zscaler-fix" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -1184,6 +1187,7 @@ dev = [
     { name = "pytest-cov", specifier = ">=6.0" },
     { name = "ruff", specifier = ">=0.11.0" },
 ]
+zscaler = [{ name = "gds-idea-pkg-zscaler-fix", specifier = ">=0.1.1", index = "https://co-cddo.github.io/gds-idea-pypi/simple/" }]
 
 [[package]]
 name = "dirtyjson"
@@ -1454,6 +1458,15 @@ dependencies = [
 sdist = { url = "https://github.com/co-cddo/gds-idea-cdk-constructs-new/releases/download/v0.5.0/gds_idea_cdk_constructs-0.5.0.tar.gz", hash = "sha256:1138a82b74899b8e7b046a95275668bf94b3ed6d49f0364b64dcc0efcdf1c15e" }
 wheels = [
     { url = "https://github.com/co-cddo/gds-idea-cdk-constructs-new/releases/download/v0.5.0/gds_idea_cdk_constructs-0.5.0-py3-none-any.whl", hash = "sha256:5c1d0d835ffbfecf588a5343ae2e872174a9125e12d1ae96712e3ea013b11b73" },
+]
+
+[[package]]
+name = "gds-idea-pkg-zscaler-fix"
+version = "0.1.4"
+source = { registry = "https://co-cddo.github.io/gds-idea-pypi/simple/" }
+sdist = { url = "https://github.com/co-cddo/gds-idea-pkg-zscaler-fix/releases/download/v0.1.4/gds_idea_pkg_zscaler_fix-0.1.4.tar.gz", hash = "sha256:3e7f4de85851ef415e3e919b17eb6c8e46c6428faee7b9b9c01da8c443dc02de" }
+wheels = [
+    { url = "https://github.com/co-cddo/gds-idea-pkg-zscaler-fix/releases/download/v0.1.4/gds_idea_pkg_zscaler_fix-0.1.4-py3-none-any.whl", hash = "sha256:660b3bf161cf4daaf0e89ab15be1e5c25340847387ddfe9f61c42bc673ac4bf0" },
 ]
 
 [[package]]
