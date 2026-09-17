@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from prompts.fragments import (
+from dia.agent.prompts.fragments import (
     COMMON_CITATION_RULES,
     COMMON_RULES,
     COMMON_TOOL_REFERENCE,
@@ -8,7 +8,7 @@ from prompts.fragments import (
     GRAPH_TIMEOUT_GUARD,
     SOURCE_DIAGNOSTICS,
 )
-from prompts.fragments.utils import block, join_sections
+from dia.agent.prompts.fragments.utils import block, join_sections
 
 
 def get_graph_cost_aware_system_prompt() -> str:

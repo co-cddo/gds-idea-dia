@@ -4,7 +4,9 @@ import json
 from typing import Any
 
 import awswrangler as wr
-from boto3 import session
+
+from dia.agent.config import settings
+from dia.clients.session import get_session
 
 
 def check_sql_safety(sql: str) -> None:
@@ -27,9 +29,9 @@ def list_athena_tables() -> str:
     or service assessment outcomes.
     """
     tables: dict[str, Any] = {}
-    for db in [ATHENA_CONTRACTS_DB, ATHENA_GATS_DB, ATHENA_GATS_SERVICE_DB]:
+    for db in [settings.contracts_db, settings.gats_db, settings.gats_service_db]:
         try:
-            tables[db] = sorted(t["Name"] for t in wr.catalog.get_tables(database=db, boto3_session=session))
+            tables[db] = sorted(t["Name"] for t in wr.catalog.get_tables(database=db, boto3_session=get_session()))
         except Exception as e:
             tables[db] = [f"Error: {e}"]
     return json.dumps(tables, indent=2)
@@ -89,7 +91,7 @@ def get_table_schema(database_name: str, table_name: str) -> str:
     """
     clean_name = table_name.strip().replace('"', "").replace("'", "")
     try:
-        df_types = wr.catalog.get_table_types(database=database_name, table=clean_name, boto3_session=session)
+        df_types = wr.catalog.get_table_types(database=database_name, table=clean_name, boto3_session=get_session())
         return json.dumps(df_types, indent=2)
     except Exception as e:
         return f"Error: {e}"
@@ -131,18 +133,18 @@ def execute_sql(database_name: str, query: str) -> str:
     """
     check_sql_safety(query)
 
-    if database_name == ATHENA_CONTRACTS_DB:
-        workgroup = ATHENA_CONTRACTS_WORKGROUP
+    if database_name == settings.contracts_db:
+        workgroup = settings.contracts_workgroup
     else:
         # Both 'gats-assurance-ai' and 'gats-assurance' use the GATS workgroup
-        workgroup = ATHENA_GATS_WORKGROUP
+        workgroup = settings.gats_workgroup
 
     try:
         df = wr.athena.read_sql_query(
             sql=query,
             database=database_name,
             workgroup=workgroup,
-            boto3_session=session,
+            boto3_session=get_session(),
             ctas_approach=False,
         )
         if df.empty:

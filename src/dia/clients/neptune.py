@@ -31,6 +31,15 @@ def _patched_getaddrinfo(host, *args, **kwargs):
 socket.getaddrinfo = _patched_getaddrinfo
 
 
+def register_tunnel_host(host: str) -> None:
+    """Redirect connections to `host` through the local SSH tunnel.
+    Requires scripts/neptune-tunnel.sh to already be running.
+    Args:
+        host: Real hostname to redirect (e.g. a Neptune cluster endpoint).
+    """
+    _patched_hosts.add(host)
+
+
 class LocalNeptuneClient:
     """Queries a Neptune cluster through a local SSH tunnel.
 

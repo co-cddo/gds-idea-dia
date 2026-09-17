@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from prompts.fragments import (
+from dia.agent.prompts.fragments import (
     ATHENA_SCHEMA_REFERENCE,
     COMMON_CITATION_RULES,
     COMMON_INVESTIGATION_METHODOLOGY,
@@ -22,7 +22,7 @@ from prompts.fragments import (
     supplier_lockin_athena_queries,
     supplier_lockin_graph_queries,
 )
-from prompts.fragments.utils import block, join_sections
+from dia.agent.prompts.fragments.utils import block, join_sections
 
 
 def get_supplier_lockin_system_prompt(department_name: str = "") -> str:

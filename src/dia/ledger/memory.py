@@ -25,13 +25,20 @@ class InMemoryLedger:
         self, ref: DocumentReference, source_name: str, stage: str, department: str | None = None
     ) -> None:
         """Record a document as successfully processed."""
-        key = composite_key(stage, source_name, ref)
-        self._records[key] = LedgerRecord(
-            source_name=source_name,
-            processed_at=datetime.now(UTC),
-            code_version=version("dia"),
-            department=department,
-        )
+        self.mark_processed_many([(ref, department)], source_name, stage)
+
+    def mark_processed_many(
+        self, entries: list[tuple[DocumentReference, str | None]], source_name: str, stage: str
+    ) -> None:
+        """Record multiple documents as successfully processed."""
+        for ref, department in entries:
+            key = composite_key(stage, source_name, ref)
+            self._records[key] = LedgerRecord(
+                source_name=source_name,
+                processed_at=datetime.now(UTC),
+                code_version=version("dia"),
+                department=department,
+            )
 
     def list_records(self, source_name: str) -> list[dict]:
         """List all records for a source (across all stages).

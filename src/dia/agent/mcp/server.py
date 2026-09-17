@@ -1,4 +1,4 @@
-"""MCP server construction and lifecycle (start/stop/verify)."""
+"""MCP server construction and lifecycle."""
 
 import subprocess
 import threading
@@ -9,9 +9,10 @@ from graphrag_toolkit.lexical_graph.protocols import create_mcp_server
 from mcp.client.streamable_http import streamable_http_client
 from strands.tools.mcp.mcp_client import MCPClient
 
-from .retrieval_modes import _DEFAULT_TOOL_DESCRIPTION, tool_parameters
+from dia.agent.config import settings
+from dia.agent.mcp.tools import register_all_tools
 
-DEFAULT_MCP_PORT = 8000
+from .retrieval_modes import _DEFAULT_TOOL_DESCRIPTION, tool_parameters
 
 
 def build_mcp_server(graph_store, vector_store):
@@ -27,7 +28,9 @@ def build_mcp_server(graph_store, vector_store):
             "query_engine_args": {"enable_multipart_queries": False},
         }
     }
-    return create_mcp_server(graph_store, vector_store, tenant_ids=tenant_cfg)
+    server = create_mcp_server(graph_store, vector_store, tenant_ids=tenant_cfg)
+    register_all_tools(server)
+    return server
 
 
 _server_state: dict[str, Any] = {"thread": None, "url": None}
@@ -48,7 +51,7 @@ def _kill_existing_on_port(port: int) -> None:
 
 def start_server(
     mcp_server,
-    port: int = DEFAULT_MCP_PORT,
+    port: int = settings.mcp_port,
     *,
     log_level: str = "warning",
     verify: bool = True,

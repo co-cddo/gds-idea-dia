@@ -36,14 +36,25 @@ class JsonFileLedger:
         self, ref: DocumentReference, source_name: str, stage: str, department: str | None = None
     ) -> None:
         """Record a document as successfully processed and persist to disk."""
-        key = composite_key(stage, source_name, ref)
-        record = LedgerRecord(
-            source_name=source_name,
-            processed_at=datetime.now(UTC),
-            code_version=version("dia"),
-            department=department,
-        )
-        self._records[key] = record.model_dump(mode="json")
+        self.mark_processed_many([(ref, department)], source_name, stage)
+
+    def mark_processed_many(
+        self, entries: list[tuple[DocumentReference, str | None]], source_name: str, stage: str
+    ) -> None:
+        """Record multiple documents as successfully processed, writing to disk once."""
+        if not entries:
+            return
+
+        for ref, department in entries:
+            key = composite_key(stage, source_name, ref)
+            record = LedgerRecord(
+                source_name=source_name,
+                processed_at=datetime.now(UTC),
+                code_version=version("dia"),
+                department=department,
+            )
+            self._records[key] = record.model_dump(mode="json")
+
         self._save()
 
     def list_records(self, source_name: str) -> list[dict]:

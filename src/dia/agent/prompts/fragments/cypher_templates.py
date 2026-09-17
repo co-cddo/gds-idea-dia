@@ -8,7 +8,7 @@ must produce.
 
 from __future__ import annotations
 
-from prompts.fragments.utils import block
+from dia.agent.prompts.fragments.utils import block
 
 PROJECT_CYPHER_TEMPLATES = block(
     "project_cypher_templates",

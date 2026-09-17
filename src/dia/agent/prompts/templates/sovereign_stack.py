@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from prompts.fragments import (
+from dia.agent.prompts.fragments import (
     ATHENA_SCHEMA_REFERENCE,
     COMMON_CITATION_RULES,
     COMMON_INVESTIGATION_METHODOLOGY,
@@ -29,7 +29,7 @@ from prompts.fragments import (
     hard_gates,
     sovereign_stack_output_card,
 )
-from prompts.fragments.utils import block, join_sections
+from dia.agent.prompts.fragments.utils import block, join_sections
 
 
 def get_sovereign_stack_system_prompt_v3() -> str:

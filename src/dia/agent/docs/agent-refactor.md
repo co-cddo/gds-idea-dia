@@ -2,7 +2,15 @@
 
 ## Context
 
-Refactor the assurance agent so it can be run via CLI (dia agent ask ...). The end goal is agent delegation — a supervisor agent that routes a query to the right specialist agent (DBR, supplier lock-in, project investigation, etc.) automatically based on the department and question asked.
+Refactor the assurance agent so it can be run via CLI (dia agent ask ...).
+
+> **Direction update (superseded goal):** the original end goal below this line was
+> "agent delegation" - a supervisor agent routing queries to ~12 hand-written specialist
+> agents (DBR, supplier lock-in, project investigation, etc.). That approach (Decision 7 +
+> Stage 2, further down this doc) is **superseded by Decision 8**: one agent, with a set of
+> **skills** it can pull in based on the query, replacing the per-department specialist
+> agents and the supervisor/router concept entirely. Decision 7 and Stage 2 are kept below
+> for historical context but should not be implemented as written.
 
 ### The two-phase system this agent sits inside
 
@@ -145,6 +153,9 @@ already manages S3 buckets for the pipeline), rather than a new separate stack f
 
 ## Decision 7: CLI shape - keep manual `--agent` selection for now
 
+> **Superseded by Decision 8.** No `--agent` flag ships. There is one agent; skills
+> replace per-persona selection. Kept below for historical context only.
+
 **Considered:** `--agent` flag to manually pick a persona (matches today's manual
 notebook workflow) vs. jumping straight to `--department`/`--query` only, with routing
 decided by a not-yet-built supervisor.
@@ -161,106 +172,328 @@ bridge so the CLI is usable immediately.
 
 ---
 
+## Decision 8: Single agent + skills, not per-department specialist agents
+
+**Considered:** Continue building out the ~12 hand-written `make_*_agent()` personas
+(one system prompt per use-case: DBR, supplier lock-in, supplier ecosystem, project
+investigation, etc.) plus a Stage 2 supervisor/router agent to pick between them
+(Strands "Agents as Tools"), vs. collapsing down to **one agent** that dynamically pulls
+in **skills** based on the query, instead of selecting an entire bespoke system prompt.
+
+**Chose: one agent + skills.** Rationale:
+- Maintaining ~12 near-duplicate system prompts doesn't scale, and a router just adds a
+  second LLM call to disambiguate prompts that overlap in scope and are already too
+  similar to disambiguate reliably - notably `dbr` vs `default` (formal whole-department
+  dossier vs general-purpose/less formal) and `supplier_lockin` vs `supplier_ecosystem`
+  (dependency-risk framing vs market-landscape framing).
+- A single agent with composable skills means new capabilities are additive (drop in a
+  new skill) rather than requiring a whole new system prompt + factory function +
+  router-facing description to keep in sync.
+- This removes the need for a `--agent` flag (Decision 7) and a supervisor/router stage
+  entirely - both are superseded by this decision (see Decision 9 for the concrete
+  skills implementation).
+
+**Decided: skills folder structure.** Skills live at `prompts/skills/<name>/SKILL.md`
+(one directory per skill; `dbr` is the first). They're loaded via
+`strands.AgentSkills(skills=Path(__file__).parent / "prompts" / "skills")`, wired into
+every agent in `agents.py::make_agent()`. The path is resolved relative to the `agents.py`
+module file, not the process's cwd, so it works regardless of where `dia` is invoked from -
+unlike the cwd-relative convention used for `scripts/neptune-tunnel.sh` elsewhere in this
+codebase.
+
+**Not yet decided (explicitly deferred, separate follow-up conversation):**
+- How the agent selects which skill(s) to use for a given query (tool-calling into a
+  skill-listing tool? Always-loaded skill index? Something else?).
+- What happens to the existing 12 `make_*_agent()` factories and their prompt files -
+  likely most of their content becomes skill content, but this migration is out of scope
+  for the CLI-wiring work (PR1/PR2 below), which only wires up `make_default_agent()`.
+- **Department must stay optional in the new prompt/skill design.** `AgentInput` and
+  `AgentResponse.department` are already `str | None = None` (to support cross-government
+  queries not tied to one department). The current per-flavour prompt templates
+  (`prompts/templates/*.py`, `prompts/fragments/query_templates.py`,
+  `output_specs.py::dbr_output_card`) are **not** all `None`-safe today - some do
+  `department_name.upper()`/`.lower()` directly (crashes on `None`), others just
+  f-string-interpolate it (renders the literal word "None" into the prompt). Only the
+  `supplier_lockin`/`supplier_ecosystem` templates already handle this correctly
+  (`scope = f"for {department_name}" if department_name else "across central
+  government"`). Whichever skill(s) replace these prompts must build in that same
+  "no department = cross-government, not a crash and not the literal string None"
+  handling from the start, rather than re-inheriting the gap.
+- **Steering as a replacement for some of `prompts/fragments/*.py`'s enforcement
+  rules.** Rather than baking every rule into the upfront system prompt as static
+  prose, Strands'
+  [steering](https://strandsagents.com/docs/user-guide/concepts/plugins/steering/)
+  mechanism can enforce rules at runtime, at two points in the agent loop: before a
+  tool call (gatekeeps whether an action should proceed - right tool, right order, safe
+  query) and after a model response (gatekeeps output quality before it's accepted).
+  Two implementation styles, chosen per-rule:
+  - Deterministic (code, no LLM cost) - for countable/checkable rules against the tool-
+    call ledger: `hard_gates()`'s `min_words`, `min_graph_calls`,
+    `first_n_must_be_graph`, `min_web_calls`, "must use the Tavily tool for web
+    search," etc. No extra model call needed - just inspect the ledger and
+    cancel/retry with feedback if violated.
+  - LLM-based (`LLMSteeringHandler`) - for judgment calls that can't be counted: "does
+    this citation's content actually support the claim," "does the draft address
+    supplier lock-in in depth." Scope these sparingly (e.g. once at final-answer time,
+    not on every tool call) to control added cost/latency.
+
+  Not started; want to first confirm the single default agent + `dbr` skill actually
+  works end-to-end before restructuring the prompt system further.
+
+**What this means for the CLI-wiring work (PR1/PR2, see below):** since there's no
+`--agent` flag, the CLI-wiring PRs deliberately keep things simple - no agent registry,
+no dispatch logic. `runtime.ask()` calls `agents.make_default_agent(department)` only.
+The skills design is a separate, later piece of work.
+
+---
+
+## Decision 9: Skills implementation - Strands native `AgentSkills` plugin, DBR first
+
+**Considered:** Build a custom skills abstraction (registry, discovery, own loading
+mechanism) vs. using `strands-agents`' own native `AgentSkills` plugin
+(`strands.vended_plugins.skills`), which already implements the AgentSkills.io spec and
+ships in the installed SDK version (1.48.0; `pyproject.toml` currently floors
+`strands-agents>=1.20.0` - needs confirming the plugin exists at that floor before
+merging, may need to bump it).
+
+**Chose: native `AgentSkills` plugin.** Resolves Decision 8's deferred items:
+
+- **Folder structure:** `prompts/skills/<persona>/SKILL.md` - one hand-written markdown
+  file per persona (YAML frontmatter for `name`/`description`, markdown body for
+  `instructions`). No custom registry needed; the plugin's `Skill.from_directory()`
+  loads all of them.
+- **Selection mechanism:** fully autonomous, not code-selected. The plugin injects a
+  `<available_skills>` block (name + description only, not full content) into the
+  system prompt on every invocation. The LLM reads the query and calls a `skills(name)`
+  tool the plugin registers to pull in a skill's full `instructions` on demand. One
+  agent, N skills, model decides - no `--agent` flag, no router/supervisor LLM call
+  needed.
+- **Fragments/templates split:** `prompts/fragments/` keeps only the ~15 fragments
+  reused by 2+ personas (the reuse test becomes "is it in `fragments/`?"). The ~59
+  persona-solo fragments (e.g. DBR's 6: `DBR_INVESTIGATION_METHOD`, `DBR_OUTPUT_SPEC`,
+  `dbr_output_card`, `dbr_required_graph_queries`, `dbr_required_athena_queries`,
+  `dbr_web_searches`) move out of Python into their persona's `SKILL.md` as static
+  markdown - verified zero reuse elsewhere, so this loses no code-sharing and gains
+  direct editability (no `join_sections`/Python tracing to edit persona content).
+  `prompts/templates/*.py` collapses from 12 near-duplicate files to one function
+  assembling the shared base prompt from `fragments/`.
+- **Department `None`-safety:** solved by keeping skill content generic prose (e.g. "the
+  department currently in scope") rather than interpolating `department_name` into
+  skill text. The shared base prompt (built from `fragments/`) remains the only place
+  that receives/handles the actual `department_name`/`None` value, so no skill needs its
+  own None-handling logic.
+- **Tool-calling is unaffected:** the MCP server/tool layer (`mcp/server.py`,
+  `mcp/tools/*.py`) is a separate concern from skills. Skills only supply prompt
+  instructions telling the model what to do and which already-registered tools to call;
+  they do not define or replace tools.
+
+**Scope of this change:** DBR only, as a first migration/proof of concept -
+`templates/dbr.py` retired, `skills/dbr/SKILL.md` added, `AgentSkills` wired into
+`agents.py::make_agent()` via a new `plugins=` argument on the `Agent(...)` call. The
+other 11 personas (`default`, `gats_query`, `graph_cost_aware`, `pitch_deck`,
+`project_investigation`, `sovereign_stack`, `supplier_ecosystem`, `supplier_lockin`,
+`targeted_question`, `ai_transformation` v1+v2) are **not** migrated yet and keep working
+exactly as today; they're expected to follow the same pattern in later, separate PRs.
+
+---
+
 ## Stage 1 structure
+
+**Status: steps 1-9 below are done (on `dev`).** Only step 10 (CLI wiring) remains -
+see "Stage 1b - CLI wiring (PR2)" further down for the detailed breakdown of what
+that step actually involves.
 
 ```
 gds-idea-dia/
 ├── src/dia/
-│   ├── cli.py                     # existing — gains `agent_app` sub-Typer (same pattern as `ledger_app`)
+│   ├── cli.py                     # existing — gains `agent_app` sub-Typer (same pattern as `ledger_app`)  [PR2]
 │   ├── config.py                  # existing pipeline config — untouched
 │   ├── agent/
 │   │   ├── __init__.py
-│   │   ├── config.py               # pydantic BaseModel settings: model id, Athena DB/workgroup names, KB IDs
-│   │   ├── secrets.py              # fetches Neptune + AOSS endpoint hostnames from AWS Secrets Manager
+│   │   ├── config.py               # pydantic-settings: model id, Athena DB/workgroup names, KB secret names, mcp_port  [done]
 │   │   ├── patches/
-│   │   │   ├── __init__.py         # apply_all()
-│   │   │   ├── search_result.py    # ISO-timestamp fix
-│   │   │   ├── neptune_timeout.py  # 90s read_timeout override
-│   │   │   ├── retry.py            # unretriable-exception + retry-floor fix
-│   │   │   └── entity_search.py    # two-step capped multi-entity query rewrite
-│   │   ├── stores.py               # build_graph_store(), build_vector_store(), build_graph_index()
+│   │   │   ├── __init__.py         # apply_all()  [done, not yet called anywhere — PR1 wires this in]
+│   │   │   ├── search_result.py    # ISO-timestamp fix  [done]
+│   │   │   ├── neptune_timeout.py  # 90s read_timeout override  [done]
+│   │   │   ├── retry.py            # unretriable-exception + retry-floor fix  [done]
+│   │   │   └── entity_search.py    # two-step capped multi-entity query rewrite  [done]
+│   │   ├── stores.py               # build_graph_store(), build_vector_store(), build_graph_index()  [done]
 │   │   ├── mcp/
-│   │   │   ├── server.py           # build_mcp_server(), start_server(), server_url()
-│   │   │   ├── retrieval_modes.py  # update_tool_params(), mode text, filter builders
+│   │   │   ├── server.py           # build_mcp_server(), start_server(), server_url()  [done, but doesn't register the 4 tool modules yet — PR1 wires this in]
+│   │   │   ├── retrieval_modes.py  # update_tool_params(), mode text, filter builders  [done]
 │   │   │   └── tools/
-│   │   │       ├── athena.py
-│   │   │       ├── knowledge_base.py
-│   │   │       └── web_search.py
-│   │   ├── prompts/
-│   │   │   ├── __init__.py
-│   │   │   ├── dbr.py / default.py / gats_query.py / project_investigation.py /
-│   │   │   │   supplier_lockin.py / supplier_ecosystem.py      # moved verbatim — exist today in src/system_prompts.py
-│   │   │   └── graph_cost_aware.py / pitch_deck.py / sovereign_stack.py /
-│   │   │       targeted_question.py / ai_transformation.py      # TODO stubs — don't exist anywhere yet
-│   │   ├── agents.py                # make_model(), make_agent(), per-prompt factories
-│   │   └── report.py                # markdown response → .docx (python-docx) → upload to S3
+│   │   │       ├── __init__.py     # gains register_all_tools()  [PR1]
+│   │   │       ├── athena.py       # [done]
+│   │   │       ├── graph.py        # [done]
+│   │   │       ├── knowledge_base.py  # [done]
+│   │   │       └── web_search.py   # [done]
+│   │   ├── prompts/                # [done]
+│   │   ├── agents.py                # make_model(), make_agent(), per-prompt factories  [done, but missing imports for 10 prompt functions — PR1 fixes this]
+│   │   ├── runtime.py               # NEW — end-to-end bootstrap: patches -> stores -> mcp server -> agent -> answer  [PR1, gains `tunnel` param in PR2]
+│   │   ├── tunnel.py                 # NEW — ensure_tunnel_open() context manager, automates the SSH tunnel + register_tunnel_host dance  [PR2, renamed from open_tunnel() per review]
+│   │   └── report.py                # markdown response → .docx → S3  [stub, out of scope for PR1/PR2 — Decision 6, deferred, stdout only for now]
 │   └── ... (existing pipeline modules, untouched)
-├── stacks/
-│   └── storage.py                   # gains new agent-reports S3 bucket definition
-└── pyproject.toml                   # gains [project.optional-dependencies] agent = [...]
+└── pyproject.toml                   # [project.optional-dependencies] agent = [...]  [done]
 ```
 
 ### Migration steps
 
-1. Scaffold `src/dia/agent/` skeleton + `config.py` + `secrets.py`.
-2. Move the 4 patches verbatim into `patches/`.
-3. Move store construction into `stores.py`.
-4. Move MCP server lifecycle + mode-parsing logic into `mcp/server.py` / `mcp/retrieval_modes.py`.
-5. Split Athena/KB/web-search tools into `mcp/tools/*`.
-6. Copy the 6 existing prompts from `gds-idea-assurance-knowledge-graphs/src/system_prompts.py`; add 6 TODO stub prompt files for the missing ones (`graph_cost_aware`, `pitch_deck`, `sovereign_stack_v3`, `targeted_question`, `ai_transformation`, `ai_transformation_v2`).
-7. Move model/agent factories into `agents.py`.
-8. Build `report.py` (markdown → docx → S3 upload).
-9. Add the new S3 bucket to `stacks/storage.py`.
-10. Add `agent_app` Typer sub-app + `ask` command to `cli.py` (lazy imports inside command functions, matching the `ledger_app` pattern).
-11. Add `[project.optional-dependencies] agent` to `pyproject.toml`.
-12. Tests: patches (idempotency), retrieval_modes (mode→filter mapping), report.py (markdown→docx conversion).
+1. ~~Scaffold `src/dia/agent/` skeleton + `config.py`.~~ **Done.**
+2. ~~Move the 4 patches verbatim into `patches/`.~~ **Done** (not yet wired to run - PR1).
+3. ~~Move store construction into `stores.py`.~~ **Done.**
+4. ~~Move MCP server lifecycle + mode-parsing logic into `mcp/server.py` / `mcp/retrieval_modes.py`.~~ **Done** (doesn't register the 4 tool modules yet - PR1).
+5. ~~Split Athena/graph/KB/web-search tools into `mcp/tools/*`.~~ **Done** (nothing calls their `register()` functions outside tests yet - PR1).
+6. ~~Copy/write the prompt files.~~ **Done.**
+7. ~~Move model/agent factories into `agents.py`.~~ **Done** (missing 10 imports - PR1 fixes).
+8. `report.py` (markdown → docx → S3 upload). **Deferred** - out of scope for PR1/PR2, stdout only (see Decision 6 note above).
+9. ~~Add `[project.optional-dependencies] agent` to `pyproject.toml`.~~ **Done.**
+10. Add `agent_app` Typer sub-app + `ask` command to `cli.py`, and everything needed to actually run the chain end-to-end. **This is PR2 - see breakdown below.**
+11. Tests: patches (idempotency, existing), retrieval_modes (existing), plus new tests per PR2 below.
 
 ---
 
-## Stage 2 - Agent-to-agent (supervisor/router)
+## Stage 1b - CLI wiring (PR2)
 
-Starts only after Stage 1 fully ships (sequential, not parallel).
+This is the detailed breakdown of migration step 10 above - the only step not yet done.
+Ships as a single PR: internal wiring, the `ask` CLI command, automated tunnel, and the
+`agent status` connectivity check all land together (no PR1/PR2/PR3 split).
 
-**Goal:** replace "human manually picks which of the ~12 agents to run" with a
-supervisor agent that routes a query to the right specialist automatically.
+### PR2 - Internal wiring, CLI command, automated tunnel, and status check
 
-**Mechanism:** Strands' built-in **"Agents as Tools"** pattern (officially supported,
-confirmed via Strands docs) - no custom routing code needed:
+Makes the existing pieces actually connect, adds the `dia agent ask`/`dia agent status`
+entrypoints, and automates what `scripts/neptune-agent-tunnel.py` currently demonstrates
+by hand (open the SSH tunnel, then `register_tunnel_host(...)`) into the real agent code
+path.
 
-```python
-supervisor = Agent(
-    system_prompt="Route to the right specialist based on the query...",
-    tools=[
-        dbr_agent,
-        supplier_lockin_agent,
-        supplier_ecosystem_agent,
-        project_agent,
-        gats_query_agent,
-        default_agent,
-        ...,
-    ],
-)
-```
+1. **`agents.py`** - add the missing import block for the 10 prompt-template functions
+   it calls but never imports (currently masked by a `ruff` per-file-ignore for
+   `F821`/`F822` - remove that ignore once fixed).
+2. **`mcp/tools/__init__.py`** - add `register_all_tools(mcp_server)`, calling
+   `athena.register()`, `graph.register()`, `knowledge_base.register()`,
+   `web_search.register()`.
+3. **`mcp/server.py`** - `build_mcp_server()` calls `register_all_tools(server)` before
+   returning, so the finished server exposes `default_` (1) + Athena (3) + graph-timeout
+   helper (1) + KB search (5) + web search (1) = **11 tools across the 4 registered
+   modules** (satisfies the "all 4 MCP tools registered" AC).
+4. **New file `agent/runtime.py`** - the orchestration chain, split into small private
+   helpers from the start (rather than one inlined chain) so `check()` below can reuse
+   the connect/start steps without duplicating them:
+   - `_connect_stores() -> tuple[graph_store, vector_store]`: wraps
+     `stores.build_graph_store()` / `build_vector_store()` / `build_graph_index()`.
+   - `_start_mcp_server(graph_store, vector_store)`: wraps
+     `mcp_server.build_mcp_server()` / `start_server()`. Takes helper 1's return values
+     as input.
+   - `_run_agent(department, query) -> str`: wraps
+     `agents.make_default_agent(department)` + `agent(query)`. Doesn't need helper 1/2's
+     return values directly (the agent talks to Neptune/AOSS *through* the MCP server,
+     not the Python objects) but does need helper 2 to have already run so the server is
+     listening. Isolating this step also gives the future skills work (Decision 8) one
+     clear seam to modify later, instead of it being buried inside `ask()`.
+   - `ask(department: str | None, query: str, *, tunnel: bool = False) -> AgentResponse`:
+     applies patches, calls the three helpers above in order, then builds the response.
+     Patches (`apply_all()`) and the final `AgentResponse`-building step stay inline in
+     `ask()` - both are one-liners, not worth their own helper, and `check()` doesn't
+     need the response-building step at all. No `--agent` dispatch/registry - matches
+     Decision 8, only `make_default_agent()` is wired for now.
+5. **New file `agent/tunnel.py`** - `@contextmanager ensure_tunnel_open(phase="dev", port=8182,
+   timeout=30.0)`: if port 8182 already has a live tunnel, reuse it (no teardown on
+   exit); otherwise spawns `scripts/neptune-tunnel.sh {phase}` as a background
+   subprocess, polls until the port accepts connections or times out, calls
+   `dia.clients.neptune.register_tunnel_host(settings.neptune_endpoint)`, yields, then
+   in `finally` (only if we started it) kills the subprocess's process group so no
+   orphaned `aws ec2-instance-connect ssh` process is left running. `ask()`'s `tunnel`
+   param (above) selects between this and `nullcontext()` - `tunnel=False` means zero
+   behaviour change on that path. (Named `open_tunnel()` originally; renamed after
+   review since its actual behaviour is reuse-if-present/open-if-not, not "always
+   opens".)
+6. **`cli.py`** - a thin pass-through, no logic beyond argument wiring:
+   ```python
+   agent_app = typer.Typer(help="Query the assurance agent.")
+   app.add_typer(agent_app, name="agent")
 
-Each existing `make_*_agent()` factory is passed straight into the supervisor's `tools`
-list (or wrapped with `.as_tool(name=..., description=...)` for finer control). The
-supervisor's own LLM reads the query + department and decides which specialist(s) to
-call - same tool-calling mechanic already used for MCP tools, just the "tool" happens
-to be another whole agent.
+   @agent_app.command("ask")
+   def agent_ask(
+       query: Annotated[str, typer.Option("--query", help="Natural-language question for the agent.")],
+       department: Annotated[str | None, typer.Option("--department", help="Department to scope the query to.")] = None,
+       tunnel: Annotated[bool, typer.Option("--tunnel", help="Auto-open the Neptune dev SSH tunnel for this run.")] = False,
+   ):
+       from dia.agent import runtime
+       typer.echo(runtime.ask(department, query, tunnel=tunnel))
+   ```
+7. **`runtime.py`** - new `check(*, tunnel: bool = True)`: one command, three named
+   checks, run in dependency order, each **skipped rather than attempted** once an
+   earlier one has failed (stores can't succeed without a tunnel; the MCP server can't
+   succeed without stores) - this way a single invocation makes the failure point
+   obvious instead of the caller having to run/interpret three separate commands that
+   would all fail for the same root cause:
+   - **`tunnel`**: if `tunnel=True`, a read-only peek at whether something is already
+     listening on the configured host:port (via `_is_port_open()`) - `FAILED` if not,
+     `OK` if so (and `register_tunnel_host()` is called so the stores check below can
+     route through it); if `tunnel=False`, reported as `SKIPPED` (explicitly opted out,
+     not a failure). Does **not** call `ensure_tunnel_open()` - unlike `ask()`, `check()`
+     doesn't own the tunnel's lifecycle; a status check shouldn't have the side effect of
+     spawning/tearing down an SSH tunnel just to answer a health question. (Original
+     PR2 design called `open_tunnel()` here; changed after review.)
+   - **`stores`**: `_connect_stores()` - only attempted if `tunnel` was `OK`/`SKIPPED`.
+   - **`mcp_server`**: `_start_mcp_server()` - only attempted if `stores` was `OK`.
+   - Never calls `_run_agent()`/`agents.make_default_agent()` - no LLM call, no cost.
+   - Returns a small structured result (e.g. a dict/dataclass with one
+     `OK`/`FAILED`/`SKIPPED` per component) rather than a bare `bool`, so `cli.py` can
+     print a line per component plus one overall summary line.
 
-**Where it fits:** one more file, `agent/orchestrator.py`, sitting alongside
-`agent/agents.py` - no restructuring of Stage 1's layout needed. `cli.py`'s `ask`
-command evolves to route automatically when `--agent` is omitted.
+   > **Known limitation (deferred, revisit later):** `start_server()`'s internal MCP
+   > verification step (in `mcp/server.py`, the block that connects a short-lived
+   > `MCPClient` and calls `list_tools_sync()` right after launching the server) wraps
+   > that check in a `try/except Exception` that only `print()`s on failure - it never
+   > re-raises. That means `_start_mcp_server()` can succeed (no exception) even when
+   > the server didn't come up correctly. `check()`, as designed above, only detects
+   > "failed to build/start" - it currently has no way to detect "started but not
+   > actually responding," because that specific failure is swallowed before it ever
+   > reaches `check()`. Not being fixed as part of this PR - come back to this if
+   > `agent status` needs a harder guarantee than "didn't crash."
+8. **`cli.py`** - `agent_app` gains a second command that prints one line per component
+   plus an overall result:
+   ```python
+   @agent_app.command("status")
+   def agent_status(
+       tunnel: Annotated[
+           bool, typer.Option("--tunnel", help="Auto-open the Neptune dev SSH tunnel for this check.")
+       ] = True,
+   ):
+       from dia.agent import runtime
+       result = runtime.check(tunnel=tunnel)
+       for component, status in result.items():
+           typer.echo(f"{component}: {status}")
+       typer.echo("OK" if all(s == "OK" for s in result.values()) else "FAILED")
+   ```
+   Example output when the tunnel is down:
+   ```
+   tunnel: FAILED
+   stores: SKIPPED
+   mcp_server: SKIPPED
+   FAILED
+   ```
+9. **Tests:** `test_agent_mcp_tools_init.py` (register_all_tools calls all 4
+   `register()`s), extended MCP-server test (build_mcp_server results in all 11 tools
+   registered), extended `test_agent_agents.py` (all `make_*_agent()` factories build
+   their prompt string without `NameError` now that imports are fixed),
+   `test_agent_runtime.py` (`@pytest.mark.integration`, mocks `stores.*`,
+   `mcp.server.build_mcp_server/start_server`, `agents.make_default_agent` at the
+   boundary; asserts `apply_all()` runs before store construction, full chain called in
+   order, fake agent receives `query`, `ask()` returns an `AgentResponse` wrapping
+   `str(result)`, and `check()`: reports `tunnel`/`stores`/`mcp_server` correctly on the
+   happy path, reports `stores`/`mcp_server` as `SKIPPED` when `tunnel` fails, reports
+   `mcp_server` as `SKIPPED` when `stores` fails, never calls `_run_agent()`),
+   `test_agent_tunnel.py` (mocks `subprocess.Popen`/socket-connect to test
+   readiness-poll/reuse-existing/timeout/teardown logic without real AWS/SSH),
+   `test_cli_agent.py` (`CliRunner` invokes `dia agent ask --department ... --query ...`
+   and `dia agent status` with `dia.agent.runtime.ask`/`check` mocked, asserts
+   pass-through + echoed output per component, including that `--tunnel` maps to
+   `tunnel=True`). Manual (non-automated) verification, since it needs real AWS/SSH:
+   `uv run dia agent ask --query "..." --department "Home Office" --tunnel` against dev.
 
-**Known risk to resolve as part of this stage:** several existing prompts overlap in
-scope and will confuse a router unless their tool-descriptions are made mutually
-exclusive:
+---
 
-| Overlapping pair | Distinction needed |
-|---|---|
-| `dbr` vs `default` | `dbr` = exhaustive, formal, whole-department dossier. `default` = general-purpose, same tools, less formal, narrower questions |
-| `supplier_lockin` vs `supplier_ecosystem` | `lockin` = risk/dependency framing. `ecosystem` = market landscape/capability-coverage framing |
-
-Every agent (old and new, including the 6 stubbed prompts) needs both a full system
-prompt and a short, distinct router-facing description before Stage 2 can route
-reliably.
+_A supervisor/router stage ("Agent-to-agent", using Strands' "Agents as Tools" pattern
+to route between ~12 hand-written specialists) was previously planned here as Stage 2.
+It is superseded by Decision 8/9 (single agent + skills) and has been removed._

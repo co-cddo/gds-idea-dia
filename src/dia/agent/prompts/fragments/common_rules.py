@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from prompts.fragments.utils import block, bullet_list
+from dia.agent.prompts.fragments.utils import block, bullet_list
 
 GRAPH_TIMEOUT_GUARD = """
 <graph_timeout_guard priority="highest">

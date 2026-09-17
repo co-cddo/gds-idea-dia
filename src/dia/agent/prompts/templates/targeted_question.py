@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from prompts.fragments import (
+from dia.agent.prompts.fragments import (
     ATHENA_SCHEMA_REFERENCE,
     COMMON_CITATION_RULES,
     COMMON_INVESTIGATION_METHODOLOGY,
@@ -19,7 +19,7 @@ from prompts.fragments import (
     TARGETED_QUESTION_SYNONYMS,
     hard_gates,
 )
-from prompts.fragments.utils import block, join_sections
+from dia.agent.prompts.fragments.utils import block, join_sections
 
 
 def get_targeted_question_system_prompt() -> str:

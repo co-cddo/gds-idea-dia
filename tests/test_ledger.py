@@ -138,6 +138,38 @@ def test_mark_processed_stores_code_version():
     assert "." in record.code_version
 
 
+# --- InMemoryLedger: mark_processed_many ---
+
+
+def test_mark_processed_many_stores_all_records():
+    ledger = InMemoryLedger()
+    refs = [_ref("a.pdf", "v1"), _ref("b.pdf", "v1"), _ref("c.pdf", "v1")]
+
+    ledger.mark_processed_many([(ref, None) for ref in refs], "source", "text")
+
+    result = ledger.get_unprocessed(refs, "source", "text")
+    assert result == []
+
+
+def test_mark_processed_many_stores_per_entry_department():
+    ledger = InMemoryLedger()
+    ref_a = _ref("a.pdf", "v1")
+    ref_b = _ref("b.pdf", "v1")
+
+    ledger.mark_processed_many([(ref_a, "Home Office"), (ref_b, "Cabinet Office")], "source", "text")
+
+    assert ledger.records["text#source#a.pdf#v1"].department == "Home Office"
+    assert ledger.records["text#source#b.pdf#v1"].department == "Cabinet Office"
+
+
+def test_mark_processed_many_empty_list_is_noop():
+    ledger = InMemoryLedger()
+
+    ledger.mark_processed_many([], "source", "text")
+
+    assert ledger.records == {}
+
+
 # --- DynamoDBLedger ---
 
 TABLE_NAME = "test-processing-ledger"
@@ -248,6 +280,49 @@ def test_dynamo_large_batch_mixed_processed_spanning_chunk_boundary(dynamodb_led
 
     assert result_keys == expected_unprocessed
     assert len(result) == 150 - len(processed_indices)
+
+
+# --- DynamoDBLedger: mark_processed_many ---
+
+
+def test_dynamo_mark_processed_many_stores_all_records(dynamodb_ledger):
+    refs = [_ref("a.pdf", "v1"), _ref("b.pdf", "v1"), _ref("c.pdf", "v1")]
+
+    dynamodb_ledger.mark_processed_many([(ref, None) for ref in refs], "source", "text")
+
+    result = dynamodb_ledger.get_unprocessed(refs, "source", "text")
+    assert result == []
+
+
+def test_dynamo_mark_processed_many_stores_per_entry_department(dynamodb_ledger):
+    ref_a = _ref("a.pdf", "v1")
+    ref_b = _ref("b.pdf", "v1")
+
+    dynamodb_ledger.mark_processed_many([(ref_a, "Home Office"), (ref_b, "Cabinet Office")], "source", "text")
+
+    table = dynamodb_ledger._table
+    item_a = table.get_item(Key={"document_key": "text#source#a.pdf#v1"})["Item"]
+    item_b = table.get_item(Key={"document_key": "text#source#b.pdf#v1"})["Item"]
+    assert item_a["department"] == "Home Office"
+    assert item_b["department"] == "Cabinet Office"
+
+
+def test_dynamo_mark_processed_many_empty_list_is_noop(dynamodb_ledger):
+    dynamodb_ledger.mark_processed_many([], "source", "text")
+
+    assert dynamodb_ledger.list_all_records() == []
+
+
+def test_dynamo_mark_processed_many_large_batch_spans_chunk_boundary(dynamodb_ledger):
+    """batch_writer() auto-chunks into 25-item BatchWriteItem calls — verify
+    nothing is dropped for a batch spanning multiple chunks."""
+    refs = [_ref(f"file_{i}.pdf", "v1") for i in range(60)]
+
+    dynamodb_ledger.mark_processed_many([(ref, None) for ref in refs], "source", "text")
+
+    result = dynamodb_ledger.get_unprocessed(refs, "source", "text")
+    assert result == []
+    assert len(dynamodb_ledger.list_records("source")) == 60
 
 
 # --- InMemoryLedger: list_records ---
