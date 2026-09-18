@@ -33,8 +33,7 @@ free.
 Above ChunkingConfig.semantic_batch_threshold_documents pending documents,
 semantic splitting's embedding step switches to Bedrock batch inference
 (dia.embeddings.batch_semantic_split) instead of on-demand per-window
-calls - see #52/#56 for why, and _chunk_via_batch()/_finalize_batch_nodes()
-below for what bridging the two paths' output actually requires.
+calls - see #52/#56 for why, and _chunk_via_batch() below.
 """
 
 import asyncio
@@ -46,7 +45,7 @@ from dataclasses import dataclass
 from llama_index.core.ingestion import IngestionPipeline
 from llama_index.core.node_parser import NodeParser, SentenceSplitter
 from llama_index.core.node_parser.text.semantic_splitter import SemanticSplitterNodeParser
-from llama_index.core.schema import BaseNode, NodeRelationship
+from llama_index.core.schema import BaseNode
 
 from dia.config import BatchConfig, ChunkingConfig, ExtractionConfig
 from dia.document_types import DocumentType
@@ -81,38 +80,6 @@ def _build_chunking_pipeline(chunking: ChunkingConfig, extraction_config: Extrac
             )
         )
     return parsers
-
-
-def _finalize_batch_nodes(nodes: list[BaseNode], stage1_nodes: list[BaseNode]) -> list[BaseNode]:
-    """batch_semantic_split() bypasses NodeParser.aget_nodes_from_documents
-    entirely (deliberately - that's the whole point, no embed-then-
-    postprocess machinery, just record -> batch-embed -> replay), so it
-    never runs NodeParser._postprocess_parsed_nodes - the step that
-    normally merges parent-document metadata into each chunk and flattens
-    the SOURCE relationship past the intermediate stage-1 node, straight
-    to the original document. Replicate exactly that (metadata merge +
-    SOURCE-flattening) so batch output matches on-demand output -
-    verified this session (see test_chunking.py) with identical metadata
-    and SOURCE relationships between the two paths given the same input.
-
-    Deliberately NOT replicated: PREVIOUS/NEXT relationships and
-    start_char_idx/end_char_idx. Verified this session that neither is
-    consumed anywhere in this codebase, and that llama_index's own
-    on-demand path has a genuine ordering bug in _postprocess_parsed_nodes
-    that means NEXT is never actually set correctly there either (SOURCE
-    is flattened per-node inside the same loop that sets NEXT, so by the
-    time node i checks nodes[i+1].source_node, node i+1 hasn't been
-    flattened yet - always a mismatch, confirmed directly against real
-    SemanticSplitterNodeParser output, not just read from source). Not
-    worth replicating a bug for relationships nothing reads.
-    """
-    stage1_by_id = {n.node_id: n for n in stage1_nodes}
-    for node in nodes:
-        stage1_node = stage1_by_id[node.relationships[NodeRelationship.SOURCE].node_id]
-        node.metadata = {**stage1_node.metadata, **node.metadata}
-        if stage1_node.source_node is not None:
-            node.relationships[NodeRelationship.SOURCE] = stage1_node.source_node
-    return nodes
 
 
 def _group_by_document(nodes: list[BaseNode]) -> dict[str, list[BaseNode]]:
@@ -271,7 +238,10 @@ class ChunkingRunner:
 
         Sentence splitting runs first, exactly as in the on-demand path
         (_build_chunking_pipeline's first stage) - batch_semantic_split
-        expects already-sentence-split input, not raw documents.
+        expects already-sentence-split input, not raw documents. Its
+        output is already correctly stitched back to the original
+        documents (metadata merged, SOURCE flattened past the
+        intermediate stage-1 nodes) - no further adaptation needed here.
         """
         if self._batch_config is None:
             raise RuntimeError(
@@ -288,7 +258,7 @@ class ChunkingRunner:
 
         embed_model = self._extraction_config.to_pooled_embedding_model()
         try:
-            nodes = await batch_semantic_split(
+            return await batch_semantic_split(
                 stage1_nodes,
                 embed_model=embed_model,
                 model_id=self._extraction_config.embeddings_model,
@@ -300,5 +270,3 @@ class ChunkingRunner:
             )
         finally:
             await embed_model.aclose()
-
-        return _finalize_batch_nodes(nodes, stage1_nodes)

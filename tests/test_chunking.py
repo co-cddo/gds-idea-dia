@@ -5,7 +5,6 @@ import hashlib
 import pytest
 from llama_index.core.base.embeddings.base import BaseEmbedding
 from llama_index.core.bridge.pydantic import PrivateAttr
-from llama_index.core.ingestion import IngestionPipeline
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.node_parser.text.semantic_splitter import SemanticSplitterNodeParser
 from llama_index.core.schema import NodeRelationship
@@ -16,7 +15,7 @@ from dia.embeddings import batch_semantic_splitter as batch_splitter_module
 from dia.embeddings.bedrock_batch_client import BatchEmbeddingResult
 from dia.pipeline import chunking as chunking_module
 from dia.pipeline.chunk_store import InMemoryChunkStore
-from dia.pipeline.chunking import ChunkingRunner, _build_chunking_pipeline, _finalize_batch_nodes
+from dia.pipeline.chunking import ChunkingRunner, _build_chunking_pipeline
 from dia.pipeline.models import TextExtractionOutput
 
 FINGERPRINT = "test-fingerprint"
@@ -485,7 +484,16 @@ def test_runner_uses_batch_path_at_or_above_threshold(monkeypatch, tmp_path):
     (via Bedrock batch inference), not the on-demand IngestionPipeline
     path - proven two ways: the low-level batch submit function is
     actually invoked, and to_embedding_model() (only used by the
-    on-demand path) is never touched."""
+    on-demand path) is never touched.
+
+    Also the integration-level check that metadata and the SOURCE
+    relationship survive the batch path end-to-end through
+    ChunkingRunner - the unit-level byte-identical-to-on-demand
+    guarantee for this lives in dia.embeddings' own test suite
+    (test_embeddings_batch_semantic_splitter.py), since batch_semantic_
+    split() handles it natively now; this just proves ChunkingRunner
+    wires it through without dropping anything on the way to the
+    ChunkStore."""
     _low_batch_threshold(monkeypatch, DocumentType.BUSINESS_CASE, threshold=2)
 
     submit_calls = []
@@ -525,6 +533,10 @@ def test_runner_uses_batch_path_at_or_above_threshold(monkeypatch, tmp_path):
     nodes = chunk_store.read("test-source")
     represented_keys = {n.metadata["key"] for n in nodes}
     assert represented_keys == {"doc-0.pdf", "doc-1.pdf"}
+    for node in nodes:
+        assert node.metadata["department"] == "Home Office"  # _output()'s default metadata, merged in correctly
+        assert node.metadata["version"] == "v1"
+        assert node.relationships[NodeRelationship.SOURCE].node_id == node.metadata["key"]
 
 
 def test_runner_batch_path_requires_batch_config(monkeypatch, tmp_path):
@@ -577,58 +589,3 @@ def test_runner_without_semantic_splitting_never_uses_batch(monkeypatch, tmp_pat
 
     assert result.processed == 3
     assert result.total_chunks > 0
-
-
-def test_finalize_batch_nodes_matches_on_demand_metadata_and_source(monkeypatch):
-    """The core correctness claim for the batch/on-demand bridge: given
-    the same embeddings, batch_semantic_split()'s output, after
-    _finalize_batch_nodes(), must carry the exact same metadata and
-    SOURCE relationship as calling the on-demand IngestionPipeline
-    directly - verified this session by tracing exactly what
-    NodeParser._postprocess_parsed_nodes does that batch_semantic_split
-    bypasses (metadata merge + SOURCE-relationship flattening past the
-    intermediate stage-1 node)."""
-    monkeypatch.setattr(batch_splitter_module, "submit_and_await_batch_embeddings", _fake_submit_and_await)
-
-    embed_model = _FakeEmbedding()
-    docs = [
-        _output("files/report-a.pdf", _MANY_SENTENCES_TEXT, metadata={"department": "Home Office"}),
-        _output("files/report-b.pdf", _MANY_SENTENCES_TEXT, metadata={"department": "Cabinet Office"}),
-    ]
-    from dia.pipeline.graph_extraction_adapter import to_document
-
-    documents = [to_document(o) for o in docs]
-
-    # --- on-demand path ---
-    parsers = [
-        SentenceSplitter(chunk_size=7900, chunk_overlap=100),
-        SemanticSplitterNodeParser(buffer_size=3, breakpoint_percentile_threshold=97, embed_model=embed_model),
-    ]
-    expected_nodes = IngestionPipeline(transformations=parsers).run(documents=documents)
-
-    # --- batch path ---
-    from dia.embeddings import batch_semantic_split
-
-    sentence_splitter = SentenceSplitter(chunk_size=7900, chunk_overlap=100)
-    stage1_nodes = sentence_splitter(documents)
-    import asyncio
-
-    actual_nodes = asyncio.run(
-        batch_semantic_split(
-            stage1_nodes,
-            embed_model=embed_model,
-            model_id="m",
-            role_arn="r",
-            bucket="b",
-            key_prefix="p",
-            buffer_size=3,
-            breakpoint_percentile_threshold=97,
-        )
-    )
-    actual_nodes = _finalize_batch_nodes(actual_nodes, stage1_nodes)
-
-    assert [n.text for n in actual_nodes] == [n.text for n in expected_nodes]
-    assert [n.metadata for n in actual_nodes] == [n.metadata for n in expected_nodes]
-    assert [n.relationships[NodeRelationship.SOURCE].node_id for n in actual_nodes] == [
-        n.relationships[NodeRelationship.SOURCE].node_id for n in expected_nodes
-    ]
