@@ -287,7 +287,9 @@ For every programme, produce an entry:
 - SRO: [name if known]
 - SR21 History: [what was originally planned / funded]
 - Key Risks: [from business case or KB evidence]
-- Sources: [GRAPH / KB:gats / KB:sr25 / ATHENA / GOV.UK]
+
+Cite every figure and claim above with its [n] reference (see citation rules) — do not
+use inline source tags such as [GRAPH] or [ATHENA] in the body text.
 ```
 
 Group by: In-Flight | Pipeline | At Risk | Completed.
@@ -303,15 +305,15 @@ Group by: In-Flight | Pipeline | At Risk | Completed.
 **3.1 Key Suppliers** - for each significant supplier:
 
 ```
-**[Name]** | Total Contract Value: £Xm [ATHENA] | Contracts: N
-- Programmes served: [list] [GRAPH]
+**[Name]** | Total Contract Value: £Xm [n] | Contracts: N
+- Programmes served: [list] [n]
 - Technology areas: [categories]
-- Also serves: [other departments] [GRAPH]
+- Also serves: [other departments] [n]
 - Dependency risk: [assessment]
 ```
 
 - **3.2 Concentration Risk**
-- **3.3 Spend by Category** - Table: digital_spend_category | Total £m | Contract count [ATHENA]
+- **3.3 Spend by Category** - Table: digital_spend_category | Total £m | Contract count [n]
 
 ### 4. FINANCIAL PICTURE
 - **4.1 Total Digital Spend Summary** - Contract spend total | GATS pipeline total | GMPP whole life cost total
@@ -339,7 +341,7 @@ Shared suppliers - collective negotiating leverage. Capability duplication. Shar
 opportunities. Cross-departmental dependencies.
 
 ### 7. PUBLISHED CONTEXT
-Published digital strategies and plans [GOV.UK links]. IPA published findings. Published
+Published digital strategies and plans, cited with [n]. IPA published findings. Published
 evaluations.
 
 ### 8. INTELLIGENCE GAPS AND RECOMMENDED ACTIONS

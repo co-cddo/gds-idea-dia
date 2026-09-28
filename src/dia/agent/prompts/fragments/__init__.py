@@ -28,6 +28,7 @@ from dia.agent.prompts.fragments.cypher_templates import (
     PROJECT_CYPHER_TEMPLATES,
     SUPPLIER_LOCKIN_CYPHER_TEMPLATES,
 )
+from dia.agent.prompts.fragments.house_style import REPORT_HOUSE_STYLE
 from dia.agent.prompts.fragments.investigation import (
     COMMON_INVESTIGATION_METHODOLOGY,
     PROJECT_INVESTIGATION_METHOD,
@@ -111,6 +112,7 @@ __all__ = [
     "COMMON_OUTPUT_RULES",
     "COMMON_CITATION_RULES",
     "SOURCE_DIAGNOSTICS",
+    "REPORT_HOUSE_STYLE",
     "DEFAULT_OUTPUT_SPEC",
     "PROJECT_OUTPUT_SPEC",
     "PROJECT_OUTPUT_CARD",
