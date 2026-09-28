@@ -1135,6 +1135,7 @@ dependencies = [
     { name = "numpy" },
     { name = "pdfplumber" },
     { name = "pydantic" },
+    { name = "pydantic-settings" },
     { name = "pymdown-extensions" },
     { name = "pypdf" },
     { name = "python-docx" },
@@ -1165,6 +1166,9 @@ dev = [
     { name = "pytest-cov" },
     { name = "ruff" },
 ]
+zscaler = [
+    { name = "gds-idea-pkg-zscaler-fix" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -1183,6 +1187,7 @@ requires-dist = [
     { name = "numpy", specifier = "<2" },
     { name = "pdfplumber", specifier = ">=0.11.9" },
     { name = "pydantic", specifier = ">=2.9.0" },
+    { name = "pydantic-settings", specifier = ">=2.0.0" },
     { name = "pymdown-extensions", specifier = ">=11.0.2" },
     { name = "pypdf", specifier = ">=6.4.2" },
     { name = "python-docx", specifier = ">=1.2.0" },
@@ -1203,6 +1208,7 @@ dev = [
     { name = "pytest-cov", specifier = ">=6.0" },
     { name = "ruff", specifier = ">=0.11.0" },
 ]
+zscaler = [{ name = "gds-idea-pkg-zscaler-fix", specifier = ">=0.1.1", index = "https://co-cddo.github.io/gds-idea-pypi/simple/" }]
 
 [[package]]
 name = "dirtyjson"
@@ -1473,6 +1479,15 @@ dependencies = [
 sdist = { url = "https://github.com/co-cddo/gds-idea-cdk-constructs-new/releases/download/v0.5.0/gds_idea_cdk_constructs-0.5.0.tar.gz", hash = "sha256:1138a82b74899b8e7b046a95275668bf94b3ed6d49f0364b64dcc0efcdf1c15e" }
 wheels = [
     { url = "https://github.com/co-cddo/gds-idea-cdk-constructs-new/releases/download/v0.5.0/gds_idea_cdk_constructs-0.5.0-py3-none-any.whl", hash = "sha256:5c1d0d835ffbfecf588a5343ae2e872174a9125e12d1ae96712e3ea013b11b73" },
+]
+
+[[package]]
+name = "gds-idea-pkg-zscaler-fix"
+version = "0.1.4"
+source = { registry = "https://co-cddo.github.io/gds-idea-pypi/simple/" }
+sdist = { url = "https://github.com/co-cddo/gds-idea-pkg-zscaler-fix/releases/download/v0.1.4/gds_idea_pkg_zscaler_fix-0.1.4.tar.gz", hash = "sha256:3e7f4de85851ef415e3e919b17eb6c8e46c6428faee7b9b9c01da8c443dc02de" }
+wheels = [
+    { url = "https://github.com/co-cddo/gds-idea-pkg-zscaler-fix/releases/download/v0.1.4/gds_idea_pkg_zscaler_fix-0.1.4-py3-none-any.whl", hash = "sha256:660b3bf161cf4daaf0e89ab15be1e5c25340847387ddfe9f61c42bc673ac4bf0" },
 ]
 
 [[package]]
@@ -2377,11 +2392,11 @@ wheels = [
 
 [[package]]
 name = "markdown"
-version = "3.10.3"
+version = "3.11"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/29/6f/da4c6aea59b3001f2e8c0ec7497475aadaf3b021c10cab5b2858f0f32b26/markdown-3.10.3.tar.gz", hash = "sha256:3589362618f743188b4d955b874402bc814f4f83f544dc207719f4baa7d9c45f", size = 372596, upload-time = "2026-07-30T19:05:29.005Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f8/4f/700155c8c20d9e655dd0732b5fc3c7614f291b9148da271d7388e50bf774/markdown-3.11.tar.gz", hash = "sha256:180224db6aed87ba9ce1f2781ebcd5826253de8ff637112090e24b84502bbf9f", size = 485623, upload-time = "2026-09-25T13:46:23.473Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/64/69/4a5af2bc115a9a33fefe51709749de8262be3f9ba063d1753a837cdbc49c/markdown-3.10.3-py3-none-any.whl", hash = "sha256:fa6c92a00a4a3c98b22728c64a935ae1928250ae65058a6ded814d2cc29a4cea", size = 110757, upload-time = "2026-07-30T19:05:27.883Z" },
+    { url = "https://files.pythonhosted.org/packages/ec/1e/32971905a7ab47f8b66866ed949fa48b104ba1c4a6fa57794c4f2c4b2cb8/markdown-3.11-py3-none-any.whl", hash = "sha256:cd6c89e7eb308c8b332ed673215a52d208a43f8bacc030b1419376129408719e", size = 111296, upload-time = "2026-09-25T13:46:22.163Z" },
 ]
 
 [[package]]
@@ -3730,15 +3745,15 @@ crypto = [
 
 [[package]]
 name = "pymdown-extensions"
-version = "11.0.2"
+version = "12.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "markdown" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ad/17/2db4b414de89659144488e0d9c6c0bf0c8395841dc12d81d0532cc6ef310/pymdown_extensions-11.0.2.tar.gz", hash = "sha256:9506fcbe66fa355a775b768084334238dd6805020ac4b92bea0c0dda6f8f223d", size = 855419, upload-time = "2026-08-22T19:28:47.236Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2a/94/858e0163cb4d83d6d8234018a01792c749a56daee41794cac7d6c46661e8/pymdown_extensions-12.1.tar.gz", hash = "sha256:fdb8f47f5d7fd069d10ef2a7d8908e613d7865ff0419d544a0ffd3984e884f11", size = 868245, upload-time = "2026-09-23T00:08:42Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a6/43/9f45ec4d14e596efc32c925a78104934790438b0c0628b70d741016734ad/pymdown_extensions-11.0.2-py3-none-any.whl", hash = "sha256:259910762019732caa1dfd76f3faa62c59f191d46573e80bcb1d13c0f675bbe5", size = 269929, upload-time = "2026-08-22T19:28:45.389Z" },
+    { url = "https://files.pythonhosted.org/packages/36/d1/98313da89960a604402266a115311b510254900ff1295ea426403f9423cc/pymdown_extensions-12.1-py3-none-any.whl", hash = "sha256:4a254b771acfcddc6c110a7f4590d818f1f849e2d5aacf69b4b07c8dd2a9700d", size = 277069, upload-time = "2026-09-23T00:08:40.069Z" },
 ]
 
 [[package]]
@@ -4564,11 +4579,11 @@ wheels = [
 
 [[package]]
 name = "soupsieve"
-version = "2.9.2"
+version = "2.10"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/69/99/a6ca3beb3ccacb41fb3321d8a60e5566f9e6467601ef8eba6a17e1b89778/soupsieve-2.9.2.tar.gz", hash = "sha256:4a55d8cf158a9c2e587fa4922f1bbb91d68ac829e2d6f25403a85747c71daf74", size = 122445, upload-time = "2026-08-07T00:57:24.801Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/71/c3/1b817965ac12dc002d7c9cd7dfffdd7d4fbf9b45763ef2ffe7b86ee94670/soupsieve-2.10.tar.gz", hash = "sha256:49e9380d7d2905463583bafe285e818c7366a9ed7b3aee221c1ac79c905d8bc0", size = 124337, upload-time = "2026-09-24T02:36:35.048Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/eb/dc/ad025c1ee131eba60c69f4dd5779b18fcf1e6b21a343e2162a84d5d133c7/soupsieve-2.9.2-py3-none-any.whl", hash = "sha256:8089a26fd974ca7a1f30276d3d8492ab266ab15af581642dfe8aa162e0c1c823", size = 37370, upload-time = "2026-08-07T00:57:23.524Z" },
+    { url = "https://files.pythonhosted.org/packages/66/87/5ed59e1d0290564e2027ed066c52b059892c4637741337fc0967183c8d4d/soupsieve-2.10-py3-none-any.whl", hash = "sha256:8596eb8967d744174820280fa62b4542a2e955bfaccca73ed8a13c6eb8e9b502", size = 38019, upload-time = "2026-09-24T02:36:33.709Z" },
 ]
 
 [[package]]
