@@ -34,6 +34,7 @@ dependencies = [
     "boto3>=1.35.0",
     "gds-idea-cdk-constructs>=0.3.0",
     "graphrag-lexical-graph>=3.19.1",
+    "llama-index-embeddings-bedrock>=0.9.0",
     "llama-index-vector-stores-opensearch>=0.6.2",
     "numpy<2",                          # pinned: blis (spacy, via graphrag-lexical-graph) requires numpy<2
     "pdfplumber>=0.11.9",
