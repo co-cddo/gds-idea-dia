@@ -64,18 +64,10 @@ _FEW_SENTENCES_TEXT = "First sentence here. Second sentence follows. Third sente
 
 @pytest.mark.asyncio
 async def test_batch_path_matches_stock_splitter_output(monkeypatch):
-    """The core correctness claim: given the same embeddings, the batch
-    decomposition must produce byte-identical output - text, metadata,
-    and SOURCE relationship - to running the same document through
-    SemanticSplitterNodeParser's real NodeParser entry point
-    (aget_nodes_from_documents, what IngestionPipeline.arun() actually
-    calls) - not the bypassed-postprocessing build_semantic_nodes_from_
-    documents() private-ish method, which was the comparison used here
-    previously and is *not* representative of real usage (nothing in
-    this codebase calls it directly - IngestionPipeline always goes via
-    the NodeParser wrapper, which runs _postprocess_parsed_nodes()).
-    That gap is exactly what let a real bug through undetected earlier
-    this session - see the module docstring."""
+    """Given the same embeddings, the batch path must produce identical
+    output (text, metadata and SOURCE relationship) to
+    SemanticSplitterNodeParser.aget_nodes_from_documents, the entry point
+    IngestionPipeline.arun() uses."""
     monkeypatch.setattr(splitter_module, "submit_and_await_batch_embeddings", _fake_submit_and_await)
 
     doc = Document(doc_id="files/report.pdf", text=_MANY_SENTENCES_TEXT, metadata={"key": "files/report.pdf"})
@@ -117,6 +109,8 @@ async def test_batch_path_preserves_source_relationship(monkeypatch):
         role_arn=ROLE_ARN,
         bucket=BUCKET,
         key_prefix="test",
+        buffer_size=1,
+        breakpoint_percentile_threshold=95,
     )
 
     for node in nodes:
@@ -137,6 +131,8 @@ async def test_multiple_documents_each_chunked_independently(monkeypatch):
         role_arn=ROLE_ARN,
         bucket=BUCKET,
         key_prefix="test",
+        buffer_size=1,
+        breakpoint_percentile_threshold=95,
     )
 
     represented = {n.relationships[NodeRelationship.SOURCE].node_id for n in nodes}
@@ -145,14 +141,8 @@ async def test_multiple_documents_each_chunked_independently(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_empty_document_produces_one_empty_chunk(monkeypatch):
-    """SemanticSplitterNodeParser's own _build_node_chunks emits one
-    empty-text chunk for a document with zero sentences (its `else`
-    branch, taken whenever `distances` is empty) - this must match, not
-    silently drop the document. Caught via a live 20-document test this
-    session: one real document's stage-1 chunking produced an empty
-    trailing chunk, and an earlier `if not sentences: continue` guard
-    here silently dropped it, diverging from the on-demand path by one
-    chunk."""
+    """A zero-sentence document must yield one empty-text chunk, as
+    SemanticSplitterNodeParser does, rather than being dropped."""
     monkeypatch.setattr(splitter_module, "submit_and_await_batch_embeddings", _fake_submit_and_await)
     empty_doc = Document(doc_id="empty.pdf", text="", metadata={"key": "empty.pdf"})
     real_doc = Document(doc_id="real.pdf", text=_MANY_SENTENCES_TEXT, metadata={"key": "real.pdf"})
@@ -164,6 +154,8 @@ async def test_empty_document_produces_one_empty_chunk(monkeypatch):
         role_arn=ROLE_ARN,
         bucket=BUCKET,
         key_prefix="test",
+        buffer_size=1,
+        breakpoint_percentile_threshold=95,
     )
 
     empty_doc_nodes = [n for n in nodes if n.relationships[NodeRelationship.SOURCE].node_id == "empty.pdf"]
@@ -173,11 +165,10 @@ async def test_empty_document_produces_one_empty_chunk(monkeypatch):
     real_doc_nodes = [n for n in nodes if n.relationships[NodeRelationship.SOURCE].node_id == "real.pdf"]
     assert len(real_doc_nodes) > 1  # sanity: real breakpoints were found, not one giant chunk
 
-    # Cross-check against the stock splitter's real NodeParser entry
-    # point (not build_semantic_nodes_from_documents() directly - see
-    # test_batch_path_matches_stock_splitter_output for why that's not
-    # a representative comparison).
-    stock_splitter = SemanticSplitterNodeParser(embed_model=_FakeEmbedding())
+    # Cross-check against the stock splitter's NodeParser entry point.
+    stock_splitter = SemanticSplitterNodeParser(
+        embed_model=_FakeEmbedding(), buffer_size=1, breakpoint_percentile_threshold=95
+    )
     expected_nodes = await stock_splitter.aget_nodes_from_documents([empty_doc, real_doc])
     assert [n.text for n in nodes] == [n.text for n in expected_nodes]
     assert [n.metadata for n in nodes] == [n.metadata for n in expected_nodes]
@@ -192,6 +183,8 @@ async def test_no_documents_returns_empty_list():
         role_arn=ROLE_ARN,
         bucket=BUCKET,
         key_prefix="test",
+        buffer_size=1,
+        breakpoint_percentile_threshold=95,
     )
     assert nodes == []
 
@@ -214,6 +207,8 @@ async def test_batch_failure_raises_runtime_error(monkeypatch):
             role_arn=ROLE_ARN,
             bucket=BUCKET,
             key_prefix="test",
+            buffer_size=1,
+            breakpoint_percentile_threshold=95,
         )
 
 
@@ -242,6 +237,8 @@ async def test_below_minimum_falls_back_to_on_demand(monkeypatch, caplog):
             role_arn=ROLE_ARN,
             bucket=BUCKET,
             key_prefix="test",
+            buffer_size=1,
+            breakpoint_percentile_threshold=95,
         )
 
     assert len(nodes) >= 1
@@ -281,15 +278,10 @@ async def test_fallback_path_matches_stock_splitter_output():
 
 @pytest.mark.asyncio
 async def test_batch_path_matches_two_stage_pipeline(monkeypatch):
-    """The real-world usage this module is actually built for: `documents`
-    here is the *output* of an earlier SentenceSplitter stage, not the
-    original source Document. This is exactly the scenario that exposed
-    the metadata/SOURCE bug this session - a bare single-document
-    comparison (as in test_batch_path_matches_stock_splitter_output)
-    isn't enough on its own, because build_nodes_from_splits() only
-    fails to flatten SOURCE/merge metadata correctly when `doc` (its
-    second argument) isn't the *original* document - which is only true
-    once there's an intermediate stage in between."""
+    """`documents` is the output of an earlier SentenceSplitter stage, not
+    the original source Document. Metadata and SOURCE must still match
+    the on-demand two-stage pipeline (SOURCE pointing at the original
+    documents, not the intermediate stage-1 nodes)."""
     monkeypatch.setattr(splitter_module, "submit_and_await_batch_embeddings", _fake_submit_and_await)
 
     docs = [
@@ -300,16 +292,14 @@ async def test_batch_path_matches_two_stage_pipeline(monkeypatch):
 
     sentence_splitter = SentenceSplitter(chunk_size=500, chunk_overlap=10)
 
-    # --- on-demand: the real two-stage pipeline, exactly as
-    # IngestionPipeline.arun([SentenceSplitter(), SemanticSplitterNodeParser()])
-    # would run it.
+    # On-demand: the two-stage pipeline as IngestionPipeline would run it.
     stage1_expected = sentence_splitter.get_nodes_from_documents(docs)
     stock_splitter = SemanticSplitterNodeParser(
         embed_model=embed_model, buffer_size=3, breakpoint_percentile_threshold=97
     )
     expected_nodes = await stock_splitter.aget_nodes_from_documents(stage1_expected)
 
-    # --- batch path: same stage-1 nodes, fed through batch_semantic_split.
+    # Batch path: same stage-1 nodes.
     stage1_actual = sentence_splitter.get_nodes_from_documents(docs)
     actual_nodes = await batch_semantic_split(
         stage1_actual,
@@ -327,7 +317,5 @@ async def test_batch_path_matches_two_stage_pipeline(monkeypatch):
     assert [n.relationships[NodeRelationship.SOURCE].node_id for n in actual_nodes] == [
         n.relationships[NodeRelationship.SOURCE].node_id for n in expected_nodes
     ]
-    # SOURCE must point at the *original* documents, not the intermediate
-    # stage-1 nodes - the whole point of this test.
     represented = {n.relationships[NodeRelationship.SOURCE].node_id for n in actual_nodes}
     assert represented == {"files/report-a.pdf", "files/report-b.pdf"}
