@@ -115,3 +115,28 @@ def test_capacity_limits_use_valid_ocu_values(synth):
             "MaxSearchCapacityInOcu",
         ):
             assert is_valid_ocu(limits[key]), f"{key}={limits[key]} is not a valid OCU value"
+
+
+def test_collection_stays_untagged_when_app_tags_applied():
+    """Tags on an AOSS Collection force replacement, which fails for a named resource."""
+    import aws_cdk as cdk
+    from aws_cdk import assertions
+    from gds_idea_cdk_constructs import DeploymentEnvironment, IdeaTags
+
+    from config import AppConfig
+
+    config = AppConfig(environment=DeploymentEnvironment.DEVELOPMENT)
+    app = cdk.App()
+    stack = OpenSearchStack(
+        app,
+        "TestStack",
+        config=config,
+        env=cdk.Environment(account=config.account_number, region=config.region),
+    )
+    IdeaTags(environment=config.environment, app_name=config.project, repository="gds-idea-dia").apply(app)
+
+    template = assertions.Template.from_stack(stack)
+    collection = next(iter(template.find_resources("AWS::OpenSearchServerless::Collection").values()))
+    group = next(iter(template.find_resources("AWS::OpenSearchServerless::CollectionGroup").values()))
+    assert "Tags" not in collection["Properties"]
+    assert {t["Key"] for t in group["Properties"]["Tags"]} >= {"AppName", "Environment", "ManagedBy", "Repository"}

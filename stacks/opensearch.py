@@ -128,6 +128,12 @@ class OpenSearchStack(cdk.Stack):
         self.collection.add_dependency(network_policy)
         self.collection.add_dependency(self.collection_group)
 
+        # Changing Tags on an AOSS Collection forces replacement, which
+        # CloudFormation can't do for a custom-named resource. Keep the
+        # collection untagged; `remove` outranks the app-level IdeaTags `add`.
+        for tag_key in ("AppName", "Environment", "ManagedBy", "Repository"):
+            cdk.Tags.of(self.collection).remove(tag_key)
+
         # Data-access policy — grants the account root principal full collection
         # and index permissions. Dev placeholder; tighten to the specific
         # pipeline/Lambda role ARN before production.
