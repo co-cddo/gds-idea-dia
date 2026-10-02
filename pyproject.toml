@@ -32,7 +32,7 @@ license = {text = "MIT"}
 dependencies = [
     "aioboto3>=13.0.0",
     "boto3>=1.35.0",
-    "gds-idea-cdk-constructs>=0.3.0",
+    "gds-idea-cdk-constructs>=0.7.0",
     "graphrag-lexical-graph>=3.19.1",
     "html-for-docx>=1.2.0",
     "llama-index-vector-stores-opensearch>=0.6.2",
@@ -53,7 +53,7 @@ dependencies = [
 cdk = [
     "aws-cdk-lib>=2.252.0",
     "constructs>=10.0.0,<11.0.0",
-    "gds-idea-cdk-constructs>=0.3.0",
+    "gds-idea-cdk-constructs>=0.7.0",
 ]
 
 agent =[

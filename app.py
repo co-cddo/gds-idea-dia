@@ -4,7 +4,7 @@
 import os
 
 import aws_cdk as cdk
-from gds_idea_cdk_constructs import DeploymentEnvironment
+from gds_idea_cdk_constructs import DeploymentEnvironment, IdeaTags
 from gds_idea_cdk_constructs.config import DeploymentConfig
 
 from config import AppConfig, StackId
@@ -29,6 +29,12 @@ sid = StackId.from_config(config)
 
 # Shared org VPC — resolved via SSM Parameter Store (/gds-idea-vpc).
 deployment_config = DeploymentConfig(cdk_env)
+
+IdeaTags(
+    environment=environment,
+    app_name=config.project,
+    repository="gds-idea-dia",
+).apply(app)
 
 StorageStack(app, config.resource_name("storage"), config=config, env=cdk_env)
 
