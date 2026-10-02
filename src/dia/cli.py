@@ -339,8 +339,17 @@ def agent_ask(
     department: Annotated[str | None, typer.Option("--department", help="Department to scope the query to.")] = None,
 ):
     from dia.agent import runtime
+    from dia.agent.report import ReportUploader
+    from dia.cli_helpers import resolve_agent_report_bucket
 
-    typer.echo(runtime.ask(department, query, tunnel=True))
+    response = runtime.ask(department, query, tunnel=True)
+    typer.echo(response.output)
+
+    uploader = ReportUploader(bucket=resolve_agent_report_bucket())
+    result = uploader.upload(response)
+
+    typer.echo(f"\nMarkdown report: {result.markdown_download_url}")
+    typer.echo(f"Word doc: {result.docx_download_url}")
 
 
 @agent_app.command("status")

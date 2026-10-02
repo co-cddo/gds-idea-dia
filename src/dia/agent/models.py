@@ -30,3 +30,10 @@ class AgentResponse(BaseModel, frozen=True):
     department: str | None = None
     query: str
     output: str
+
+
+class UploadResult(BaseModel, frozen=True):
+    markdown_uri: str
+    docx_uri: str
+    markdown_download_url: str
+    docx_download_url: str

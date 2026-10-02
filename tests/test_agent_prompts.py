@@ -1,6 +1,7 @@
 """Smoke + unit tests for dia.agent.prompts — system prompt templates and fragment helpers."""
 
 from dia.agent.prompts.fragments.common_rules import hard_gates
+from dia.agent.prompts.fragments.house_style import REPORT_HOUSE_STYLE
 from dia.agent.prompts.fragments.tools_and_sources import department_matching_rules
 from dia.agent.prompts.fragments.utils import block, bullet_list, clean, join_sections
 from dia.agent.prompts.templates import (
@@ -101,6 +102,25 @@ def test_default_system_prompt_contains_expected_structural_markers():
     result = get_default_system_prompt("Home Office")
     assert "<system_prompt>" in result
     assert "</system_prompt>" in result
+    assert "<house_style>" in result
+
+
+# --- fragments/house_style.py ---
+
+
+def test_report_house_style_is_non_empty_string():
+    assert isinstance(REPORT_HOUSE_STYLE, str)
+    assert len(REPORT_HOUSE_STYLE) > 0
+
+
+def test_report_house_style_wrapped_in_named_tag():
+    assert REPORT_HOUSE_STYLE.startswith("<house_style>")
+    assert REPORT_HOUSE_STYLE.rstrip().endswith("</house_style>")
+
+
+def test_report_house_style_covers_key_rules():
+    for marker in ("Exhibit", "Key Uncertainties", "Big Questions", "UK English"):
+        assert marker in REPORT_HOUSE_STYLE
 
 
 # --- fragments/utils.py: pure string helpers ---

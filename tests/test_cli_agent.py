@@ -8,9 +8,24 @@ from unittest.mock import patch
 
 from typer.testing import CliRunner
 
+from dia.agent.models import AgentResponse, UploadResult
 from dia.cli import app
 
 runner = CliRunner()
+
+_RESPONSE = AgentResponse(
+    id="a1b2c3d4-e5f6-4789-a123-000000000000",
+    department="Home Office",
+    query="what is the risk?",
+    output="an answer",
+)
+
+_UPLOAD_RESULT = UploadResult(
+    markdown_uri="s3://bucket/report.md",
+    docx_uri="s3://bucket/report.docx",
+    markdown_download_url="https://example.com/report.md",
+    docx_download_url="https://example.com/report.docx",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -21,8 +36,12 @@ runner = CliRunner()
 def test_agent_ask_passes_query_and_department_through_with_tunnel_true():
     """ask has no --tunnel CLI option - it always calls runtime.ask() with
     tunnel=True (hardcoded), since ask() needs Neptune/AOSS access to succeed."""
-    with patch("dia.agent.runtime.ask") as mock_ask:
-        mock_ask.return_value = "an answer"
+    with (
+        patch("dia.agent.runtime.ask") as mock_ask,
+        patch("dia.cli_helpers.resolve_agent_report_bucket", return_value="test-bucket"),
+        patch("dia.agent.report.ReportUploader.upload", return_value=_UPLOAD_RESULT),
+    ):
+        mock_ask.return_value = _RESPONSE
 
         result = runner.invoke(
             app,
@@ -34,8 +53,12 @@ def test_agent_ask_passes_query_and_department_through_with_tunnel_true():
 
 
 def test_agent_ask_defaults_department_none():
-    with patch("dia.agent.runtime.ask") as mock_ask:
-        mock_ask.return_value = "an answer"
+    with (
+        patch("dia.agent.runtime.ask") as mock_ask,
+        patch("dia.cli_helpers.resolve_agent_report_bucket", return_value="test-bucket"),
+        patch("dia.agent.report.ReportUploader.upload", return_value=_UPLOAD_RESULT),
+    ):
+        mock_ask.return_value = _RESPONSE
 
         result = runner.invoke(app, ["agent", "ask", "--query", "what is the risk?"])
 
@@ -56,12 +79,32 @@ def test_agent_ask_rejects_tunnel_flag():
 
 
 def test_agent_ask_echoes_the_result():
-    with patch("dia.agent.runtime.ask") as mock_ask:
-        mock_ask.return_value = "an answer"
+    with (
+        patch("dia.agent.runtime.ask") as mock_ask,
+        patch("dia.cli_helpers.resolve_agent_report_bucket", return_value="test-bucket"),
+        patch("dia.agent.report.ReportUploader.upload", return_value=_UPLOAD_RESULT),
+    ):
+        mock_ask.return_value = _RESPONSE
 
         result = runner.invoke(app, ["agent", "ask", "--query", "what is the risk?"])
 
         assert "an answer" in result.output
+
+
+def test_agent_ask_uploads_report_and_echoes_download_urls():
+    with (
+        patch("dia.agent.runtime.ask") as mock_ask,
+        patch("dia.cli_helpers.resolve_agent_report_bucket", return_value="test-bucket"),
+        patch("dia.agent.report.ReportUploader.upload", return_value=_UPLOAD_RESULT) as mock_upload,
+    ):
+        mock_ask.return_value = _RESPONSE
+
+        result = runner.invoke(app, ["agent", "ask", "--query", "what is the risk?"])
+
+        assert result.exit_code == 0
+        mock_upload.assert_called_once_with(_RESPONSE)
+        assert _UPLOAD_RESULT.markdown_download_url in result.output
+        assert _UPLOAD_RESULT.docx_download_url in result.output
 
 
 def test_agent_ask_requires_query():

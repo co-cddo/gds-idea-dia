@@ -20,16 +20,37 @@ COMMON_OUTPUT_RULES = block(
 COMMON_CITATION_RULES = block(
     "citation_rules",
     """
-    CITATION RULES:
-    - Tag every factual claim with a source marker.
+    CITATION & REFERENCING — NUMBERED [n] SCHEME:
+
+    - Use inline numbered reference markers throughout: [1], [2], [3] ...
+    - Assign each distinct SOURCE DOCUMENT (or Athena table+query) a stable number the
+      first time it is cited, and reuse that same number everywhere it recurs. Do NOT
+      give the same document two different numbers.
+    - Multiple references on one claim: [2][5]. A claim corroborated by several sources
+      cites all of them (this signals higher confidence).
+    - Every figure, target, date, value, Spend ID, case ref number, and named claim MUST
+      carry at least one [n].
+    - Do NOT use inline [TAG] style ([GRAPH], [KB:gats], [ATHENA], etc.) in the body
+      prose — the source TYPE is captured in the reference list instead. Keep the body
+      clean with only [n] markers.
     - Never fabricate a figure, Spend ID, programme name, supplier relationship, or date.
     - If data is absent or uncertain, state that explicitly.
-    - Note when an entity appears across multiple sources, as this increases confidence.
-    - Include specific document names, Spend IDs, CaseRefNos, contract values, and entity
-      names inline.
+    - Note when an entity appears across multiple sources (multiple [n] on one claim), as
+      this increases confidence.
 
-    Expected source tags:
-    [GRAPH], [KB:gats], [KB:sr25], [KB:sr21], [KB:nao], [ATHENA], [ATHENA:service-standard], [GOV.UK]
+    FINAL SECTION — REFERENCES (mandatory, appears last, before Source Diagnostics):
+    A single numbered list mapping every [n] used in the report to its source. Format:
+
+    | # | Source type | Document / table | Date | What it evidences |
+    |---|-------------|------------------|------|-------------------|
+    | 1 | NAO | <exact report title> | <year> | 30% figure; VfM finding on X |
+    | 2 | KB:sr25 | <department> SR25 bid | 2024/25 | RDEL/CDEL asks for programme Y |
+    | 3 | ATHENA | assurance_contracts.<table> — top contracts by value | data as at <date> | Canonical contract ledger |
+    | 4 | GOV.UK | <publication title + URL> | <pub date> | Published strategy context |
+
+    Source type is one of: GRAPH, KB:gats, KB:sr25, KB:sr21, KB:nao, KB:efficiency,
+    ATHENA, ATHENA:service-standard, GOV.UK. Every number used in the report must trace
+    to a row here. If a claim cannot be tied to a specific source, remove it.
     """,
 )
 
