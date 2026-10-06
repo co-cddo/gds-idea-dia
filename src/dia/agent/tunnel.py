@@ -28,9 +28,9 @@ def ensure_tunnel_open(
 ):
     """Ensure the Neptune SSH tunnel is open, reusing one if already running.
 
-    Spawns scripts/neptune-tunnel.sh if needed, waits for it to become
-    ready, then registers the tunnel host for Neptune calls. Only tears
-    down the tunnel on exit if this call started it.
+    Spawns scripts/neptune-tunnel.sh if needed (pointed at settings.neptune_endpoint),
+    waits for it to become ready, then registers the tunnel host for Neptune calls.
+    Only tears down the tunnel on exit if this call started it.
     """
     if phase is None:
         phase = detect_environment().short_name
@@ -42,6 +42,7 @@ def ensure_tunnel_open(
         if not already_running:
             proc = subprocess.Popen(
                 ["scripts/neptune-tunnel.sh", phase],
+                env={**os.environ, "NEPTUNE_ENDPOINT": settings.neptune_endpoint},
                 start_new_session=True,
             )
             start = time.monotonic()
