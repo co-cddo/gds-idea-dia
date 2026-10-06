@@ -17,7 +17,7 @@ from dia.clients.secrets import get_secret
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", validate_by_name=True, validate_by_alias=True)
 
     # -- Bedrock model config --
     aws_region: str = Field(default="eu-west-2")
@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     neptune_endpoint_secret_name: str = Field(default="dia-neptune-endpoint-dev")
     aoss_endpoint_secret_name: str = Field(default="dia-aoss-endpoint-dev")
 
+    # -- Neptune endpoint override (env var NEPTUNE_ENDPOINT) --
+    # When set, replaces the endpoint from Secrets Manager, e.g. to point at a temporary cluster.
+    neptune_endpoint_override: str | None = Field(default=None, validation_alias="NEPTUNE_ENDPOINT")
+
     # -- MCP server defaults --
     mcp_port: int = Field(default=8000)
 
@@ -94,7 +98,12 @@ class Settings(BaseSettings):
 
     @property
     def neptune_endpoint(self) -> str:
-        """Neptune cluster endpoint hostname, resolved from Secrets Manager."""
+        """Neptune cluster endpoint hostname.
+
+        Returns NEPTUNE_ENDPOINT if set, otherwise the value from Secrets Manager.
+        """
+        if self.neptune_endpoint_override:
+            return self.neptune_endpoint_override
         return self._resolve_secret(self.neptune_endpoint_secret_name)
 
     @property
