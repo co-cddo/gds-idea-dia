@@ -96,7 +96,21 @@ def test_spawns_subprocess_when_port_not_already_open():
         with ensure_tunnel_open(phase="dev", port=8182, timeout=30.0, host="127.0.0.1"):
             pass
 
-        mocks["Popen"].assert_called_once_with(["scripts/neptune-tunnel.sh", "dev"], start_new_session=True)
+        mocks["Popen"].assert_called_once()
+        assert mocks["Popen"].call_args.args == (["scripts/neptune-tunnel.sh", "dev"],)
+        assert mocks["Popen"].call_args.kwargs["start_new_session"] is True
+    finally:
+        _stop_all(patches)
+
+
+def test_spawned_tunnel_script_receives_agent_neptune_endpoint_in_env():
+    patches, mocks = _patch_all(_is_port_open=[False, True])
+    try:
+        with ensure_tunnel_open(phase="dev", port=8182, timeout=30.0, host="127.0.0.1"):
+            pass
+
+        env = mocks["Popen"].call_args.kwargs["env"]
+        assert env["NEPTUNE_ENDPOINT"] == "neptune-tunnel-host.example.com"
     finally:
         _stop_all(patches)
 
@@ -130,7 +144,9 @@ def test_default_phase_uses_detect_environment_short_name():
         with ensure_tunnel_open(port=8182, timeout=30.0, host="127.0.0.1"):
             pass
 
-        mocks["Popen"].assert_called_once_with(["scripts/neptune-tunnel.sh", "dev"], start_new_session=True)
+        mocks["Popen"].assert_called_once()
+        assert mocks["Popen"].call_args.args == (["scripts/neptune-tunnel.sh", "dev"],)
+        assert mocks["Popen"].call_args.kwargs["start_new_session"] is True
     finally:
         _stop_all(patches)
 

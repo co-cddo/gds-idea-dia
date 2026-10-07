@@ -127,11 +127,36 @@ def test_tavily_api_key_uses_shared_resolve_secret_cache(mock_get_secret):
 
 
 @patch("dia.agent.config.get_secret")
-def test_neptune_endpoint_returns_raw_secret_value(mock_get_secret):
+def test_neptune_endpoint_returns_raw_secret_value(mock_get_secret, monkeypatch):
+    monkeypatch.delenv("NEPTUNE_ENDPOINT", raising=False)
     mock_get_secret.return_value = "dia-neptune-dev.cluster-xxx.eu-west-2.neptune.amazonaws.com"
     settings = _settings(neptune_endpoint_secret_name="dia-neptune-endpoint-dev")
 
     assert settings.neptune_endpoint == "dia-neptune-dev.cluster-xxx.eu-west-2.neptune.amazonaws.com"
+
+
+@patch("dia.agent.config.get_secret")
+def test_neptune_endpoint_override_wins_and_skips_secret_lookup(mock_get_secret):
+    settings = _settings(neptune_endpoint_override="other.cluster-yyy.eu-west-2.neptune.amazonaws.com")
+
+    assert settings.neptune_endpoint == "other.cluster-yyy.eu-west-2.neptune.amazonaws.com"
+    mock_get_secret.assert_not_called()
+
+
+@patch("dia.agent.config.get_secret")
+def test_neptune_endpoint_override_is_read_from_env_var(mock_get_secret, monkeypatch):
+    monkeypatch.setenv("NEPTUNE_ENDPOINT", "from-env.eu-west-2.neptune.amazonaws.com")
+
+    assert Settings().neptune_endpoint == "from-env.eu-west-2.neptune.amazonaws.com"
+    mock_get_secret.assert_not_called()
+
+
+@patch("dia.agent.config.get_secret")
+def test_neptune_endpoint_empty_override_falls_back_to_secret(mock_get_secret, monkeypatch):
+    monkeypatch.setenv("NEPTUNE_ENDPOINT", "")
+    mock_get_secret.return_value = "from-secret.eu-west-2.neptune.amazonaws.com"
+
+    assert Settings().neptune_endpoint == "from-secret.eu-west-2.neptune.amazonaws.com"
 
 
 @patch("dia.agent.config.get_secret")
