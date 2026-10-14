@@ -1,8 +1,8 @@
-# DIA pipeline: specification (draft for feedback)
+# DIA pipeline: specification
 
-Status: draft. Nothing here is built yet. The aim of this document is to agree
-the requirements and the main design decisions before we start rebuilding the
-pipeline.
+Status: agreed in outline, reviewed by Aakash on #61. Nothing here is built yet.
+The build plan in section 7 is the agreed order of work, in small reviewable
+PRs. Update this document as decisions change.
 
 ## 1. Purpose
 
@@ -10,8 +10,8 @@ Turn UK government documents into a knowledge graph in Neptune and OpenSearch
 that the DIA agent can query. The documents are business cases and spending
 review (SR) bids now, and contracts, NAO reports and others later.
 
-The first goal is to get **GATS business cases** and **SR bids 2025** all the
-way into the graph. Other sources follow, using the same approach.
+The first goal is to get **GATS business cases** all the way into the graph.
+SR bids 2025 and the other sources follow, using the same approach.
 
 ## 2. Requirements
 
@@ -60,12 +60,23 @@ These are separate steps, run on demand:
 Each stage reads only the previous stage's output and writes its own.
 Propositions and topics are separate stages, so a failure in topics doesn't
 mean paying for propositions again. Validate is separate, so cleaning rules can
-change and be re-applied without new LLM spend.
+change and be re-applied without new LLM spend. Embed and load are separate, so
+embeddings can be batched and a failed load doesn't pay for them again.
+
+The toolkit's extract function currently runs propositions and topics
+together. We need to split them out by driving its batch extractor classes
+directly, as ADR 0001 on the `graph-chunking` branch already plans.
+
+**Batching rule:** stages that call Bedrock always use batch jobs. Bedrock needs
+at least 100 records per job, so a smaller job is padded up to 100 with minimal
+filler records, and the filler results are discarded. The run summary and the
+cost estimate show how many records were padding.
 
 ### 3.2 Where things run
 
-- **Remote** (`--remote`): the stage runs as an ECS Fargate task in our
-  account, under an IAM role. It reads and writes the real S3 buckets, ledger
+- **Remote** (`--remote`): the stage runs as an ECS Fargate task on the shared
+  GDS IDEA ECS cluster (the `ecs_arn` from `DeploymentConfig`), under an IAM
+  role. It reads and writes the real S3 buckets, ledger
   and graph. This is the only way to change real state.
 - **Local** (the default): the stage runs on your laptop. It reads real data but
   writes only to `./output/`. It is for rehearsing and debugging.
@@ -81,8 +92,14 @@ change and be re-applied without new LLM spend.
 
 ### 3.3 CLI behaviour
 
-- There is one command per stage, plus `dia status`, `dia tasks` and
-  `dia sources check`.
+- There is one command per stage, plus `dia status`, `dia tasks`,
+  `dia sources check` and `dia preflight`.
+- `dia preflight` checks the account, the phase, read access to the source
+  buckets (through the cross-account role in dev), the ledger table and whether
+  Neptune is reachable. It is the first command run as a task.
+- Stages that call Bedrock have a **cost estimate** option, which reports the
+  expected number of records (including padding) and the estimated cost without
+  running anything.
 - Common flags: `--remote`, `--limit`, `--departments`, `--ignore-ledger`,
   `--retry-failed`, a flag to include documents marked stale, and `--yes`.
 - **Dev:** running any command without `--limit` warns and asks for
@@ -107,7 +124,10 @@ change and be re-applied without new LLM spend.
   - A comparison with the ledger warns when IDs change wholesale.
 - **Metadata:** every source shares one common metadata shape (source, document
   type, department, ALB, title, date, ID), plus an `extra` dictionary for fields
-  specific to a source.
+  specific to a source. This is our *output* shape. Source documents need not
+  follow it: each source's metadata strategy maps that source's own schema into
+  it, so sources whose files or exports have different layouts (including
+  different generations of GATS business cases) can coexist.
 - **Adding a source:**
   1. Write the definition.
   2. Run `dia sources check`.
@@ -118,7 +138,8 @@ change and be re-applied without new LLM spend.
 ### 3.5 Source locations and environments
 
 - Each source has **one real location**: where an existing process already
-  drops its files. We never copy or move source data in prod.
+  drops its files. We never copy or move source data in prod. (An earlier idea
+  of copying source data into buckets of our own for each phase is dropped.)
 - **Prod** reads that location directly.
 - **Dev** reads the same location through the shared cross-account role
   (`assume_role_for_development_account`, from `gds_idea_cdk_constructs`). A
@@ -143,6 +164,10 @@ The ledger must answer:
 7. Is this source and stage already being run?
 8. Has a document disappeared from its source?
 
+If a run finds the same source and stage already in progress, it **fails
+straight away** with a message saying so. It does not wait: a person can wait
+and re-run, and queuing can be added with Step Functions later.
+
 How it behaves:
 
 - **New or changed documents** are pending automatically, at every stage after
@@ -164,6 +189,8 @@ How it behaves:
   a run uses `--retry-failed`.
 - A batch job that fails or expires is resubmitted by the batch handling
   itself.
+- `document_type` for SR bids is `sr_bids`, and the agent's retrieval modes must
+  use the same value.
 
 ### 3.8 Graph updates
 
@@ -208,32 +235,61 @@ How it behaves:
 
 ## 6. Questions for reviewers
 
+Settled in review of #61:
+
+- **Batch minimum:** always batch, and pad to 100 records (section 3.1).
+- **Concurrency:** fail immediately if a run is in progress (section 3.6).
+- **Cost:** add a cost estimate option (section 3.3).
+
+Still open:
+
 - **Testing:** how should stages be tested? Unit tests, plus a small end-to-end
   run in dev?
-- **Cost:** a rough Bedrock cost per 1,000 documents would help people judge
-  `--limit` and stale re-runs.
 - **Permissions and ownership:** who may run `--remote` in prod, and who owns
   the pipeline day to day?
-- **Batch minimum:** Bedrock batch jobs need at least 100 records. Small
-  incremental updates need on-demand calls instead, as the chunking plan
-  already notes. Should this be a stated rule?
-- **Concurrency:** if a run finds the "already running" lock held, should it
-  wait or fail?
 
-## 7. Proposed build order (not yet agreed)
+## 7. Build plan
 
-1. Foundation: naming, source protocols and the S3 file reader, metadata
-   strategies, cross-account reads, the new ledger, logging, the CLI shape, and
-   deleting the old code.
-2. The text stage, plus `sources check` and `status`.
-3. Remote running: Docker image, ECS task, IAM, `--remote` and `dia tasks`.
-4. Chunk, reusing the `graph-chunking` work.
-5. Propositions and topics, including batch job tracking and recovery after a
-   crash.
-6. Validate, porting the old repo's cleaning code.
-7. Embed.
-8. Load and purge.
-9. The agent change to query current versions only.
+Scope is **GATS business cases first**. Each PR is small and reviewable, is
+opened as a draft, and removes the old code it replaces. Remote running comes
+as early as possible so every later stage is built to run as a task. Tick each
+PR off and add its link as it is raised.
 
-Two points in particular need agreement: whether remote running (step 3) comes
-early or after load, and whether the CSV reader is built after load or earlier.
+### Milestone A: remote running
+
+- [x] 1. Spec update, this build plan and the handover (docs only)
+- [x] 2. Naming: one module of phase-based names, used by both the CDK config
+  and the runtime code
+- [ ] 3. Docker image of the `dia` package, with a local build check
+- [ ] 4. ECS task definition and IAM in CDK (read-only on source locations), and
+  `dia preflight`
+- [ ] 5. `--remote` and `dia tasks`: launch any command as a task, and list
+  recent tasks with status and a log link
+
+### Milestone B: sources (GATS)
+
+- [ ] 6. Source protocols and the common metadata model
+- [ ] 7. S3 file reader, with cross-account access and the per-source dev
+  override
+- [ ] 8. GATS metadata strategy (after looking at real GATS documents)
+- [ ] 9. GATS source definition and its validation, replacing
+  `sources/known.py` and `metadata/registry.py`
+- [ ] 10. Powertools logging and metrics
+
+### Milestone C: ledger and text stage
+
+- [ ] 11. New ledger: the protocol, an in-memory version and a local-copy
+  version
+- [ ] 12. DynamoDB ledger: the new table in CDK, and failing fast when a run is
+  already in progress
+- [ ] 13. Shared CLI options and the confirmation prompts
+- [ ] 14. Text stage rebuilt on the new pieces, removing the old runner and
+  flags
+- [ ] 15. `dia sources check` and `dia status`
+
+### Milestone D onwards (to be planned in detail)
+
+Chunk (reusing the `graph-chunking` work, split into several PRs), propositions
+and topics (batch with padding, plus the cost estimate), validate (porting the
+old repo's cleaning code), embed, load, purge, and the agent change to query
+current versions only. SR bids 2025 and the other sources follow.

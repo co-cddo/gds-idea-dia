@@ -7,7 +7,8 @@ import aws_cdk as cdk
 from gds_idea_cdk_constructs import DeploymentEnvironment, IdeaTags
 from gds_idea_cdk_constructs.config import DeploymentConfig
 
-from config import AppConfig, StackId
+from config import AppConfig
+from dia.naming import PROJECT
 from stacks.bastion import BastionStack
 from stacks.neptune import NeptuneStack
 from stacks.networking import NetworkingStack
@@ -25,26 +26,25 @@ cdk_env = cdk.Environment(
 # Phase is resolved automatically from the authenticated AWS account.
 environment = DeploymentEnvironment.from_cdk_env(cdk_env)
 config = AppConfig(environment=environment)
-sid = StackId.from_config(config)
 
 # Shared org VPC — resolved via SSM Parameter Store (/gds-idea-vpc).
 deployment_config = DeploymentConfig(cdk_env)
 
 IdeaTags(
     environment=environment,
-    app_name=config.project,
+    app_name=PROJECT,
     repository="gds-idea-dia",
 ).apply(app)
 
-StorageStack(app, config.resource_name("storage"), config=config, env=cdk_env)
+StorageStack(app, config.names("storage"), config=config, env=cdk_env)
 
-SecretsStack(app, sid("SecretStack"), config=config, env=cdk_env)
+SecretsStack(app, config.names("SecretStack"), config=config, env=cdk_env)
 
 # Stack order matters — strictly one-directional dependency chain:
 # NetworkingStack → BastionStack → NeptuneStack
 networking_stack = NetworkingStack(
     app,
-    config.resource_name("networking"),
+    config.names("networking"),
     config=config,
     vpc_id=deployment_config.vpc_id,
     env=cdk_env,
@@ -52,7 +52,7 @@ networking_stack = NetworkingStack(
 
 bastion_stack = BastionStack(
     app,
-    config.resource_name("bastion"),
+    config.names("bastion"),
     config=config,
     vpc=networking_stack.vpc,
     eice_security_group=networking_stack.eice_security_group,
@@ -61,7 +61,7 @@ bastion_stack = BastionStack(
 
 NeptuneStack(
     app,
-    config.resource_name("neptune"),
+    config.names("neptune"),
     config=config,
     vpc=networking_stack.vpc,
     bastion_security_group=bastion_stack.bastion_security_group,
@@ -70,6 +70,6 @@ NeptuneStack(
 
 # OpenSearch Serverless — standalone (no VPC dependency), public endpoint
 # restricted by IAM data-access policy.
-OpenSearchStack(app, config.resource_name("opensearch"), config=config, env=cdk_env)
+OpenSearchStack(app, config.names("opensearch"), config=config, env=cdk_env)
 
 app.synth()

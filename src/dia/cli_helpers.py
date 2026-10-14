@@ -1,13 +1,16 @@
-"""CLI helpers for environment resolution and resource naming.
+"""CLI helpers for environment resolution.
 
 Resolves the deployment environment from the authenticated AWS account
 using gds-idea-cdk-constructs. Single source of truth for account→environment
-mapping — no hardcoded account maps in this repo.
+mapping — no hardcoded account maps in this repo. Resource names come from
+`dia.naming`.
 """
 
 import boto3
 import typer
 from gds_idea_cdk_constructs import DeploymentEnvironment
+
+from dia.naming import Names
 
 
 def detect_environment() -> DeploymentEnvironment:
@@ -32,31 +35,10 @@ def detect_environment() -> DeploymentEnvironment:
         raise typer.Exit(code=1) from None
 
 
-def resolve_ledger_table() -> str:
-    """Derive the DynamoDB ledger table name from the active environment.
+def current_names() -> Names:
+    """Names for the AWS account of the active credentials.
 
-    Returns:
-        Table name following the pattern: dia-ledger-{phase}
+    Raises:
+        typer.Exit: If the account is not recognised.
     """
-    env = detect_environment()
-    return f"dia-ledger-{env.short_name}"
-
-
-def resolve_text_output_bucket() -> str:
-    """Derive the text-extracted output S3 bucket name from the active environment.
-
-    Returns:
-        Bucket name following the pattern: gds-idea-dia-text-extracted-{phase}
-    """
-    env = detect_environment()
-    return f"gds-idea-dia-text-extracted-{env.short_name}"
-
-
-def resolve_agent_report_bucket() -> str:
-    """Derive the agent report output S3 bucket name from the active environment.
-
-    Returns:
-        Bucket name following the pattern: gds-idea-dia-agent-reports-{phase}
-    """
-    env = detect_environment()
-    return f"gds-idea-dia-agent-reports-{env.short_name}"
+    return Names(detect_environment())

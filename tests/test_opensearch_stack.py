@@ -124,6 +124,7 @@ def test_collection_stays_untagged_when_app_tags_applied():
     from gds_idea_cdk_constructs import DeploymentEnvironment, IdeaTags
 
     from config import AppConfig
+    from dia.naming import PROJECT
 
     config = AppConfig(environment=DeploymentEnvironment.DEVELOPMENT)
     app = cdk.App()
@@ -133,7 +134,7 @@ def test_collection_stays_untagged_when_app_tags_applied():
         config=config,
         env=cdk.Environment(account=config.account_number, region=config.region),
     )
-    IdeaTags(environment=config.environment, app_name=config.project, repository="gds-idea-dia").apply(app)
+    IdeaTags(environment=config.environment, app_name=PROJECT, repository="gds-idea-dia").apply(app)
 
     template = assertions.Template.from_stack(stack)
     collection = next(iter(template.find_resources("AWS::OpenSearchServerless::Collection").values()))
