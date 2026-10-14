@@ -285,7 +285,7 @@ PR off and add its link as it is raised.
 - [x] 3. Docker image of the `dia` package, with a local build check (#63)
 - [x] 4a. The runtime config model and `dia pipeline preflight` (#65)
 - [x] 4b. ECS task definition and IAM in CDK (read-only on source locations),
-  the security group for Neptune access, and the runtime config parameter
+  the security group for Neptune access, and the runtime config parameter (#66)
 - [ ] 5. `--remote` and `dia tasks`: launch any command as a task, and list
   recent tasks with status and a log link
 

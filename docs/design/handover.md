@@ -16,7 +16,8 @@ covers where we are, how we work, and facts that are not obvious from the code.
 - PR 3, the Docker image, is merged (#63).
 - PR 4a, the runtime config model and `dia pipeline preflight`, is open as a
   draft (#65).
-- PR 4b, the pipeline task stack (`stacks/pipeline_task.py`), is open as a draft.
+- PR 4b, the pipeline task stack (`stacks/pipeline_task.py`), is open as a draft
+  (#66).
   It is stacked on 4a. **Before merging it, deploy `dia-pipeline-task-dev` to dev
   by hand** from the branch and run `dia pipeline preflight`.
 - **Next:** PR 5, `--remote` and `dia tasks`. It reads the cluster, task
