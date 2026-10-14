@@ -92,8 +92,9 @@ cost estimate show how many records were padding.
 - **Runtime configuration:** CDK writes one JSON parameter per environment to
   SSM Parameter Store, named by `Names` (`dia-runtime-config-{phase}`). It holds
   what the runtime needs to know about the deployed infrastructure: the Neptune
-  endpoint and port, the ECS cluster, the task definition, the subnets, the
-  security group and the log group. Tasks and laptops read it the same way,
+  endpoint and port, the OpenSearch endpoint, the ECS cluster, the task
+  definition, the subnets, the security group and the log group. Tasks and
+  laptops read it the same way,
   through one validated model (`dia.runtime_config.RuntimeConfig`) that stops
   straight away with a clear message if the parameter is missing or invalid. The
   task definition sets `DIA_RUNTIME_CONFIG` to the parameter's name, so the

@@ -86,14 +86,20 @@ covers where we are, how we work, and facts that are not obvious from the code.
   under `pipeline` when they are rewritten (PRs 11 to 14). `dia agent status`
   is effectively the agent's own preflight, and could be renamed to
   `dia agent preflight` for symmetry (a job for the agent's owner).
-- **Runtime config:** CDK writes the Neptune endpoint, cluster, task definition,
-  subnets, security group and log group as one JSON parameter,
-  `dia-runtime-config-{phase}`. It is read through
+- **Runtime config:** CDK writes the Neptune endpoint and port, the OpenSearch
+  endpoint, cluster, task definition, subnets, security group and log group as
+  one JSON parameter, `dia-runtime-config-{phase}`. It is read through
   `dia.runtime_config.RuntimeConfig.load`, which fails fast. The task definition
   sets `DIA_RUNTIME_CONFIG` to the parameter name, and locally the name is built
   from `Names`. To add a value, add the field to `RuntimeConfig` and to the
   stack. Unknown fields are rejected, so the two cannot drift apart. The agent
-  still reads its endpoints from Secrets Manager.
+  still reads its endpoints from Secrets Manager, which can drift from the real
+  resources (the secrets are filled by hand); moving the agent onto the runtime
+  config is planned for later and is a job for the agent's owner. The OpenSearch
+  endpoint has any leading `https://` removed when it is loaded, because the
+  collection's endpoint value has not been checked on a deployed collection and
+  may include the scheme: check the value in the parameter after the first
+  deploy.
 - **Preflight:** `dia pipeline preflight` is read-only. It checks Neptune only
   inside an ECS task (it detects one through `ECS_CONTAINER_METADATA_URI_V4`),
   because only tasks reach the VPC. Its source check is limited to GATS and

@@ -16,6 +16,7 @@ DEV_NAMES = Names(DeploymentEnvironment.DEVELOPMENT)
 VALID = {
     "neptune_endpoint": "dia-neptune-dev.cluster-abc.eu-west-2.neptune.amazonaws.com",
     "neptune_port": 8182,
+    "opensearch_endpoint": "abc123.eu-west-2.aoss.amazonaws.com",
     "cluster_name": "shared-cluster",
     "task_definition_arn": "arn:aws:ecs:eu-west-2:992382722318:task-definition/dia-task-dev:1",
     "subnet_ids": ["subnet-1", "subnet-2"],
@@ -142,6 +143,30 @@ def test_load_rejects_unknown_fields():
 def test_neptune_endpoint_must_be_a_hostname_only(endpoint):
     with pytest.raises(RuntimeConfigError, match="neptune_endpoint"):
         RuntimeConfig.load(DEV_NAMES, ssm_client=_ssm(json.dumps({**VALID, "neptune_endpoint": endpoint})))
+
+
+def test_opensearch_endpoint_loses_a_leading_https_scheme_and_trailing_slash():
+    value = {**VALID, "opensearch_endpoint": "https://abc123.eu-west-2.aoss.amazonaws.com/"}
+
+    config = RuntimeConfig.load(DEV_NAMES, ssm_client=_ssm(json.dumps(value)))
+
+    assert config.opensearch_endpoint == "abc123.eu-west-2.aoss.amazonaws.com"
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "http://host.example.com",
+        "aoss://host.example.com",
+        "host.example.com:443",
+        "host.example.com/path",
+        "",
+        "https://",
+    ],
+)
+def test_opensearch_endpoint_must_be_a_hostname_only(endpoint):
+    with pytest.raises(RuntimeConfigError, match="opensearch_endpoint"):
+        RuntimeConfig.load(DEV_NAMES, ssm_client=_ssm(json.dumps({**VALID, "opensearch_endpoint": endpoint})))
 
 
 @pytest.mark.parametrize("port", [0, 70000])

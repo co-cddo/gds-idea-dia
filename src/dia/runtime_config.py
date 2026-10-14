@@ -40,13 +40,26 @@ class RuntimeConfig(BaseModel):
 
     neptune_endpoint: str = Field(description="Neptune cluster endpoint hostname, without scheme or port.")
     neptune_port: int = Field(default=8182, ge=1, le=65535, description="Neptune port.")
+    opensearch_endpoint: str = Field(
+        description=(
+            "OpenSearch Serverless collection endpoint hostname, without port or path. "
+            "A leading https:// is removed, because CloudFormation may include it."
+        )
+    )
     cluster_name: str = Field(min_length=1, description="Name of the shared ECS cluster that tasks run on.")
     task_definition_arn: str = Field(min_length=1, description="ARN of the pipeline task definition.")
     subnet_ids: list[str] = Field(min_length=1, description="Private subnets that tasks run in.")
     security_group_id: str = Field(min_length=1, description="Security group attached to tasks.")
     log_group: str = Field(min_length=1, description="CloudWatch log group that tasks write to.")
 
-    @field_validator("neptune_endpoint")
+    @field_validator("opensearch_endpoint", mode="before")
+    @classmethod
+    def _strip_https_scheme(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.removeprefix("https://").rstrip("/")
+        return value
+
+    @field_validator("neptune_endpoint", "opensearch_endpoint")
     @classmethod
     def _hostname_only(cls, value: str) -> str:
         if not value or "://" in value or "/" in value or ":" in value:

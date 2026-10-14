@@ -31,6 +31,7 @@ DEV_NAMES = Names(DEV)
 
 CONFIG = RuntimeConfig(
     neptune_endpoint="dia-neptune-dev.cluster-abc.eu-west-2.neptune.amazonaws.com",
+    opensearch_endpoint="abc123.eu-west-2.aoss.amazonaws.com",
     cluster_name="shared-cluster",
     task_definition_arn="arn:aws:ecs:eu-west-2:992382722318:task-definition/dia-task-dev:1",
     subnet_ids=["subnet-1"],
