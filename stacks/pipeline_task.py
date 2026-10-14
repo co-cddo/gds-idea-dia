@@ -31,21 +31,6 @@ from stacks.storage import StorageStack
 
 _REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 
-# Only what the image build needs is sent to the build (and counted in the asset hash).
-# CDK does not read task/Dockerfile.dockerignore, so the same allowlist is repeated here.
-_IMAGE_BUILD_CONTEXT = [
-    "*",
-    "!pyproject.toml",
-    "!uv.lock",
-    "!README.md",
-    "!src",
-    "!task/Dockerfile",
-    "!task/Dockerfile.dockerignore",
-    "**/__pycache__",
-    "**/*.pyc",
-    "src/dia/_version.py",
-]
-
 # Neptune data actions the pipeline uses. Later stages that need more (for example
 # query status or cancellation) add them here.
 _NEPTUNE_ACTIONS = [
@@ -169,7 +154,7 @@ class PipelineTaskStack(cdk.Stack):
                 file="task/Dockerfile",
                 platform=ecr_assets.Platform.LINUX_AMD64,
                 build_args={"DIA_VERSION": __version__},
-                exclude=_IMAGE_BUILD_CONTEXT,
+                # What goes into the build context is listed in the repository's .dockerignore.
                 ignore_mode=cdk.IgnoreMode.DOCKER,
             ),
             logging=ecs.LogDrivers.aws_logs(stream_prefix="pipeline", log_group=self.log_group),

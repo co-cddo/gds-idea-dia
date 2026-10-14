@@ -155,8 +155,9 @@ def test_image_build_context_only_has_what_the_build_needs(dev):
     staged = dev.outdir / _docker_asset(dev)["directory"]
     top_level = {path.name for path in staged.iterdir()}
 
-    assert top_level == {"pyproject.toml", "uv.lock", "README.md", "src", "task"}
-    assert {path.name for path in (staged / "task").iterdir()} == {"Dockerfile", "Dockerfile.dockerignore"}
+    # CDK copies .dockerignore along with the files, so the build applies it too.
+    assert top_level == {".dockerignore", "pyproject.toml", "uv.lock", "README.md", "src", "task"}
+    assert {path.name for path in (staged / "task").iterdir()} == {"Dockerfile"}
     assert not (staged / "src" / "dia" / "_version.py").exists()
 
 

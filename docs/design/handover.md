@@ -81,10 +81,9 @@ covers where we are, how we work, and facts that are not obvious from the code.
   `dia` as its entrypoint (see the README for how to build it). It is about
   1.44GB, and roughly 420MB of that is `aws-cdk-lib`, pulled in because
   `gds-idea-cdk-constructs` imports it at module level. The upstream issue is
-  co-cddo/gds-idea-cdk-constructs-new#62. CDK's Docker asset hashing does not
-  read `task/Dockerfile.dockerignore`, so `stacks/pipeline_task.py` repeats the
-  allowlist as the asset's `exclude` (a test checks what the build context
-  contains).
+  co-cddo/gds-idea-cdk-constructs-new#62. The image's build context is listed in
+  the root `.dockerignore`, which both `docker build` and CDK read (a test checks
+  what the stack actually stages).
 - **Pipeline task stack:** one Fargate task definition, 2 vCPU and 8GB (to tune
   once real stages show what they need; it can also be overridden per run), with
   the image built for x86_64 and `dia` as the entrypoint. The task role is

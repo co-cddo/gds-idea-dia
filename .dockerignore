@@ -1,9 +1,11 @@
 # Only what the image build needs; everything else stays out of the build context.
+# Read by `docker build` and by CDK when it stages the image (see stacks/pipeline_task.py).
 *
 !pyproject.toml
 !uv.lock
 !README.md
 !src/
+!task/Dockerfile
 **/__pycache__
 **/*.pyc
 src/dia/_version.py
