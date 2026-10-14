@@ -720,3 +720,41 @@ def test_extract_text_reports_failed_keys():
     assert result.exit_code == 0
     assert "Failed:    1" in result.output
     assert "Failed keys: docs/doc1.pdf" in result.output
+
+
+# ---------------------------------------------------------------------------
+# dia pipeline preflight
+# ---------------------------------------------------------------------------
+
+
+def test_preflight_prints_one_line_per_check_and_succeeds():
+    from dia.preflight import CheckResult, Status
+
+    results = [
+        CheckResult("identity", Status.OK, "dev (account 1)"),
+        CheckResult("neptune", Status.SKIP, "open the tunnel"),
+    ]
+
+    with patch("dia.preflight.run_preflight", return_value=results):
+        result = runner.invoke(app, ["pipeline", "preflight"])
+
+    assert result.exit_code == 0
+    assert "[ok  ] identity: dev (account 1)" in result.output
+    assert "[skip] neptune: open the tunnel" in result.output
+    assert "All 2 checks passed or were skipped." in result.output
+
+
+def test_preflight_exits_with_an_error_when_a_check_fails():
+    from dia.preflight import CheckResult, Status
+
+    results = [
+        CheckResult("identity", Status.OK, "dev (account 1)"),
+        CheckResult("buckets", Status.FAIL, "gds-idea-dia-batch-dev: denied"),
+    ]
+
+    with patch("dia.preflight.run_preflight", return_value=results):
+        result = runner.invoke(app, ["pipeline", "preflight"])
+
+    assert result.exit_code == 1
+    assert "[FAIL] buckets: gds-idea-dia-batch-dev: denied" in result.output
+    assert "1 of 2 checks failed." in result.output

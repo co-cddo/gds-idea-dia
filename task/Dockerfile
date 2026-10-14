@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Pipeline task image: runs `dia <command>` (for example `dia preflight`).
+# Pipeline task image: runs `dia <command>` (for example `dia pipeline preflight`).
 #
 # Build from the repository root:
 #   docker build -f task/Dockerfile -t dia-task .
@@ -59,5 +59,5 @@ ENV PATH="/app/.venv/bin:$PATH" \
 USER nonroot
 WORKDIR /home/nonroot
 
-# A task supplies the command: `["preflight"]`, `["extract-text", "--source", "..."]`, ...
+# A task supplies the command: `["pipeline", "preflight"]`, `["extract-text", "--source", "..."]`, ...
 ENTRYPOINT ["dia"]
