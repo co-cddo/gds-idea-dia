@@ -91,7 +91,7 @@ def test_identity_fails_when_sts_cannot_be_called():
 
 
 def test_runtime_config_check_reports_the_parameter_and_endpoint():
-    with patch("dia.preflight.RuntimeConfig.load", return_value=CONFIG):
+    with patch("dia.preflight.RuntimeConfig.load_parameter", return_value=CONFIG):
         result, config = check_runtime_config(DEV_NAMES)
 
     assert result.status is Status.OK
@@ -101,7 +101,7 @@ def test_runtime_config_check_reports_the_parameter_and_endpoint():
 
 
 def test_runtime_config_check_fails_with_the_loading_error():
-    with patch("dia.preflight.RuntimeConfig.load", side_effect=RuntimeConfigError("it is missing")):
+    with patch("dia.preflight.RuntimeConfig.load_parameter", side_effect=RuntimeConfigError("it is missing")):
         result, config = check_runtime_config(DEV_NAMES)
 
     assert result.status is Status.FAIL

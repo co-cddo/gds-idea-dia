@@ -31,6 +31,10 @@ table, our buckets, and read access to the source data (in dev, through the
 cross-account role). Inside an ECS task it also checks Neptune, which only tasks
 can reach.
 
+The runtime config is read from the parameter named in the `DIA_RUNTIME_CONFIG`
+environment variable. A task definition sets it. When it isn't set, as on a
+laptop, the name is built from the environment: `dia-runtime-config-<phase>`.
+
 **Known limitation:** the "runtime config" check fails for now. The runtime
 config is a parameter that CDK will write to Parameter Store
 (`dia-runtime-config-<phase>`), but no stack writes it yet. It is added with the

@@ -86,7 +86,14 @@ def cross_account_role_arn() -> str:
 
 
 def check_identity(sts_client) -> tuple[CheckResult, DeploymentEnvironment | None]:
-    """Who am I, and is it an environment we know?"""
+    """Who am I, and is it an environment we know?
+
+    Args:
+        sts_client: An STS client.
+
+    Returns:
+        The result, and the environment if the account is a known one (else None).
+    """
     try:
         identity = sts_client.get_caller_identity()
     except (ClientError, BotoCoreError) as e:
@@ -102,10 +109,18 @@ def check_identity(sts_client) -> tuple[CheckResult, DeploymentEnvironment | Non
 
 
 def check_runtime_config(names: Names, ssm_client=None) -> tuple[CheckResult, RuntimeConfig | None]:
-    """Can the runtime config parameter be read and is it valid?"""
+    """Can the runtime config parameter be read and is it valid?
+
+    Args:
+        names: Names for the environment, used to build the parameter name.
+        ssm_client: Optional injected SSM client (for testing).
+
+    Returns:
+        The result, and the config if it loaded (else None).
+    """
     try:
         name = RuntimeConfig.parameter_name(names)
-        config = RuntimeConfig.load(names, ssm_client=ssm_client)
+        config = RuntimeConfig.load_parameter(name, ssm_client=ssm_client)
     except RuntimeConfigError as e:
         return _fail("runtime config", str(e)), None
 
@@ -141,6 +156,13 @@ def source_s3_client(environment: DeploymentEnvironment, sts_client):
     """An S3 client that can read production source data.
 
     Production reads directly. Dev reads through the shared cross-account role.
+
+    Args:
+        environment: The environment this process is running in.
+        sts_client: An STS client, used to assume the cross-account role in dev.
+
+    Returns:
+        A boto3 S3 client.
 
     Raises:
         ClientError: If the role cannot be assumed.
@@ -193,6 +215,16 @@ def check_neptune(
     """Is Neptune reachable, and does IAM authentication work?
 
     Only meaningful inside the VPC, so it is only run inside a task.
+
+    Args:
+        config: The runtime config, which holds the Neptune endpoint and port.
+        connect: Opens a TCP connection to a host and port and says whether it worked
+            (replaceable for testing).
+        client_factory: Builds the boto3 client used for the status call
+            (replaceable for testing).
+
+    Returns:
+        The result of the check.
     """
     endpoint, port = config.neptune_endpoint, config.neptune_port
 

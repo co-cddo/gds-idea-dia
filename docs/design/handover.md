@@ -45,10 +45,13 @@ covers where we are, how we work, and facts that are not obvious from the code.
   secret is private to private repos unless the repo is added), and the
   `gds-idea-ai-reviewer` GitHub App installed on the repo.
 - **`ci_pr_cdk_app.yml` is managed by `idea-app` but edited by hand,** and
-  should stay that way: the template sets `run-version-check: true`, which fails
+  should stay that way. The template sets `run-version-check: true`, which fails
   here because the version comes from git tags (hatch-vcs) and there is no
-  `version =` line in `pyproject.toml`. If you run `idea-app update`, do not use
-  `--force` on that file.
+  `version =` line in `pyproject.toml`. We also differ from the template in two
+  other ways: the trigger includes `reopened`, and the CI jobs skip on any
+  `labeled` event (the template skips only for the `ai-review` label, so adding
+  any other label, such as a release bump label, re-runs all of CI). If you run
+  `idea-app update`, do not use `--force` on that file.
 
 ## Key facts
 

@@ -16,7 +16,7 @@ import json
 import os
 
 import boto3
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from dia.naming import REGION, Names
@@ -71,22 +71,41 @@ class RuntimeConfig(BaseModel):
 
     @classmethod
     def load(cls, names: Names | None = None, ssm_client=None) -> RuntimeConfig:
-        """Read and validate the runtime config.
+        """Read and validate the runtime config from the parameter for this environment.
 
         Args:
             names: Used to build the parameter name when `DIA_RUNTIME_CONFIG` is not set.
             ssm_client: Optional injected SSM client (for testing).
 
+        Returns:
+            The validated config.
+
         Raises:
             RuntimeConfigError: If the parameter is missing, unreadable, not JSON,
                 or has missing or invalid fields.
         """
-        name = cls.parameter_name(names)
+        return cls.load_parameter(cls.parameter_name(names), ssm_client=ssm_client)
+
+    @classmethod
+    def load_parameter(cls, name: str, ssm_client=None) -> RuntimeConfig:
+        """Read and validate the runtime config from the named parameter.
+
+        Args:
+            name: The SSM parameter name.
+            ssm_client: Optional injected SSM client (for testing).
+
+        Returns:
+            The validated config.
+
+        Raises:
+            RuntimeConfigError: If the parameter is missing, unreadable, not JSON,
+                or has missing or invalid fields.
+        """
         ssm = ssm_client or boto3.client("ssm", region_name=REGION)
 
         try:
             value = ssm.get_parameter(Name=name)["Parameter"]["Value"]
-        except ClientError as e:
+        except (ClientError, BotoCoreError) as e:
             raise RuntimeConfigError(f"Could not read the runtime config parameter {name!r}: {e}") from e
 
         try:

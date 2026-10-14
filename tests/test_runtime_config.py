@@ -4,8 +4,9 @@ import json
 from unittest.mock import MagicMock
 
 import pytest
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, NoCredentialsError
 from gds_idea_cdk_constructs import DeploymentEnvironment
+from pydantic import ValidationError
 
 from dia.naming import Names
 from dia.runtime_config import RUNTIME_CONFIG_ENV_VAR, RuntimeConfig, RuntimeConfigError
@@ -94,6 +95,23 @@ def test_load_explains_a_missing_parameter():
         RuntimeConfig.load(DEV_NAMES, ssm_client=ssm)
 
 
+def test_load_explains_a_failure_that_is_not_a_client_error():
+    ssm = MagicMock()
+    ssm.get_parameter.side_effect = NoCredentialsError()
+
+    with pytest.raises(RuntimeConfigError, match="Could not read the runtime config parameter"):
+        RuntimeConfig.load(DEV_NAMES, ssm_client=ssm)
+
+
+def test_load_parameter_reads_the_named_parameter():
+    ssm = _ssm(json.dumps(VALID))
+
+    config = RuntimeConfig.load_parameter("some-name", ssm_client=ssm)
+
+    ssm.get_parameter.assert_called_once_with(Name="some-name")
+    assert config.cluster_name == "shared-cluster"
+
+
 def test_load_explains_a_parameter_that_is_not_json():
     with pytest.raises(RuntimeConfigError, match="not valid JSON"):
         RuntimeConfig.load(DEV_NAMES, ssm_client=_ssm("{not json"))
@@ -140,5 +158,5 @@ def test_subnet_ids_must_not_be_empty():
 def test_config_is_frozen():
     config = RuntimeConfig.model_validate(VALID)
 
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         config.cluster_name = "other"

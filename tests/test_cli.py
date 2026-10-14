@@ -732,7 +732,7 @@ def test_preflight_prints_one_line_per_check_and_succeeds():
 
     results = [
         CheckResult("identity", Status.OK, "dev (account 1)"),
-        CheckResult("neptune", Status.SKIP, "open the tunnel"),
+        CheckResult("runtime config", Status.SKIP, "needs a known environment"),
     ]
 
     with patch("dia.preflight.run_preflight", return_value=results):
@@ -740,7 +740,7 @@ def test_preflight_prints_one_line_per_check_and_succeeds():
 
     assert result.exit_code == 0
     assert "[ok  ] identity: dev (account 1)" in result.output
-    assert "[skip] neptune: open the tunnel" in result.output
+    assert "[skip] runtime config: needs a known environment" in result.output
     assert "All 2 checks passed or were skipped." in result.output
 
 
