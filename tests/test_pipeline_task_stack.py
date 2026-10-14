@@ -9,11 +9,12 @@ import aws_cdk as cdk
 import pytest
 from aws_cdk import assertions
 from aws_cdk import aws_ec2 as ec2
-from gds_idea_cdk_constructs import DeploymentEnvironment
+from gds_idea_cdk_constructs import DeploymentConfig, DeploymentEnvironment
 
 from config import AppConfig
 from dia.runtime_config import RuntimeConfig
 from stacks.neptune import NeptuneStack
+from stacks.opensearch import OpenSearchStack
 from stacks.pipeline_task import PipelineTaskStack
 from stacks.storage import StorageStack
 
@@ -31,7 +32,7 @@ class Built:
     config: AppConfig
 
 
-def _build(environment: DeploymentEnvironment, outdir: Path) -> Built:
+def _build(environment: DeploymentEnvironment, outdir: Path, *, lookup_vpc: bool = False) -> Built:
     """Build the task stack with the stacks it depends on, in dev or prod."""
     config = AppConfig(environment=environment)
     app = cdk.App(outdir=str(outdir))
@@ -53,17 +54,30 @@ def _build(environment: DeploymentEnvironment, outdir: Path) -> Built:
     neptune = NeptuneStack(
         app, "Neptune", config=config, vpc=vpc, bastion_security_group=bastion_sg, task_security_group=task_sg, env=env
     )
+    opensearch = OpenSearchStack(app, "OpenSearch", config=config, env=env)
+    deployment_config = DeploymentConfig.from_dict(
+        env,
+        {
+            "domain_name": "example.com",
+            "vpc_id": "vpc-12345",
+            "ecs_arn": "arn:aws:ecs:eu-west-2:123456789012:cluster/shared-cluster",
+            "cognito_user_pool_id": "pool",
+            "waf_arn": "waf",
+            "waf_big_upload_arn": "waf-big",
+            "logs_bucket_name": "logs",
+        },
+    )
     stack = PipelineTaskStack(
         app,
         "PipelineTask",
         config=config,
-        cluster_name="shared-cluster",
-        cross_account_role_arn=CROSS_ACCOUNT_ROLE if environment == DEV else None,
+        deployment_config=deployment_config,
         source_buckets=[SOURCE_BUCKET],
-        vpc=vpc,
         task_security_group=task_sg,
         storage=storage,
         neptune=neptune,
+        opensearch=opensearch,
+        vpc=None if lookup_vpc else vpc,
         env=env,
     )
     return Built(assertions.Template.from_stack(stack), stack, outdir, config)
@@ -212,7 +226,8 @@ def test_task_role_can_use_neptune(dev):
         "neptune-db:WriteDataViaQuery",
         "neptune-db:DeleteDataViaQuery",
     }
-    assert "neptune-db" in json.dumps(statement["Resource"])
+    resource = json.dumps(statement["Resource"])
+    assert f"arn:aws:neptune-db:eu-west-2:{DEV.value}:" in resource
 
 
 def test_task_role_can_read_the_runtime_config_parameter(dev):
@@ -226,7 +241,7 @@ def test_in_dev_the_task_role_assumes_the_cross_account_role_and_does_not_read_s
 
     assert statement is not None
     assert statement["Action"] == "sts:AssumeRole"
-    assert statement["Resource"] == CROSS_ACCOUNT_ROLE
+    assert statement["Resource"] == CROSS_ACCOUNT_ROLE  # as the shared library builds it
     assert SOURCE_BUCKET not in json.dumps(_statements(dev.template))
 
 
@@ -282,6 +297,12 @@ def test_runtime_config_parameter_has_exactly_the_fields_of_the_model(dev):
     assert keys == set(RuntimeConfig.model_fields)
 
 
+def test_runtime_config_parameter_holds_the_opensearch_collection_endpoint(dev):
+    (parameter,) = dev.template.find_resources("AWS::SSM::Parameter").values()
+
+    assert "CollectionEndpoint" in json.dumps(parameter["Properties"]["Value"])
+
+
 def test_runtime_config_parameter_holds_the_cluster_name_and_private_subnets(dev):
     text = _parameter_json_text(dev)
 
@@ -304,3 +325,15 @@ def test_outputs_the_role_and_parameter_name(dev):
 
     assert any("TaskRoleArn" in key for key in outputs)
     assert any("RuntimeConfigParameterName" in key for key in outputs)
+
+
+# --- shared VPC ---
+
+
+def test_without_a_vpc_given_the_stack_looks_up_the_shared_vpc_by_id(tmp_path):
+    built = _build(DEV, tmp_path / "lookup", lookup_vpc=True)
+
+    manifest = json.loads((built.outdir / "manifest.json").read_text())
+    lookups = [m for m in manifest.get("missing", []) if m["provider"] == "vpc-provider"]
+
+    assert any(m["props"]["filter"] == {"vpc-id": "vpc-12345"} for m in lookups)

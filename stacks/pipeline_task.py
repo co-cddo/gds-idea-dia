@@ -20,12 +20,13 @@ from aws_cdk import aws_logs as logs
 from aws_cdk import aws_s3 as s3
 from aws_cdk import aws_ssm as ssm
 from constructs import Construct
-from gds_idea_cdk_constructs import DeploymentEnvironment
+from gds_idea_cdk_constructs import DeploymentConfig, DeploymentEnvironment
 
 from config import AppConfig
 from dia import __version__
 from dia.runtime_config import RUNTIME_CONFIG_ENV_VAR, RUNTIME_CONFIG_RESOURCE
 from stacks.neptune import NeptuneStack
+from stacks.opensearch import OpenSearchStack
 from stacks.shared.iam import permissions_boundary
 from stacks.storage import StorageStack
 
@@ -67,13 +68,13 @@ class PipelineTaskStack(cdk.Stack):
         construct_id: str,
         *,
         config: AppConfig,
-        cluster_name: str,
-        cross_account_role_arn: str | None,
+        deployment_config: DeploymentConfig,
         source_buckets: Sequence[str],
-        vpc: ec2.IVpc,
         task_security_group: ec2.ISecurityGroup,
         storage: StorageStack,
         neptune: NeptuneStack,
+        opensearch: OpenSearchStack,
+        vpc: ec2.IVpc | None = None,
         **kwargs,
     ) -> None:
         """Create the stack.
@@ -82,14 +83,16 @@ class PipelineTaskStack(cdk.Stack):
             scope: The CDK app.
             construct_id: The stack ID.
             config: The CDK config.
-            cluster_name: Name of the shared ECS cluster that tasks run on.
-            cross_account_role_arn: Role to assume to read production source data, or
-                None to read the source buckets directly (as in prod).
+            deployment_config: The shared deployment config, for the ECS cluster, the VPC
+                and the cross-account role to assume to read production source data
+                (None in prod, where the source buckets are read directly).
             source_buckets: Names of the source data buckets that tasks read.
-            vpc: The shared VPC. Tasks run in its private subnets.
             task_security_group: Security group for tasks.
             storage: The storage stack, for the ledger table and buckets.
             neptune: The Neptune stack, for the cluster.
+            opensearch: The OpenSearch stack, for the collection endpoint.
+            vpc: The shared VPC. Looked up from `deployment_config` if not given (tests
+                give one). Tasks run in its private subnets.
             **kwargs: Passed to the base stack.
         """
         super().__init__(scope, construct_id, **kwargs)
@@ -97,6 +100,7 @@ class PipelineTaskStack(cdk.Stack):
         is_dev = config.environment == DeploymentEnvironment.DEVELOPMENT
         log_removal = cdk.RemovalPolicy.DESTROY if is_dev else cdk.RemovalPolicy.RETAIN
         config_parameter_name = config.names(RUNTIME_CONFIG_RESOURCE)
+        vpc = vpc or ec2.Vpc.from_lookup(self, "SharedVpc", vpc_id=deployment_config.vpc_id)
 
         # --- Roles ---
         self.task_role = iam.Role(
@@ -173,7 +177,8 @@ class PipelineTaskStack(cdk.Stack):
                 {
                     "neptune_endpoint": neptune.cluster.attr_endpoint,
                     "neptune_port": cdk.Token.as_number(neptune.cluster.attr_port),
-                    "cluster_name": cluster_name,
+                    "opensearch_endpoint": opensearch.collection.attr_collection_endpoint,
+                    "cluster_name": deployment_config.cluster_name,
                     "task_definition_arn": self.task_definition.task_definition_arn,
                     "subnet_ids": [subnet.subnet_id for subnet in vpc.private_subnets],
                     "security_group_id": task_security_group.security_group_id,
@@ -201,17 +206,18 @@ class PipelineTaskStack(cdk.Stack):
                 sid="UseNeptune",
                 actions=_NEPTUNE_ACTIONS,
                 resources=[
-                    f"arn:{self.partition}:neptune-db:{self.region}:{self.account}:{neptune.cluster.attr_cluster_resource_id}/*"
+                    f"arn:aws:neptune-db:{config.region}:{config.account_number}"
+                    f":{neptune.cluster.attr_cluster_resource_id}/*"
                 ],
             )
         )
 
-        if cross_account_role_arn:
+        if deployment_config.cross_account_role_arn:
             self.task_role.add_to_policy(
                 iam.PolicyStatement(
                     sid="AssumeSourceDataReadRole",
                     actions=["sts:AssumeRole"],
-                    resources=[cross_account_role_arn],
+                    resources=[deployment_config.cross_account_role_arn],
                 )
             )
         else:

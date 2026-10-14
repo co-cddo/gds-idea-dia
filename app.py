@@ -71,6 +71,10 @@ neptune_stack = NeptuneStack(
     env=cdk_env,
 )
 
+# OpenSearch Serverless — standalone (no VPC dependency), public endpoint
+# restricted by IAM data-access policy.
+opensearch_stack = OpenSearchStack(app, config.names("opensearch"), config=config, env=cdk_env)
+
 # Pipeline tasks: the image, task definition, roles and runtime config.
 # In dev, source data in the production account is read through the shared
 # cross-account role (None in prod, where the source buckets are read directly).
@@ -78,21 +82,17 @@ pipeline_task_stack = PipelineTaskStack(
     app,
     config.names("pipeline-task"),
     config=config,
-    cluster_name=deployment_config.cluster_name,
-    cross_account_role_arn=deployment_config.cross_account_role_arn,
+    deployment_config=deployment_config,
     source_buckets=[get_source("gats-business-cases").bucket],
-    vpc=networking_stack.vpc,
     task_security_group=networking_stack.task_security_group,
     storage=storage_stack,
     neptune=neptune_stack,
+    opensearch=opensearch_stack,
     env=cdk_env,
 )
 pipeline_task_stack.add_dependency(storage_stack)
 pipeline_task_stack.add_dependency(networking_stack)
 pipeline_task_stack.add_dependency(neptune_stack)
-
-# OpenSearch Serverless — standalone (no VPC dependency), public endpoint
-# restricted by IAM data-access policy.
-OpenSearchStack(app, config.names("opensearch"), config=config, env=cdk_env)
+pipeline_task_stack.add_dependency(opensearch_stack)
 
 app.synth()

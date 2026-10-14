@@ -54,9 +54,11 @@ docker run --rm dia-task --version
 ```
 
 CDK builds and deploys this image as part of the pipeline task stack
-(`stacks/pipeline_task.py`) when changes merge to `dev` or `prod`. The stack also
-defines the task's size (2 vCPU, 8GB), its roles, its log group and the runtime
-config parameter.
+(`stacks/pipeline_task.py`) when changes merge to `dev`. The stack also defines
+the task's size (2 vCPU, 8GB), its roles, its log group and the runtime config
+parameter. **Prod cannot deploy yet:** the repository is not in
+`repositories_access_prod.tf` in `gds-idea-cdk-access`, so a merge to `prod`
+would fail at the AWS login step (see `docs/design/handover.md`).
 
 The version normally comes from git tags, which are not in the image, so pass
 it with `--build-arg DIA_VERSION=<version>`. Without it the image reports

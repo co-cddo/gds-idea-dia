@@ -91,10 +91,15 @@ covers where we are, how we work, and facts that are not obvious from the code.
   `DenyUserPermissionsPolicy` boundary (it allows everything except creating
   IAM users and access keys, so it removes nothing). It can use the ledger, our
   buckets, Neptune (read, write and delete via query, and engine status) and the
-  runtime config parameter. It does **not** have Bedrock access yet: later
-  stages add what they need. The tasks' security group is in `NetworkingStack`,
-  and `NeptuneStack` allows it in on 8182. Logs go to `/dia-task-{phase}` for 90
-  days (kept in prod, deleted with the stack in dev).
+  runtime config parameter. It does **not** have Bedrock or OpenSearch access
+  yet: later stages add what they need (the OpenSearch access policy names the
+  account root as principal, so the load stage will need to add an `aoss`
+  permission to the task role). The tasks' security group is in
+  `NetworkingStack`, and `NeptuneStack` allows it in on 8182. Logs go to
+  `/dia-task-{phase}` for 90 days (kept in prod, deleted with the stack in dev).
+  The stack takes the shared `DeploymentConfig` (cluster, VPC id and the
+  cross-account role) and looks the VPC up itself unless a test gives one. ARNs
+  are written out literally with the `aws` partition, like the rest of the repo.
 - **Cross-account role** `assume_role_for_development_account` (production
   account): it trusts the whole dev account with no conditions, and has
   `ReadOnlyAccess` plus Lake Formation, Bedrock knowledge base, Athena and S3
