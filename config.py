@@ -21,7 +21,7 @@ class AppConfig(BaseModel):
     Usage:
         from gds_idea_cdk_constructs import DeploymentEnvironment
         config = AppConfig(environment=DeploymentEnvironment.DEVELOPMENT)
-        config.names.bucket(Bucket.GRAPH_RAW)  # -> "gds-idea-dia-graph-raw-dev"
+        config.names(Bucket.GRAPH_RAW)  # -> "gds-idea-dia-graph-raw-dev"
         config.names("neptune")                # -> "dia-neptune-dev"
         config.account_number                  # -> "992382722318"
     """

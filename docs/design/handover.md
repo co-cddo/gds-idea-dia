@@ -45,7 +45,7 @@ covers where we are, how we work, and facts that are not obvious from the code.
   `992382722318`, prod is `588077357019`.
 - **Names:** every deployed name is built by `dia.naming.Names`, created from a
   `DeploymentEnvironment` (`Names(env)`). `names("ledger")` gives
-  `dia-ledger-dev`, and `names.bucket(Bucket.TEXT_EXTRACTED)` gives
+  `dia-ledger-dev`, and `names(Bucket.TEXT_EXTRACTED)` gives
   `gds-idea-dia-text-extracted-dev`. In CDK use `config.names`. In the CLI use
   `dia.cli_helpers.current_names()`, which looks up the account.
 - **Stages:** text, chunk, propositions, topics, validate, embed, load. Purge

@@ -28,18 +28,23 @@ def test_calling_names_builds_project_name_with_phase(environment, phase):
 @pytest.mark.parametrize("environment,phase", ENVIRONMENTS)
 @pytest.mark.parametrize("bucket", list(Bucket))
 def test_bucket_names_include_team_project_and_phase(environment, phase, bucket):
-    assert Names(environment).bucket(bucket) == f"gds-idea-dia-{bucket.value}-{phase}"
+    assert Names(environment)(bucket) == f"gds-idea-dia-{bucket.value}-{phase}"
 
 
-def test_bucket_rejects_a_name_that_is_not_a_known_bucket():
-    with pytest.raises(ValueError):
-        Names(DeploymentEnvironment.DEVELOPMENT).bucket("text-extracte")
+@pytest.mark.parametrize("bucket", list(Bucket))
+def test_a_bucket_name_as_a_plain_string_is_rejected(bucket):
+    with pytest.raises(ValueError, match=f"Bucket.{bucket.name}"):
+        Names(DeploymentEnvironment.DEVELOPMENT)(bucket.value)
+
+
+def test_a_resource_that_only_contains_a_bucket_name_is_allowed():
+    assert Names(DeploymentEnvironment.DEVELOPMENT)("batch-inference") == "dia-batch-inference-dev"
 
 
 def test_every_bucket_is_distinct():
     names = Names(DeploymentEnvironment.DEVELOPMENT)
 
-    assert len({names.bucket(b) for b in Bucket}) == len(Bucket)
+    assert len({names(b) for b in Bucket}) == len(Bucket)
 
 
 @pytest.mark.parametrize("environment,phase", ENVIRONMENTS)

@@ -5,8 +5,8 @@ table or stack is called the same thing everywhere. A `Names` is created from a
 `DeploymentEnvironment`, which supplies the phase (dev or prod).
 
     names = Names(DeploymentEnvironment.DEVELOPMENT)
-    names("ledger")                     # "dia-ledger-dev"
-    names.bucket(Bucket.TEXT_EXTRACTED)  # "gds-idea-dia-text-extracted-dev"
+    names("ledger")                 # "dia-ledger-dev"
+    names(Bucket.TEXT_EXTRACTED)    # "gds-idea-dia-text-extracted-dev"
 
 In CDK code, build it from the CDK environment (no AWS call is made):
 
@@ -38,6 +38,9 @@ class Bucket(StrEnum):
     AGENT_REPORTS = "agent-reports"
 
 
+_BUCKET_VALUES = frozenset(bucket.value for bucket in Bucket)
+
+
 @dataclass(frozen=True)
 class Names:
     """Builds resource names for one deployment environment."""
@@ -50,9 +53,18 @@ class Names:
         return self.environment.short_name
 
     def __call__(self, name: str) -> str:
-        """Name of a resource or stack: `{project}-{name}-{phase}`."""
-        return f"{PROJECT}-{name}-{self.phase}"
+        """Name of a resource, stack or bucket.
 
-    def bucket(self, bucket: Bucket) -> str:
-        """Name of an S3 bucket: `{team}-{project}-{bucket}-{phase}`."""
-        return f"{TEAM}-{PROJECT}-{Bucket(bucket).value}-{self.phase}"
+        A `Bucket` gives `{team}-{project}-{bucket}-{phase}`. Any other name
+        gives `{project}-{name}-{phase}`.
+
+        Raises:
+            ValueError: If `name` is a plain string that matches a bucket.
+                Buckets must be named with the `Bucket` enum, so a bucket can
+                never silently get the resource pattern.
+        """
+        if isinstance(name, Bucket):
+            return f"{TEAM}-{PROJECT}-{name.value}-{self.phase}"
+        if name in _BUCKET_VALUES:
+            raise ValueError(f"{name!r} is a bucket: use Bucket.{Bucket(name).name}")
+        return f"{PROJECT}-{name}-{self.phase}"

@@ -284,7 +284,7 @@ def _run_live(source, data_source, s3_source, metadata, filters, filtered_refs, 
 
     names = current_names()
     table_name = names("ledger")
-    bucket = names.bucket(Bucket.TEXT_EXTRACTED)
+    bucket = names(Bucket.TEXT_EXTRACTED)
     ledger = DynamoDBLedger(table_name=table_name)
     writer = S3OutputWriter(bucket)
 
@@ -348,7 +348,8 @@ def agent_ask(
     response = runtime.ask(department, query, tunnel=True)
     typer.echo(response.output)
 
-    uploader = ReportUploader(bucket=current_names().bucket(Bucket.AGENT_REPORTS))
+    names = current_names()
+    uploader = ReportUploader(bucket=names(Bucket.AGENT_REPORTS))
     result = uploader.upload(response)
 
     typer.echo(f"\nMarkdown report: {result.markdown_download_url}")

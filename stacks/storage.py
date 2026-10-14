@@ -37,7 +37,7 @@ class StorageStack(cdk.Stack):
         self.text_extracted_bucket = s3.Bucket(
             self,
             "TextExtracted",
-            bucket_name=config.names.bucket(Bucket.TEXT_EXTRACTED),
+            bucket_name=config.names(Bucket.TEXT_EXTRACTED),
             versioned=True,
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
@@ -48,7 +48,7 @@ class StorageStack(cdk.Stack):
         self.graph_raw_bucket = s3.Bucket(
             self,
             "GraphRaw",
-            bucket_name=config.names.bucket(Bucket.GRAPH_RAW),
+            bucket_name=config.names(Bucket.GRAPH_RAW),
             versioned=True,
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
@@ -59,7 +59,7 @@ class StorageStack(cdk.Stack):
         self.graph_validated_bucket = s3.Bucket(
             self,
             "GraphValidated",
-            bucket_name=config.names.bucket(Bucket.GRAPH_VALIDATED),
+            bucket_name=config.names(Bucket.GRAPH_VALIDATED),
             versioned=True,
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
@@ -70,7 +70,7 @@ class StorageStack(cdk.Stack):
         self.batch_bucket = s3.Bucket(
             self,
             "Batch",
-            bucket_name=config.names.bucket(Bucket.BATCH),
+            bucket_name=config.names(Bucket.BATCH),
             versioned=False,
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
@@ -93,7 +93,7 @@ class StorageStack(cdk.Stack):
         self.agent_reports_bucket = s3.Bucket(
             self,
             "AgentReports",
-            bucket_name=config.names.bucket(Bucket.AGENT_REPORTS),
+            bucket_name=config.names(Bucket.AGENT_REPORTS),
             versioned=True,
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
