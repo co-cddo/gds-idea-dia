@@ -15,6 +15,9 @@ app = typer.Typer(
 ledger_app = typer.Typer(help="Inspect and manage the processing ledger.")
 app.add_typer(ledger_app, name="ledger")
 
+pipeline_app = typer.Typer(help="Run and check the document pipeline.")
+app.add_typer(pipeline_app, name="pipeline")
+
 agent_app = typer.Typer(help="Query the digital intelligence agent.")
 app.add_typer(agent_app, name="agent")
 
@@ -155,6 +158,28 @@ def ledger_clone(
 def _discover_sources(ledger) -> set[str]:
     """Find all unique source names present in the ledger."""
     return {record["source_name"] for record in ledger.list_all_records() if record.get("source_name")}
+
+
+@pipeline_app.command("preflight")
+def preflight() -> None:
+    """Check that this process can do what the pipeline needs.
+
+    Read-only. Reports your identity, the runtime config, the ledger table, our
+    buckets and access to the source data. Inside an ECS task it also checks
+    Neptune, which only tasks can reach. Exits with an error if any check fails.
+    """
+    from dia.preflight import Status, run_preflight
+
+    labels = {Status.OK: "ok  ", Status.FAIL: "FAIL", Status.SKIP: "skip"}
+    results = run_preflight()
+    for result in results:
+        typer.echo(f"[{labels[result.status]}] {result.name}: {result.detail}")
+
+    failed = [r for r in results if r.status is Status.FAIL]
+    if failed:
+        typer.echo(f"\n{len(failed)} of {len(results)} checks failed.")
+        raise typer.Exit(code=1)
+    typer.echo(f"\nAll {len(results)} checks passed or were skipped.")
 
 
 @app.command("extract-text")

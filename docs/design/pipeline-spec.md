@@ -1,8 +1,8 @@
 # DIA pipeline: specification
 
-Status: agreed in outline, reviewed by Aakash on #61. Nothing here is built yet.
-The build plan in section 7 is the agreed order of work, in small reviewable
-PRs. Update this document as decisions change.
+Status: agreed in outline, reviewed by Aakash on #61. The build plan in
+section 7 is the agreed order of work, in small reviewable PRs, and shows what
+has been built so far. Update this document as decisions change.
 
 ## 1. Purpose
 
@@ -89,14 +89,35 @@ cost estimate show how many records were padding.
   - **Load:** a local load reports what it would write.
 - **Orchestration:** we start tasks from the CLI and orchestrate stages
   ourselves. Step Functions is deferred.
+- **Runtime configuration:** CDK writes one JSON parameter per environment to
+  SSM Parameter Store, named by `Names` (`dia-runtime-config-{phase}`). It holds
+  what the runtime needs to know about the deployed infrastructure: the Neptune
+  endpoint and port, the OpenSearch endpoint, the ECS cluster, the task
+  definition, the subnets, the security group and the log group. Tasks and
+  laptops read it the same way,
+  through one validated model (`dia.runtime_config.RuntimeConfig`) that stops
+  straight away with a clear message if the parameter is missing or invalid. The
+  task definition sets `DIA_RUNTIME_CONFIG` to the parameter's name, so the
+  dependency is visible on the task. When the variable is not set, as on a
+  laptop, the name is built from `Names`. The agent still reads its endpoints
+  from Secrets Manager.
 
 ### 3.3 CLI behaviour
 
-- There is one command per stage, plus `dia status`, `dia tasks`,
-  `dia sources check` and `dia preflight`.
-- `dia preflight` checks the account, the phase, read access to the source
-  buckets (through the cross-account role in dev), the ledger table and whether
-  Neptune is reachable. It is the first command run as a task.
+- Pipeline commands live under `dia pipeline`: one per stage, plus `status`,
+  `tasks`, `sources check` and `preflight`. The agent stays under `dia agent`,
+  so the two can each have commands of the same name. The existing
+  `extract-text` and `ledger` commands move under `pipeline` when they are
+  rewritten.
+- `dia pipeline preflight` is read-only and checks what the place it runs needs:
+  - Everywhere: the account and phase, the runtime config, the ledger table,
+    our buckets, and read access to the source data (through the cross-account
+    role in dev).
+  - Inside an ECS task only: Neptune. Only tasks reach Neptune, from inside the
+    VPC, so a local run never checks it.
+
+  It exits with an error if any check fails, and it is the first command run as
+  a task.
 - Stages that call Bedrock have a **cost estimate** option, which reports the
   expected number of records (including padding) and the estimated cost without
   running anything.
@@ -261,8 +282,10 @@ PR off and add its link as it is raised.
 - [x] 2. Naming: one module of phase-based names, used by both the CDK config
   and the runtime code (#62)
 - [x] 3. Docker image of the `dia` package, with a local build check (#63)
-- [ ] 4. ECS task definition and IAM in CDK (read-only on source locations), and
-  `dia preflight`
+- [ ] 4a. The runtime config model and `dia pipeline preflight` (the runtime
+  config check fails until 4b writes the parameter; this is known and expected)
+- [ ] 4b. ECS task definition and IAM in CDK (read-only on source locations),
+  the security group for Neptune access, and the runtime config parameter
 - [ ] 5. `--remote` and `dia tasks`: launch any command as a task, and list
   recent tasks with status and a log link
 

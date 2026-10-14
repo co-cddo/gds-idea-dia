@@ -13,12 +13,19 @@ covers where we are, how we work, and facts that are not obvious from the code.
   reviewing each step of the build.
 - PRs 1 and 2 of the build plan (spec section 7) are merged (#62): the spec
   update and handover, then the naming module.
-- PR 3, the Docker image, is open as a draft (#63).
-- **Next:** PR 4, the ECS task definition and its IAM role in CDK, and
-  `dia preflight`. It depends on #63.
+- PR 3, the Docker image, is merged (#63).
+- PR 4a, the runtime config model and `dia pipeline preflight`, is open as a
+  draft. **Known limitation:** it is CLI code only, and nothing writes the
+  runtime config parameter yet, so the "runtime config" check fails (and the
+  in-task Neptune check is skipped). This is expected. The parameter holds
+  values from the ECS task stack (task definition, subnets, security group, log
+  group), so it is written by PR 4b.
+- **Next:** PR 4b, the ECS task definition and its IAM role in CDK, the
+  security group that lets tasks reach Neptune, and the runtime config
+  parameter.
 - Only the foundations are built so far (naming, the extras split, the task
-  image). The rest of `src/dia` is work in progress that nobody uses, and may be
-  deleted as the PR that replaces each part lands.
+  image, preflight). The rest of `src/dia` is work in progress that nobody
+  uses, and may be deleted as the PR that replaces each part lands.
 
 ## How we work
 
@@ -30,6 +37,21 @@ covers where we are, how we work, and facts that are not obvious from the code.
 - **Discuss decisions in short sections,** starting from requirements in plain
   language. Do not go into implementation detail until it is needed.
 - Do not commit, push or open PRs unless asked.
+- **AI review:** add the `ai-review` label to a PR to get an advisory review
+  from `gds-idea-ai-reviewer[bot]` (it is non-blocking, and no label means no
+  run and no cost). It needs the `ai-review` job in
+  `.github/workflows/ci_pr_cdk_app.yml`, the org secret
+  `GDS_IDEA_AI_REVIEWER_APP_ID` shared with this repo (it is public, and that
+  secret is private to private repos unless the repo is added), and the
+  `gds-idea-ai-reviewer` GitHub App installed on the repo.
+- **`ci_pr_cdk_app.yml` is managed by `idea-app` but edited by hand,** and
+  should stay that way. The template sets `run-version-check: true`, which fails
+  here because the version comes from git tags (hatch-vcs) and there is no
+  `version =` line in `pyproject.toml`. We also differ from the template in two
+  other ways: the trigger includes `reopened`, and the CI jobs skip on any
+  `labeled` event (the template skips only for the `ai-review` label, so adding
+  any other label, such as a release bump label, re-runs all of CI). If you run
+  `idea-app update`, do not use `--force` on that file.
 
 ## Key facts
 
@@ -56,9 +78,33 @@ covers where we are, how we work, and facts that are not obvious from the code.
   `dia` as its entrypoint (see the README for how to build it). It is about
   1.44GB, and roughly 420MB of that is `aws-cdk-lib`, pulled in because
   `gds-idea-cdk-constructs` imports it at module level. The upstream issue is
-  co-cddo/gds-idea-cdk-constructs-new#62. For PR 4: CDK's Docker asset hashing
+  co-cddo/gds-idea-cdk-constructs-new#62. For PR 4b: CDK's Docker asset hashing
   does not read `task/Dockerfile.dockerignore`, so the asset needs an explicit
   exclude list.
+- **Commands:** pipeline commands live under `dia pipeline` and the agent under
+  `dia agent`. `extract-text` and `ledger` are still at the top level and move
+  under `pipeline` when they are rewritten (PRs 11 to 14). `dia agent status`
+  is effectively the agent's own preflight, and could be renamed to
+  `dia agent preflight` for symmetry (a job for the agent's owner).
+- **Runtime config:** CDK writes the Neptune endpoint and port, the OpenSearch
+  endpoint, cluster, task definition, subnets, security group and log group as
+  one JSON parameter, `dia-runtime-config-{phase}`. It is read through
+  `dia.runtime_config.RuntimeConfig.load`, which fails fast. The task definition
+  sets `DIA_RUNTIME_CONFIG` to the parameter name, and locally the name is built
+  from `Names`. To add a value, add the field to `RuntimeConfig` and to the
+  stack. Unknown fields are rejected, so the two cannot drift apart. The agent
+  still reads its endpoints from Secrets Manager, which can drift from the real
+  resources (the secrets are filled by hand); moving the agent onto the runtime
+  config is planned for later and is a job for the agent's owner. The OpenSearch
+  endpoint has any leading `https://` removed when it is loaded, because the
+  collection's endpoint value has not been checked on a deployed collection and
+  may include the scheme: check the value in the parameter after the first
+  deploy.
+- **Preflight:** `dia pipeline preflight` is read-only. It checks Neptune only
+  inside an ECS task (it detects one through `ECS_CONTAINER_METADATA_URI_V4`),
+  because only tasks reach the VPC. Its source check is limited to GATS and
+  builds the cross-account client itself; PR 7 should take that over, and PR 9
+  should make it read the new source definitions.
 - **Stages:** text, chunk, propositions, topics, validate, embed, load. Purge
   and prune are separate steps, and prune is deferred.
 - **Graph updates are versioned.** The agent does not yet query "current
@@ -78,7 +124,9 @@ covers where we are, how we work, and facts that are not obvious from the code.
 ## Open actions
 
 - Confirm that the prod cross-account role can read the GATS and SR25 locations,
-  and who manages that role. It is probably outside this repo.
+  and who manages that role. It is probably outside this repo. Running
+  `dia pipeline preflight` in dev shows whether dev can assume the role and read
+  GATS.
 - Confirm the prod locations for GATS metadata and SR25 documents. The current
   names in `sources/known.py` and `metadata/registry.py` end in `-dev`.
 - Look at real GATS documents before PR 8 (the GATS metadata strategy). There
