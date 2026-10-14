@@ -14,6 +14,26 @@ uv run dia --version
 ## Usage
 
 - [`dia extract-text`](docs/extract-text.md) — Stage 1: extract text from documents in a source
+- `dia pipeline preflight` — check that this process can do what the pipeline needs (see below)
+
+### Preflight
+
+`dia pipeline preflight` is read-only. It reports one line for each check and
+exits with an error if any check fails. Run it with valid AWS credentials:
+
+```bash
+export AWS_PROFILE=<your-profile>
+uv run dia pipeline preflight
+```
+
+It checks your identity (account and phase), the runtime config, the ledger
+table, our buckets, and read access to the source data (in dev, through the
+cross-account role). Inside an ECS task it also checks Neptune, which only tasks
+can reach.
+
+The runtime config is a parameter that CDK writes to Parameter Store
+(`dia-runtime-config-<phase>`). The check fails until the stack that writes it
+has been deployed to the account you are using.
 
 ## Task image
 

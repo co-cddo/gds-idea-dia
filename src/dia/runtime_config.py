@@ -1,10 +1,9 @@
 """Runtime configuration for pipeline tasks and the CLI.
 
-CDK writes one JSON parameter to SSM Parameter Store for each environment
-(`PipelineTaskStack`). It holds what the runtime needs to know about the
-deployed infrastructure. A task and a laptop both read it through
-`RuntimeConfig.load`, which validates it and fails straight away with a clear
-message if it is missing or invalid.
+CDK writes one JSON parameter to SSM Parameter Store for each environment. It
+holds what the runtime needs to know about the deployed infrastructure. A task
+and a laptop both read it through `RuntimeConfig.load`, which validates it and
+fails straight away with a clear message if it is missing or invalid.
 
 The task definition sets one environment variable, `DIA_RUNTIME_CONFIG`, to the
 parameter's name, so the dependency is visible on the task. When the variable is
@@ -33,8 +32,8 @@ class RuntimeConfigError(Exception):
 class RuntimeConfig(BaseModel):
     """What the runtime needs to know about the deployed infrastructure.
 
-    Every field is written by `PipelineTaskStack`. Unknown fields are rejected,
-    so a field added to the stack but not to this model is caught straight away.
+    Every field is written by CDK. Unknown fields are rejected, so a field added
+    to the stack but not to this model is caught straight away.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
