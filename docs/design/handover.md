@@ -15,8 +15,11 @@ covers where we are, how we work, and facts that are not obvious from the code.
   update and handover, then the naming module.
 - PR 3, the Docker image, is merged (#63).
 - PR 4a, the runtime config model and `dia pipeline preflight`, is open as a
-  draft. It is CLI code only: the runtime config parameter it reads does not
-  exist until PR 4b is deployed, so the "runtime config" check fails until then.
+  draft. **Known limitation:** it is CLI code only, and nothing writes the
+  runtime config parameter yet, so the "runtime config" check fails (and the
+  in-task Neptune check is skipped). This is expected. The parameter holds
+  values from the ECS task stack (task definition, subnets, security group, log
+  group), so it is written by PR 4b.
 - **Next:** PR 4b, the ECS task definition and its IAM role in CDK, the
   security group that lets tasks reach Neptune, and the runtime config
   parameter.

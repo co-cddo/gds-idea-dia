@@ -31,9 +31,12 @@ table, our buckets, and read access to the source data (in dev, through the
 cross-account role). Inside an ECS task it also checks Neptune, which only tasks
 can reach.
 
-The runtime config is a parameter that CDK writes to Parameter Store
-(`dia-runtime-config-<phase>`). The check fails until the stack that writes it
-has been deployed to the account you are using.
+**Known limitation:** the "runtime config" check fails for now. The runtime
+config is a parameter that CDK will write to Parameter Store
+(`dia-runtime-config-<phase>`), but no stack writes it yet. It is added with the
+ECS task stack, because it holds values from that stack (the task definition,
+subnets, security group and log group). The failure is expected, and the other
+checks are not affected by it.
 
 ## Task image
 

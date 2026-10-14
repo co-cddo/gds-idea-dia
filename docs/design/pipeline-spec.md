@@ -281,7 +281,8 @@ PR off and add its link as it is raised.
 - [x] 2. Naming: one module of phase-based names, used by both the CDK config
   and the runtime code (#62)
 - [x] 3. Docker image of the `dia` package, with a local build check (#63)
-- [ ] 4a. The runtime config model and `dia pipeline preflight`
+- [ ] 4a. The runtime config model and `dia pipeline preflight` (the runtime
+  config check fails until 4b writes the parameter; this is known and expected)
 - [ ] 4b. ECS task definition and IAM in CDK (read-only on source locations),
   the security group for Neptune access, and the runtime config parameter
 - [ ] 5. `--remote` and `dia tasks`: launch any command as a task, and list
