@@ -37,6 +37,18 @@ covers where we are, how we work, and facts that are not obvious from the code.
 - **Discuss decisions in short sections,** starting from requirements in plain
   language. Do not go into implementation detail until it is needed.
 - Do not commit, push or open PRs unless asked.
+- **AI review:** add the `ai-review` label to a PR to get an advisory review
+  from `gds-idea-ai-reviewer[bot]` (it is non-blocking, and no label means no
+  run and no cost). It needs the `ai-review` job in
+  `.github/workflows/ci_pr_cdk_app.yml`, the org secret
+  `GDS_IDEA_AI_REVIEWER_APP_ID` shared with this repo (it is public, and that
+  secret is private to private repos unless the repo is added), and the
+  `gds-idea-ai-reviewer` GitHub App installed on the repo.
+- **`ci_pr_cdk_app.yml` is managed by `idea-app` but edited by hand,** and
+  should stay that way: the template sets `run-version-check: true`, which fails
+  here because the version comes from git tags (hatch-vcs) and there is no
+  `version =` line in `pyproject.toml`. If you run `idea-app update`, do not use
+  `--force` on that file.
 
 ## Key facts
 
