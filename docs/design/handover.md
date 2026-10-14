@@ -17,9 +17,8 @@ covers where we are, how we work, and facts that are not obvious from the code.
 - PR 4a, the runtime config model and `dia pipeline preflight`, is open as a
   draft (#65).
 - PR 4b, the pipeline task stack (`stacks/pipeline_task.py`), is open as a draft
-  (#66).
-  It is stacked on 4a. **Before merging it, deploy `dia-pipeline-task-dev` to dev
-  by hand** from the branch and run `dia pipeline preflight`.
+  (#66). It is stacked on 4a. **Before merging it, deploy `dia-pipeline-task-dev`
+  to dev by hand** from the branch and run `dia pipeline preflight`.
 - **Next:** PR 5, `--remote` and `dia tasks`. It reads the cluster, task
   definition, subnets and security group from the runtime config.
 - Only the foundations are built so far (naming, the extras split, the task
@@ -47,11 +46,15 @@ covers where we are, how we work, and facts that are not obvious from the code.
 - **`ci_pr_cdk_app.yml` is managed by `idea-app` but edited by hand,** and
   should stay that way. The template sets `run-version-check: true`, which fails
   here because the version comes from git tags (hatch-vcs) and there is no
-  `version =` line in `pyproject.toml`. We also differ from the template in two
-  other ways: the trigger includes `reopened`, and the CI jobs skip on any
+  `version =` line in `pyproject.toml`. We also differ from the template in other
+  ways: the trigger includes `reopened`, and the CI jobs skip on any
   `labeled` event (the template skips only for the `ai-review` label, so adding
-  any other label, such as a release bump label, re-runs all of CI). If you run
-  `idea-app update`, do not use `--force` on that file.
+  any other label, such as a release bump label, re-runs all of CI). The trigger
+  also has no `branches:` filter, so a PR stacked on another branch still gets
+  build, lint, tests and the AI review. The CDK diff is skipped for those PRs,
+  because the catalogue's `ci_cdk_diff.yml` only supports `dev` and `prod` as
+  targets and fails on anything else. If you run `idea-app update`, do not use
+  `--force` on that file.
 
 ## Key facts
 
