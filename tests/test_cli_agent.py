@@ -31,6 +31,21 @@ _UPLOAD_RESULT = UploadResult(
 
 
 # ---------------------------------------------------------------------------
+# agent extra not installed
+# ---------------------------------------------------------------------------
+
+
+def test_agent_commands_explain_when_the_agent_extra_is_not_installed():
+    """A None entry in sys.modules makes `import strands` raise ImportError."""
+    with patch.dict("sys.modules", {"strands": None}):
+        result = runner.invoke(app, ["agent", "status"])
+
+    assert result.exit_code == 1
+    assert "need the 'agent' extra" in result.output
+    assert "uv sync --extra agent" in result.output
+
+
+# ---------------------------------------------------------------------------
 # dia agent ask
 # ---------------------------------------------------------------------------
 

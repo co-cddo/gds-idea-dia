@@ -19,6 +19,16 @@ agent_app = typer.Typer(help="Query the digital intelligence agent.")
 app.add_typer(agent_app, name="agent")
 
 
+@agent_app.callback()
+def _require_agent_extra() -> None:
+    """Stop with a clear message if the agent's optional dependencies aren't installed."""
+    try:
+        import strands  # noqa: F401
+    except ImportError:
+        typer.echo("The agent commands need the 'agent' extra. Install it with: uv sync --extra agent")
+        raise typer.Exit(code=1) from None
+
+
 @app.callback(invoke_without_command=True)
 def main(
     version: bool = typer.Option(False, "--version", "-v", help="Print version and exit."),
