@@ -15,6 +15,26 @@ uv run dia --version
 
 - [`dia extract-text`](docs/extract-text.md) — Stage 1: extract text from documents in a source
 
+## Task image
+
+Pipeline commands run in the cloud as ECS tasks, from the image defined in
+[`task/Dockerfile`](task/Dockerfile). It installs only the `pipeline` extra: no
+agent dependencies, dev dependencies or Zscaler fix. A task supplies the command,
+because the entrypoint is `dia`.
+
+To build and try it locally (from the repository root):
+
+```bash
+docker build -f task/Dockerfile -t dia-task .
+docker run --rm dia-task --version
+```
+
+The version normally comes from git tags, which are not in the image, so pass
+it with `--build-arg DIA_VERSION=<version>`. Without it the image reports
+`0.0.0.dev0`. On a Mac, this builds for the Mac's own architecture. The deployed
+image is x86_64, and `--platform linux/amd64` builds that (slowly, under
+emulation).
+
 ## Running tests
 
 ```bash

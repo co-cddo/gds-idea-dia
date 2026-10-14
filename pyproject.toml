@@ -30,37 +30,44 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "MIT"}
 dependencies = [
-    "aioboto3>=13.0.0",
     "boto3>=1.35.0",
     "gds-idea-cdk-constructs>=0.7.0",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.0.0",
+    "typer>=0.15.0",
+]
+
+[project.optional-dependencies]
+# Document pipeline stages (extract-text, chunking, graph extraction, ...). The task image installs only this.
+pipeline = [
+    "aioboto3>=13.0.0",
+    "graphrag-lexical-graph>=3.19.1",
+    "llama-index-vector-stores-opensearch>=0.6.2",
+    "numpy<2",                          # pinned: blis (spacy, via graphrag-lexical-graph) requires numpy<2
+    "pdfplumber>=0.11.9",
+    "python-docx>=1.2.0",
+    "rapidfuzz>=3.14.3",                # not used yet: kept for fuzzy entity matching in the validate stage
+]
+
+# The Department Intelligence Agent and its Word report output.
+agent = [
+    "awswrangler",
+    "fastmcp>=2.14.1",
     "graphrag-lexical-graph>=3.19.1",
     "html-for-docx>=1.2.0",
     "llama-index-vector-stores-opensearch>=0.6.2",
     "markdown>=3.10.3",
     "numpy<2",                          # pinned: blis (spacy, via graphrag-lexical-graph) requires numpy<2
-    "pdfplumber>=0.11.9",
-    "pydantic>=2.9.0",
-    "pydantic-settings>=2.0.0",
     "pymdown-extensions>=11.0.2",
-    "pypdf>=6.4.2",
     "python-docx>=1.2.0",
-    "rapidfuzz>=3.14.3",
-    "sentence-transformers>=5.2.0",
-    "typer>=0.15.0",
+    "strands-agents>=1.20.0",
+    "tavily",
 ]
 
-[project.optional-dependencies]
 cdk = [
     "aws-cdk-lib>=2.252.0",
     "constructs>=10.0.0,<11.0.0",
     "gds-idea-cdk-constructs>=0.7.0",
-]
-
-agent =[
-    "strands-agents>=1.20.0",
-    "fastmcp>=2.14.1",
-    "awswrangler",
-    "tavily"
 ]
 
 [project.scripts]

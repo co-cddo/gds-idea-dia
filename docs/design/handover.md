@@ -11,13 +11,14 @@ covers where we are, how we work, and facts that are not obvious from the code.
 
 - The spec has been reviewed and merged (#61). Aakash reviewed it and is
   reviewing each step of the build.
-- PRs 1 and 2 of the build plan (spec section 7) are on the
-  `docs/spec-review-and-plan` branch: the spec update and handover, then the
-  naming module.
-- **Next:** PR 3, the Docker image.
-- Nothing in the build plan has been implemented yet. The existing code in
-  `src/dia` is work in progress that nobody uses, and may be deleted as the PR
-  that replaces each part lands.
+- PRs 1 and 2 of the build plan (spec section 7) are merged (#62): the spec
+  update and handover, then the naming module.
+- PR 3, the Docker image, is open as a draft (#63).
+- **Next:** PR 4, the ECS task definition and its IAM role in CDK, and
+  `dia preflight`. It depends on #63.
+- Only the foundations are built so far (naming, the extras split, the task
+  image). The rest of `src/dia` is work in progress that nobody uses, and may be
+  deleted as the PR that replaces each part lands.
 
 ## How we work
 
@@ -48,6 +49,16 @@ covers where we are, how we work, and facts that are not obvious from the code.
   `dia-ledger-dev`, and `names(Bucket.TEXT_EXTRACTED)` gives
   `gds-idea-dia-text-extracted-dev`. In CDK use `config.names`. In the CLI use
   `dia.cli_helpers.current_names()`, which looks up the account.
+- **Dependencies are split into extras:** the core is only what the CLI and
+  naming need. `pipeline` is the document pipeline, `agent` is the agent and its
+  report output, and `cdk` is for CDK. CI uses `uv sync --all-extras`.
+- **Task image:** `task/Dockerfile` installs only the `pipeline` extra and runs
+  `dia` as its entrypoint (see the README for how to build it). It is about
+  1.44GB, and roughly 420MB of that is `aws-cdk-lib`, pulled in because
+  `gds-idea-cdk-constructs` imports it at module level. The upstream issue is
+  co-cddo/gds-idea-cdk-constructs-new#62. For PR 4: CDK's Docker asset hashing
+  does not read `task/Dockerfile.dockerignore`, so the asset needs an explicit
+  exclude list.
 - **Stages:** text, chunk, propositions, topics, validate, embed, load. Purge
   and prune are separate steps, and prune is deferred.
 - **Graph updates are versioned.** The agent does not yet query "current
