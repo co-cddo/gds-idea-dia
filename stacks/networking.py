@@ -1,6 +1,7 @@
 """CDK stack for DIA networking resources.
 
-Builds the EICE endpoint and its security group within the shared org VPC.
+Builds the EICE endpoint and its security group, and the security group for
+pipeline tasks, within the shared org VPC.
 EICE provides SSH access (port 22) to the bastion host — confirmed via
 live testing that EICE does not support arbitrary ports like Neptune's 8182,
 so a bastion is needed as an intermediate stage.
@@ -24,6 +25,8 @@ class NetworkingStack(cdk.Stack):
     Resources:
         Security Groups:
             - eice-sg: Outbound allowed (reaches bastion's SSH daemon via EICE)
+            - task-sg: Attached to pipeline tasks. Outbound allowed (AWS APIs and
+              Neptune). Neptune allows it in on 8182 (see NeptuneStack).
         EC2 Instance Connect Endpoint:
             - EICE in one isolated subnet, attached to eice-sg
             - Enables `aws ec2-instance-connect ssh` to the bastion (port 22 only)
@@ -54,6 +57,16 @@ class NetworkingStack(cdk.Stack):
             "EiceSecurityGroup",
             vpc=self.vpc,
             description="Security group for EC2 Instance Connect Endpoint",
+            allow_all_outbound=True,
+        )
+
+        # Security group for pipeline tasks. Created here, not in the task stack, so that
+        # NeptuneStack can allow it in without a dependency cycle between stacks.
+        self.task_security_group = ec2.SecurityGroup(
+            self,
+            "TaskSecurityGroup",
+            vpc=self.vpc,
+            description="Security group for DIA pipeline tasks",
             allow_all_outbound=True,
         )
 

@@ -18,7 +18,8 @@ class NeptuneStack(cdk.Stack):
     """Creates a Neptune Database cluster for the DIA knowledge graph.
 
     Resources:
-        - Security group for Neptune (incoming connection from bastion on 8182)
+        - Security group for Neptune (incoming connection from bastion, and from
+          pipeline tasks if given, on 8182)
         - DB subnet group spanning the VPC's isolated subnets (2 AZs)
         - Neptune cluster with IAM auth + encryption enabled
         - Serverless scaling (1.0-48 NCU) so capacity grows with load
@@ -40,6 +41,7 @@ class NeptuneStack(cdk.Stack):
         config: AppConfig,
         vpc: ec2.IVpc,
         bastion_security_group: ec2.ISecurityGroup,
+        task_security_group: ec2.ISecurityGroup | None = None,
         **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
@@ -58,6 +60,13 @@ class NeptuneStack(cdk.Stack):
             connection=ec2.Port.tcp(8182),
             description="Allow Neptune access from bastion port-forwarding",
         )
+
+        if task_security_group is not None:
+            self.neptune_security_group.add_ingress_rule(
+                peer=task_security_group,
+                connection=ec2.Port.tcp(8182),
+                description="Allow Neptune access from pipeline tasks",
+            )
 
         # Subnet group spanning all isolated subnets (Neptune requires >= 2 AZs)
         subnet_group = neptune.CfnDBSubnetGroup(

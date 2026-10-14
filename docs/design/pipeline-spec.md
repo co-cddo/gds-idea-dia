@@ -247,8 +247,9 @@ How it behaves:
 
 ## 5. Open actions
 
-- Confirm that the prod cross-account role can read the GATS and SR25 locations
-  (documents and metadata), and who manages that role.
+- Confirm that the cross-account role can read the SR25 locations and the GATS
+  metadata. It trusts the whole dev account and has `ReadOnlyAccess`, so GATS
+  documents should work.
 - Confirm the prod locations for GATS metadata and SR25 documents. The current
   names end in `-dev`.
 - Agree the change to the agent (current versions only) with whoever owns the
@@ -282,9 +283,8 @@ PR off and add its link as it is raised.
 - [x] 2. Naming: one module of phase-based names, used by both the CDK config
   and the runtime code (#62)
 - [x] 3. Docker image of the `dia` package, with a local build check (#63)
-- [ ] 4a. The runtime config model and `dia pipeline preflight` (the runtime
-  config check fails until 4b writes the parameter; this is known and expected)
-- [ ] 4b. ECS task definition and IAM in CDK (read-only on source locations),
+- [x] 4a. The runtime config model and `dia pipeline preflight` (#65)
+- [x] 4b. ECS task definition and IAM in CDK (read-only on source locations),
   the security group for Neptune access, and the runtime config parameter
 - [ ] 5. `--remote` and `dia tasks`: launch any command as a task, and list
   recent tasks with status and a log link
@@ -293,7 +293,11 @@ PR off and add its link as it is raised.
 
 - [ ] 6. Source protocols and the common metadata model
 - [ ] 7. S3 file reader, with cross-account access and the per-source dev
-  override
+  override. It should also: narrow the cross-account session to the source's
+  bucket and prefix (a session policy on `AssumeRole`, because the shared role
+  can read all of production), and use refreshable credentials (a task's
+  credentials are role credentials, so a second `AssumeRole` is role chaining and
+  its sessions last at most an hour, which a long extraction in dev would outlast)
 - [ ] 8. GATS metadata strategy (after looking at real GATS documents)
 - [ ] 9. GATS source definition and its validation, replacing
   `sources/known.py` and `metadata/registry.py`

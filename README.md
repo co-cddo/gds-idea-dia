@@ -35,12 +35,9 @@ The runtime config is read from the parameter named in the `DIA_RUNTIME_CONFIG`
 environment variable. A task definition sets it. When it isn't set, as on a
 laptop, the name is built from the environment: `dia-runtime-config-<phase>`.
 
-**Known limitation:** the "runtime config" check fails for now. The runtime
-config is a parameter that CDK will write to Parameter Store
-(`dia-runtime-config-<phase>`), but no stack writes it yet. It is added with the
-ECS task stack, because it holds values from that stack (the task definition,
-subnets, security group and log group). The failure is expected, and the other
-checks are not affected by it.
+The parameter is written by the pipeline task stack (`stacks/pipeline_task.py`),
+so the "runtime config" check fails in an account until that stack has been
+deployed there. Your own role also needs `ssm:GetParameter` on it.
 
 ## Task image
 
@@ -55,6 +52,11 @@ To build and try it locally (from the repository root):
 docker build -f task/Dockerfile -t dia-task .
 docker run --rm dia-task --version
 ```
+
+CDK builds and deploys this image as part of the pipeline task stack
+(`stacks/pipeline_task.py`) when changes merge to `dev` or `prod`. The stack also
+defines the task's size (2 vCPU, 8GB), its roles, its log group and the runtime
+config parameter.
 
 The version normally comes from git tags, which are not in the image, so pass
 it with `--build-arg DIA_VERSION=<version>`. Without it the image reports
