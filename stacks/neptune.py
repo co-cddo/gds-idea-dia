@@ -63,7 +63,7 @@ class NeptuneStack(cdk.Stack):
         subnet_group = neptune.CfnDBSubnetGroup(
             self,
             "SubnetGroup",
-            db_subnet_group_name=config.resource_name("neptune-subnets"),
+            db_subnet_group_name=config.names("neptune-subnets"),
             db_subnet_group_description="Isolated subnets for DIA Neptune cluster",
             subnet_ids=[subnet.subnet_id for subnet in vpc.isolated_subnets],
         )
@@ -73,7 +73,7 @@ class NeptuneStack(cdk.Stack):
         self.cluster = neptune.CfnDBCluster(
             self,
             "Cluster",
-            db_cluster_identifier=config.resource_name("neptune"),
+            db_cluster_identifier=config.names("neptune"),
             db_subnet_group_name=subnet_group.ref,
             vpc_security_group_ids=[self.neptune_security_group.security_group_id],
             iam_auth_enabled=True,
@@ -92,7 +92,7 @@ class NeptuneStack(cdk.Stack):
             "Instance",
             db_instance_class="db.serverless",
             db_cluster_identifier=self.cluster.ref,
-            db_instance_identifier=config.resource_name("neptune-instance"),
+            db_instance_identifier=config.names("neptune-instance"),
         )
         self.instance.apply_removal_policy(cdk.RemovalPolicy.DESTROY)
 

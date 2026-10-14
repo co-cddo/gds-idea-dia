@@ -6,10 +6,12 @@ the CLI parses args correctly, passes them through, and renders the result.
 
 from unittest.mock import patch
 
+from gds_idea_cdk_constructs import DeploymentEnvironment
 from typer.testing import CliRunner
 
 from dia.agent.models import AgentResponse, UploadResult
 from dia.cli import app
+from dia.naming import Names
 
 runner = CliRunner()
 
@@ -38,7 +40,7 @@ def test_agent_ask_passes_query_and_department_through_with_tunnel_true():
     tunnel=True (hardcoded), since ask() needs Neptune/AOSS access to succeed."""
     with (
         patch("dia.agent.runtime.ask") as mock_ask,
-        patch("dia.cli_helpers.resolve_agent_report_bucket", return_value="test-bucket"),
+        patch("dia.cli_helpers.current_names", return_value=Names(DeploymentEnvironment.DEVELOPMENT)),
         patch("dia.agent.report.ReportUploader.upload", return_value=_UPLOAD_RESULT),
     ):
         mock_ask.return_value = _RESPONSE
@@ -55,7 +57,7 @@ def test_agent_ask_passes_query_and_department_through_with_tunnel_true():
 def test_agent_ask_defaults_department_none():
     with (
         patch("dia.agent.runtime.ask") as mock_ask,
-        patch("dia.cli_helpers.resolve_agent_report_bucket", return_value="test-bucket"),
+        patch("dia.cli_helpers.current_names", return_value=Names(DeploymentEnvironment.DEVELOPMENT)),
         patch("dia.agent.report.ReportUploader.upload", return_value=_UPLOAD_RESULT),
     ):
         mock_ask.return_value = _RESPONSE
@@ -81,7 +83,7 @@ def test_agent_ask_rejects_tunnel_flag():
 def test_agent_ask_echoes_the_result():
     with (
         patch("dia.agent.runtime.ask") as mock_ask,
-        patch("dia.cli_helpers.resolve_agent_report_bucket", return_value="test-bucket"),
+        patch("dia.cli_helpers.current_names", return_value=Names(DeploymentEnvironment.DEVELOPMENT)),
         patch("dia.agent.report.ReportUploader.upload", return_value=_UPLOAD_RESULT),
     ):
         mock_ask.return_value = _RESPONSE
@@ -94,7 +96,7 @@ def test_agent_ask_echoes_the_result():
 def test_agent_ask_uploads_report_and_echoes_download_urls():
     with (
         patch("dia.agent.runtime.ask") as mock_ask,
-        patch("dia.cli_helpers.resolve_agent_report_bucket", return_value="test-bucket"),
+        patch("dia.cli_helpers.current_names", return_value=Names(DeploymentEnvironment.DEVELOPMENT)),
         patch("dia.agent.report.ReportUploader.upload", return_value=_UPLOAD_RESULT) as mock_upload,
     ):
         mock_ask.return_value = _RESPONSE

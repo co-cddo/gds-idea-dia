@@ -74,7 +74,7 @@ class BastionStack(cdk.Stack):
             vpc=vpc,
             vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_ISOLATED),
             security_group=self.bastion_security_group,
-            instance_name=config.resource_name("bastion"),
+            instance_name=config.names("bastion"),
         )
         self.instance.apply_removal_policy(cdk.RemovalPolicy.DESTROY)
 

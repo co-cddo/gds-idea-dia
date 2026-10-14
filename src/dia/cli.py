@@ -34,10 +34,10 @@ def ledger_list(
     source: Annotated[str, typer.Option("--source", "-s", help="Source name to list records for.")],
 ):
     """List processed documents for a source."""
-    from dia.cli_helpers import resolve_ledger_table
+    from dia.cli_helpers import current_names
     from dia.ledger.dynamodb import DynamoDBLedger
 
-    table_name = resolve_ledger_table()
+    table_name = current_names()("ledger")
     ledger = DynamoDBLedger(table_name=table_name)
     records = ledger.list_records(source)
 
@@ -71,14 +71,14 @@ def ledger_clear(
     Use --source to clear a single source, or --all to clear everything.
     Use --dry-run to preview without deleting.
     """
-    from dia.cli_helpers import resolve_ledger_table
+    from dia.cli_helpers import current_names
     from dia.ledger.dynamodb import DynamoDBLedger
 
     if not source and not all_sources:
         typer.echo("Error: Provide --source <name> or --all")
         raise typer.Exit(code=1)
 
-    table_name = resolve_ledger_table()
+    table_name = current_names()("ledger")
     ledger = DynamoDBLedger(table_name=table_name)
 
     if all_sources:
@@ -121,10 +121,10 @@ def ledger_clone(
     import json
     from pathlib import Path
 
-    from dia.cli_helpers import resolve_ledger_table
+    from dia.cli_helpers import current_names
     from dia.ledger.dynamodb import DynamoDBLedger
 
-    table_name = resolve_ledger_table()
+    table_name = current_names()("ledger")
     remote = DynamoDBLedger(table_name=table_name)
 
     records = remote.list_all_records()
@@ -275,14 +275,16 @@ def _run_local(source, data_source, s3_source, metadata, filters, force, inmemor
 
 def _run_live(source, data_source, s3_source, metadata, filters, filtered_refs, force, yes) -> None:
     """Run extraction in production: S3 writer, DynamoDB ledger, with confirmation."""
-    from dia.cli_helpers import resolve_ledger_table, resolve_text_output_bucket
+    from dia.cli_helpers import current_names
     from dia.config import TextExtractionConfig
     from dia.ledger.dynamodb import DynamoDBLedger
+    from dia.naming import Bucket
     from dia.pipeline import TextExtractionRunner
     from dia.writers.s3 import S3OutputWriter
 
-    table_name = resolve_ledger_table()
-    bucket = resolve_text_output_bucket()
+    names = current_names()
+    table_name = names("ledger")
+    bucket = names.bucket(Bucket.TEXT_EXTRACTED)
     ledger = DynamoDBLedger(table_name=table_name)
     writer = S3OutputWriter(bucket)
 
@@ -340,12 +342,13 @@ def agent_ask(
 ):
     from dia.agent import runtime
     from dia.agent.report import ReportUploader
-    from dia.cli_helpers import resolve_agent_report_bucket
+    from dia.cli_helpers import current_names
+    from dia.naming import Bucket
 
     response = runtime.ask(department, query, tunnel=True)
     typer.echo(response.output)
 
-    uploader = ReportUploader(bucket=resolve_agent_report_bucket())
+    uploader = ReportUploader(bucket=current_names().bucket(Bucket.AGENT_REPORTS))
     result = uploader.upload(response)
 
     typer.echo(f"\nMarkdown report: {result.markdown_download_url}")

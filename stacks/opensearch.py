@@ -43,8 +43,8 @@ class OpenSearchStack(cdk.Stack):
     def __init__(self, scope: Construct, construct_id: str, *, config: AppConfig, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        collection_name = config.resource_name("aoss")
-        group_name = config.resource_name("aoss-group")
+        collection_name = config.names("aoss")
+        group_name = config.names("aoss-group")
         collection_resource = f"collection/{collection_name}"
 
         # Encryption policy — required before a collection can be created.
@@ -52,7 +52,7 @@ class OpenSearchStack(cdk.Stack):
         encryption_policy = aoss.CfnSecurityPolicy(
             self,
             "EncryptionPolicy",
-            name=config.resource_name("aoss-encryption"),
+            name=config.names("aoss-encryption"),
             type="encryption",
             policy=json.dumps(
                 {
@@ -73,7 +73,7 @@ class OpenSearchStack(cdk.Stack):
         network_policy = aoss.CfnSecurityPolicy(
             self,
             "NetworkPolicy",
-            name=config.resource_name("aoss-network"),
+            name=config.names("aoss-network"),
             type="network",
             policy=json.dumps(
                 [
@@ -141,7 +141,7 @@ class OpenSearchStack(cdk.Stack):
         data_access_policy = aoss.CfnAccessPolicy(
             self,
             "DataAccessPolicy",
-            name=config.resource_name("aoss-access"),
+            name=config.names("aoss-access"),
             type="data",
             policy=json.dumps(
                 [

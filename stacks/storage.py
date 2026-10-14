@@ -9,6 +9,7 @@ from aws_cdk import aws_s3 as s3
 from constructs import Construct
 
 from config import AppConfig
+from dia.naming import Bucket
 
 
 class StorageStack(cdk.Stack):
@@ -36,7 +37,7 @@ class StorageStack(cdk.Stack):
         self.text_extracted_bucket = s3.Bucket(
             self,
             "TextExtracted",
-            bucket_name=config.bucket("text-extracted"),
+            bucket_name=config.names.bucket(Bucket.TEXT_EXTRACTED),
             versioned=True,
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
@@ -47,7 +48,7 @@ class StorageStack(cdk.Stack):
         self.graph_raw_bucket = s3.Bucket(
             self,
             "GraphRaw",
-            bucket_name=config.bucket("graph-raw"),
+            bucket_name=config.names.bucket(Bucket.GRAPH_RAW),
             versioned=True,
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
@@ -58,7 +59,7 @@ class StorageStack(cdk.Stack):
         self.graph_validated_bucket = s3.Bucket(
             self,
             "GraphValidated",
-            bucket_name=config.bucket("graph-validated"),
+            bucket_name=config.names.bucket(Bucket.GRAPH_VALIDATED),
             versioned=True,
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
@@ -69,7 +70,7 @@ class StorageStack(cdk.Stack):
         self.batch_bucket = s3.Bucket(
             self,
             "Batch",
-            bucket_name=config.bucket("batch"),
+            bucket_name=config.names.bucket(Bucket.BATCH),
             versioned=False,
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
@@ -92,7 +93,7 @@ class StorageStack(cdk.Stack):
         self.agent_reports_bucket = s3.Bucket(
             self,
             "AgentReports",
-            bucket_name=config.bucket("agent-reports"),
+            bucket_name=config.names.bucket(Bucket.AGENT_REPORTS),
             versioned=True,
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
@@ -103,7 +104,7 @@ class StorageStack(cdk.Stack):
         self.ledger_table = dynamodb.Table(
             self,
             "Ledger",
-            table_name=config.resource_name("ledger"),
+            table_name=config.names("ledger"),
             partition_key=dynamodb.Attribute(
                 name="document_key",
                 type=dynamodb.AttributeType.STRING,
@@ -118,7 +119,7 @@ class StorageStack(cdk.Stack):
         self.batch_inference_role = iam.Role(
             self,
             "BatchInferenceRole",
-            role_name=config.resource_name("batch-inference"),
+            role_name=config.names("batch-inference"),
             description="Assumed by Bedrock Batch Inference jobs to read/write the batch bucket.",
             assumed_by=iam.ServicePrincipal(
                 "bedrock.amazonaws.com",

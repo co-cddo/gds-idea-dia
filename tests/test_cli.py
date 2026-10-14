@@ -3,11 +3,16 @@
 from importlib.metadata import version
 from unittest.mock import patch
 
+from gds_idea_cdk_constructs import DeploymentEnvironment
 from typer.testing import CliRunner
 
 from dia.cli import app
+from dia.naming import Names
 
 runner = CliRunner()
+
+DEV_NAMES = Names(DeploymentEnvironment.DEVELOPMENT)
+PROD_NAMES = Names(DeploymentEnvironment.PRODUCTION)
 
 
 # ---------------------------------------------------------------------------
@@ -65,7 +70,7 @@ def test_ledger_list_shows_records():
     ]
 
     with (
-        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-dev"),
+        patch("dia.cli_helpers.current_names", return_value=DEV_NAMES),
         patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_cls,
     ):
         mock_cls.return_value.list_records.return_value = mock_records
@@ -81,7 +86,7 @@ def test_ledger_list_shows_records():
 
 def test_ledger_list_empty_source():
     with (
-        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-dev"),
+        patch("dia.cli_helpers.current_names", return_value=DEV_NAMES),
         patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_cls,
     ):
         mock_cls.return_value.list_records.return_value = []
@@ -104,7 +109,7 @@ def test_ledger_clear_dry_run():
     ]
 
     with (
-        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-dev"),
+        patch("dia.cli_helpers.current_names", return_value=DEV_NAMES),
         patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_cls,
     ):
         mock_cls.return_value.list_records.return_value = mock_records
@@ -118,7 +123,7 @@ def test_ledger_clear_dry_run():
 
 def test_ledger_clear_source():
     with (
-        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-dev"),
+        patch("dia.cli_helpers.current_names", return_value=DEV_NAMES),
         patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_cls,
     ):
         mock_cls.return_value.clear.return_value = 5
@@ -132,7 +137,7 @@ def test_ledger_clear_source():
 
 def test_ledger_clear_all():
     with (
-        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-dev"),
+        patch("dia.cli_helpers.current_names", return_value=DEV_NAMES),
         patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_cls,
     ):
         mock_cls.return_value.clear_all.return_value = 12
@@ -150,7 +155,7 @@ def test_ledger_clear_all_dry_run():
     ]
 
     with (
-        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-dev"),
+        patch("dia.cli_helpers.current_names", return_value=DEV_NAMES),
         patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_cls,
     ):
         mock_cls.return_value.list_all_records.return_value = mock_records
@@ -167,7 +172,7 @@ def test_ledger_clear_all_dry_run():
 
 def test_ledger_clear_requires_source_or_all():
     with (
-        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-dev"),
+        patch("dia.cli_helpers.current_names", return_value=DEV_NAMES),
         patch("dia.ledger.dynamodb.DynamoDBLedger"),
     ):
         result = runner.invoke(app, ["ledger", "clear"])
@@ -200,7 +205,7 @@ def test_ledger_clone_writes_records_to_file(tmp_path):
     target = str(tmp_path / "ledger.json")
 
     with (
-        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-dev"),
+        patch("dia.cli_helpers.current_names", return_value=DEV_NAMES),
         patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_cls,
     ):
         mock_cls.return_value.list_all_records.return_value = mock_records
@@ -234,7 +239,7 @@ def test_ledger_clone_default_path(tmp_path, monkeypatch):
     ]
 
     with (
-        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-dev"),
+        patch("dia.cli_helpers.current_names", return_value=DEV_NAMES),
         patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_cls,
     ):
         mock_cls.return_value.list_all_records.return_value = mock_records
@@ -272,7 +277,7 @@ def test_ledger_clone_overwrites_existing_file(tmp_path):
     ]
 
     with (
-        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-dev"),
+        patch("dia.cli_helpers.current_names", return_value=DEV_NAMES),
         patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_cls,
     ):
         mock_cls.return_value.list_all_records.return_value = mock_records
@@ -290,7 +295,7 @@ def test_ledger_clone_overwrites_existing_file(tmp_path):
 
 def test_ledger_clone_empty_table():
     with (
-        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-dev"),
+        patch("dia.cli_helpers.current_names", return_value=DEV_NAMES),
         patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_cls,
     ):
         mock_cls.return_value.list_all_records.return_value = []
@@ -314,7 +319,7 @@ def test_ledger_clone_creates_parent_directories(tmp_path):
     target = str(tmp_path / "nested" / "dir" / "ledger.json")
 
     with (
-        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-dev"),
+        patch("dia.cli_helpers.current_names", return_value=DEV_NAMES),
         patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_cls,
     ):
         mock_cls.return_value.list_all_records.return_value = mock_records
@@ -608,8 +613,7 @@ def test_extract_text_live_prompts_and_aborts_on_no():
         patch("dia.sources.known.get_source", return_value=data_source),
         patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
         patch("dia.metadata.load_metadata", return_value=None),
-        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-prod"),
-        patch("dia.cli_helpers.resolve_text_output_bucket", return_value="dia-text-extracted-prod"),
+        patch("dia.cli_helpers.current_names", return_value=PROD_NAMES),
         patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_ledger_cls,
         patch("dia.writers.s3.S3OutputWriter"),
         patch("dia.pipeline.TextExtractionRunner") as mock_runner_cls,
@@ -633,8 +637,7 @@ def test_extract_text_live_yes_skips_confirmation():
         patch("dia.sources.known.get_source", return_value=data_source),
         patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
         patch("dia.metadata.load_metadata", return_value=None),
-        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-prod"),
-        patch("dia.cli_helpers.resolve_text_output_bucket", return_value="dia-text-extracted-prod"),
+        patch("dia.cli_helpers.current_names", return_value=PROD_NAMES),
         patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_ledger_cls,
         patch("dia.writers.s3.S3OutputWriter"),
         patch("dia.pipeline.TextExtractionRunner") as mock_runner_cls,
@@ -658,8 +661,7 @@ def test_extract_text_live_force_shows_reprocess_warning():
         patch("dia.sources.known.get_source", return_value=data_source),
         patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
         patch("dia.metadata.load_metadata", return_value=None),
-        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-prod"),
-        patch("dia.cli_helpers.resolve_text_output_bucket", return_value="dia-text-extracted-prod"),
+        patch("dia.cli_helpers.current_names", return_value=PROD_NAMES),
         patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_ledger_cls,
         patch("dia.writers.s3.S3OutputWriter"),
         patch("dia.pipeline.TextExtractionRunner") as mock_runner_cls,
@@ -682,8 +684,7 @@ def test_extract_text_live_nothing_to_do():
         patch("dia.sources.known.get_source", return_value=data_source),
         patch("dia.sources.s3.S3DocumentSource") as mock_source_cls,
         patch("dia.metadata.load_metadata", return_value=None),
-        patch("dia.cli_helpers.resolve_ledger_table", return_value="dia-ledger-prod"),
-        patch("dia.cli_helpers.resolve_text_output_bucket", return_value="dia-text-extracted-prod"),
+        patch("dia.cli_helpers.current_names", return_value=PROD_NAMES),
         patch("dia.ledger.dynamodb.DynamoDBLedger") as mock_ledger_cls,
         patch("dia.writers.s3.S3OutputWriter"),
         patch("dia.pipeline.TextExtractionRunner") as mock_runner_cls,

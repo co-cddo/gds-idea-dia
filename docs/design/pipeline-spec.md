@@ -257,8 +257,8 @@ PR off and add its link as it is raised.
 
 ### Milestone A: remote running
 
-- [ ] 1. Spec update, this build plan and the handover (docs only)
-- [ ] 2. Naming: one module of phase-based names, used by both the CDK config
+- [x] 1. Spec update, this build plan and the handover (docs only)
+- [x] 2. Naming: one module of phase-based names, used by both the CDK config
   and the runtime code
 - [ ] 3. Docker image of the `dia` package, with a local build check
 - [ ] 4. ECS task definition and IAM in CDK (read-only on source locations), and

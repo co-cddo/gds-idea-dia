@@ -11,8 +11,10 @@ covers where we are, how we work, and facts that are not obvious from the code.
 
 - The spec has been reviewed and merged (#61). Aakash reviewed it and is
   reviewing each step of the build.
-- **Next:** PR 2 in the build plan (spec section 7): the naming module.
-- PR 1 (this one) is docs only.
+- PRs 1 and 2 of the build plan (spec section 7) are on the
+  `docs/spec-review-and-plan` branch: the spec update and handover, then the
+  naming module.
+- **Next:** PR 3, the Docker image.
 - Nothing in the build plan has been implemented yet. The existing code in
   `src/dia` is work in progress that nobody uses, and may be deleted as the PR
   that replaces each part lands.
@@ -41,6 +43,11 @@ covers where we are, how we work, and facts that are not obvious from the code.
   `gds_idea_cdk_constructs`), unless the source names a dev override bucket.
 - **Phase** comes from the AWS account (`DeploymentEnvironment`). Dev is
   `992382722318`, prod is `588077357019`.
+- **Names:** every deployed name is built by `dia.naming.Names`, created from a
+  `DeploymentEnvironment` (`Names(env)`). `names("ledger")` gives
+  `dia-ledger-dev`, and `names.bucket(Bucket.TEXT_EXTRACTED)` gives
+  `gds-idea-dia-text-extracted-dev`. In CDK use `config.names`. In the CLI use
+  `dia.cli_helpers.current_names()`, which looks up the account.
 - **Stages:** text, chunk, propositions, topics, validate, embed, load. Purge
   and prune are separate steps, and prune is deferred.
 - **Graph updates are versioned.** The agent does not yet query "current
@@ -68,6 +75,12 @@ covers where we are, how we work, and facts that are not obvious from the code.
 - Agree the agent change (current versions only) with the agent owner.
 - Run `idea-app update --dry-run` (the project was adopted at 0.5.4, and
   0.6.0 is installed) and decide whether to update.
+- Known deviations from the CDK review standards, left alone because renaming
+  would make CloudFormation replace resources: generic stack names such as
+  `StorageStack`.
+- Still outside `dia.naming`: the agent's secret names (hardcoded to `-dev` in
+  `agent/config.py`), the stack names in `scripts/neptune-tunnel.sh`, and the
+  `phase` default in `clients/graph_rag_config.py`.
 - Open questions on testing and on permissions and ownership (spec section 6).
 
 ## Useful commands
