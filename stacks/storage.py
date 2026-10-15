@@ -10,6 +10,7 @@ from constructs import Construct
 
 from config import AppConfig
 from dia.naming import Bucket
+from stacks.shared.iam import permissions_boundary
 
 
 class StorageStack(cdk.Stack):
@@ -125,11 +126,7 @@ class StorageStack(cdk.Stack):
                 "bedrock.amazonaws.com",
                 conditions={"StringEquals": {"aws:SourceAccount": config.account_number}},
             ),
-            permissions_boundary=iam.ManagedPolicy.from_managed_policy_arn(
-                self,
-                "BatchInferencePermissionsBoundary",
-                f"arn:aws:iam::{config.account_number}:policy/DenyUserPermissionsPolicy",
-            ),
+            permissions_boundary=permissions_boundary(self, "BatchInferencePermissionsBoundary", config=config),
         )
         self.batch_bucket.grant_read_write(self.batch_inference_role)
         self.batch_inference_role.add_to_policy(

@@ -15,17 +15,16 @@ covers where we are, how we work, and facts that are not obvious from the code.
   update and handover, then the naming module.
 - PR 3, the Docker image, is merged (#63).
 - PR 4a, the runtime config model and `dia pipeline preflight`, is open as a
-  draft. **Known limitation:** it is CLI code only, and nothing writes the
-  runtime config parameter yet, so the "runtime config" check fails (and the
-  in-task Neptune check is skipped). This is expected. The parameter holds
-  values from the ECS task stack (task definition, subnets, security group, log
-  group), so it is written by PR 4b.
-- **Next:** PR 4b, the ECS task definition and its IAM role in CDK, the
-  security group that lets tasks reach Neptune, and the runtime config
-  parameter.
+  draft (#65).
+- PR 4b, the pipeline task stack (`stacks/pipeline_task.py`), is open as a draft
+  (#66). It is stacked on 4a. **Before merging it, deploy `dia-pipeline-task-dev`
+  to dev by hand** from the branch and run `dia pipeline preflight`.
+- **Next:** PR 5, `--remote` and `dia tasks`. It reads the cluster, task
+  definition, subnets and security group from the runtime config.
 - Only the foundations are built so far (naming, the extras split, the task
-  image, preflight). The rest of `src/dia` is work in progress that nobody
-  uses, and may be deleted as the PR that replaces each part lands.
+  image, preflight and the task stack). The rest of `src/dia` is work in
+  progress that nobody uses, and may be deleted as the PR that replaces each part
+  lands.
 
 ## How we work
 
@@ -47,11 +46,15 @@ covers where we are, how we work, and facts that are not obvious from the code.
 - **`ci_pr_cdk_app.yml` is managed by `idea-app` but edited by hand,** and
   should stay that way. The template sets `run-version-check: true`, which fails
   here because the version comes from git tags (hatch-vcs) and there is no
-  `version =` line in `pyproject.toml`. We also differ from the template in two
-  other ways: the trigger includes `reopened`, and the CI jobs skip on any
+  `version =` line in `pyproject.toml`. We also differ from the template in other
+  ways: the trigger includes `reopened`, and the CI jobs skip on any
   `labeled` event (the template skips only for the `ai-review` label, so adding
-  any other label, such as a release bump label, re-runs all of CI). If you run
-  `idea-app update`, do not use `--force` on that file.
+  any other label, such as a release bump label, re-runs all of CI). The trigger
+  also has no `branches:` filter, so a PR stacked on another branch still gets
+  build, lint, tests and the AI review. The CDK diff is skipped for those PRs,
+  because the catalogue's `ci_cdk_diff.yml` only supports `dev` and `prod` as
+  targets and fails on anything else. If you run `idea-app update`, do not use
+  `--force` on that file.
 
 ## Key facts
 
@@ -78,17 +81,44 @@ covers where we are, how we work, and facts that are not obvious from the code.
   `dia` as its entrypoint (see the README for how to build it). It is about
   1.44GB, and roughly 420MB of that is `aws-cdk-lib`, pulled in because
   `gds-idea-cdk-constructs` imports it at module level. The upstream issue is
-  co-cddo/gds-idea-cdk-constructs-new#62. For PR 4b: CDK's Docker asset hashing
-  does not read `task/Dockerfile.dockerignore`, so the asset needs an explicit
-  exclude list.
+  co-cddo/gds-idea-cdk-constructs-new#62. The image's build context is listed in
+  the root `.dockerignore`, which both `docker build` and CDK read (a test checks
+  what the stack actually stages).
+- **Pipeline task stack:** one Fargate task definition, 2 vCPU and 8GB (to tune
+  once real stages show what they need; it can also be overridden per run), with
+  the image built for x86_64 and `dia` as the entrypoint. The task role is
+  `dia-pipeline-task-{phase}` and carries the account's
+  `DenyUserPermissionsPolicy` boundary (it allows everything except creating
+  IAM users and access keys, so it removes nothing). It can use the ledger, our
+  buckets, Neptune (read, write and delete via query, and engine status) and the
+  runtime config parameter. It does **not** have Bedrock or OpenSearch access
+  yet: later stages add what they need (the OpenSearch access policy names the
+  account root as principal, so the load stage will need to add an `aoss`
+  permission to the task role). The tasks' security group is in
+  `NetworkingStack`, and `NeptuneStack` allows it in on 8182. Logs go to
+  `/dia-task-{phase}` for 90 days (kept in prod, deleted with the stack in dev).
+  The stack takes the shared `DeploymentConfig` (cluster, VPC id and the
+  cross-account role) and looks the VPC up itself unless a test gives one. ARNs
+  are written out literally with the `aws` partition, like the rest of the repo.
+- **Cross-account role** `assume_role_for_development_account` (production
+  account): it trusts the whole dev account with no conditions, and has
+  `ReadOnlyAccess` plus Lake Formation, Bedrock knowledge base, Athena and S3
+  Tables policies. So the dev task role only needs `sts:AssumeRole` on it, which
+  the stack grants, and nothing needs adding to the role's trust policy.
+  `ReadOnlyAccess` means an assumed session can read all of production, not just
+  GATS. That is the existing pattern, but PR 7 should narrow it (see the build
+  plan). A task's credentials are role credentials, so assuming the role from a
+  task is role chaining and its sessions last at most an hour; PR 7 needs
+  refreshable credentials. Preflight only needs a moment, so it is not affected.
 - **Commands:** pipeline commands live under `dia pipeline` and the agent under
   `dia agent`. `extract-text` and `ledger` are still at the top level and move
   under `pipeline` when they are rewritten (PRs 11 to 14). `dia agent status`
   is effectively the agent's own preflight, and could be renamed to
   `dia agent preflight` for symmetry (a job for the agent's owner).
 - **Runtime config:** CDK writes the Neptune endpoint and port, the OpenSearch
-  endpoint, cluster, task definition, subnets, security group and log group as
-  one JSON parameter, `dia-runtime-config-{phase}`. It is read through
+  endpoint, cluster, task definition, subnets, security group, log group and (in
+  dev) the cross-account role as one JSON parameter,
+  `dia-runtime-config-{phase}`. It is read through
   `dia.runtime_config.RuntimeConfig.load`, which fails fast. The task definition
   sets `DIA_RUNTIME_CONFIG` to the parameter name, and locally the name is built
   from `Names`. To add a value, add the field to `RuntimeConfig` and to the
@@ -103,8 +133,10 @@ covers where we are, how we work, and facts that are not obvious from the code.
 - **Preflight:** `dia pipeline preflight` is read-only. It checks Neptune only
   inside an ECS task (it detects one through `ECS_CONTAINER_METADATA_URI_V4`),
   because only tasks reach the VPC. Its source check is limited to GATS and
-  builds the cross-account client itself; PR 7 should take that over, and PR 9
-  should make it read the new source definitions.
+  builds the cross-account client itself, using the role from the runtime
+  config (so in dev that check is skipped if the config can't be read). PR 7
+  should take that over, and PR 9 should make it read the new source
+  definitions.
 - **Stages:** text, chunk, propositions, topics, validate, embed, load. Purge
   and prune are separate steps, and prune is deferred.
 - **Graph updates are versioned.** The agent does not yet query "current
@@ -123,10 +155,17 @@ covers where we are, how we work, and facts that are not obvious from the code.
 
 ## Open actions
 
-- Confirm that the prod cross-account role can read the GATS and SR25 locations,
-  and who manages that role. It is probably outside this repo. Running
-  `dia pipeline preflight` in dev shows whether dev can assume the role and read
-  GATS.
+- **`gds-idea-dia` cannot deploy to prod yet.** It is in
+  `gds-idea-cdk-access/repositories_access_dev.tf` but not in
+  `repositories_access_prod.tf`, which controls who can assume `cdk-prod-deploy`.
+  Merging to the `prod` branch would fail at the AWS login step. The fix is a
+  one-line PR to that repo.
+- Confirm where the GATS bucket lives. If it is in the production account, a
+  prod task reads it with its own role; otherwise its owner has to allow our prod
+  task role in the bucket policy. Running `dia pipeline preflight` in dev shows
+  whether dev can read GATS through the cross-account role.
+- Confirm the cross-account role can read the SR25 bucket and the GATS metadata
+  bucket (the task role only reads the GATS documents bucket for now).
 - Confirm the prod locations for GATS metadata and SR25 documents. The current
   names in `sources/known.py` and `metadata/registry.py` end in `-dev`.
 - Look at real GATS documents before PR 8 (the GATS metadata strategy). There

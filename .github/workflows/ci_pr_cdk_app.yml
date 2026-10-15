@@ -3,9 +3,6 @@ name: CI (PR) Orchestrator for CDK Apps
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled]
-    branches: 
-      - prod
-      - dev
 
 permissions:
   contents: read
@@ -44,7 +41,9 @@ jobs:
       run-version-check: false
 
   ci_cdk_diff:
-    if: github.event.action != 'labeled'
+    # The catalogue's diff workflow only knows the dev and prod branches, and fails on any other
+    # target (for example a PR stacked on another PR's branch).
+    if: github.event.action != 'labeled' && (github.base_ref == 'dev' || github.base_ref == 'prod')
     uses: co-cddo/gds-idea-workflows-catalogue/.github/workflows/ci_cdk_diff.yml@main
     with:
       run-version-check: false

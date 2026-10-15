@@ -9,7 +9,6 @@ from gds_idea_cdk_constructs import DeploymentEnvironment
 
 from dia.naming import Bucket, Names
 from dia.preflight import (
-    CROSS_ACCOUNT_ROLE_NAME,
     CheckResult,
     Status,
     check_buckets,
@@ -18,7 +17,6 @@ from dia.preflight import (
     check_neptune,
     check_runtime_config,
     check_source_access,
-    cross_account_role_arn,
     run_preflight,
     running_in_ecs_task,
 )
@@ -28,6 +26,7 @@ from dia.types import DataSource, DocumentType
 DEV = DeploymentEnvironment.DEVELOPMENT
 PROD = DeploymentEnvironment.PRODUCTION
 DEV_NAMES = Names(DEV)
+ROLE_ARN = f"arn:aws:iam::{PROD.value}:role/some-cross-account-role"
 
 CONFIG = RuntimeConfig(
     neptune_endpoint="dia-neptune-dev.cluster-abc.eu-west-2.neptune.amazonaws.com",
@@ -37,6 +36,7 @@ CONFIG = RuntimeConfig(
     subnet_ids=["subnet-1"],
     security_group_id="sg-123",
     log_group="/dia/task-dev",
+    cross_account_role_arn=ROLE_ARN,
 )
 
 SOURCE = DataSource(
@@ -159,45 +159,42 @@ def test_buckets_check_names_each_bucket_that_fails():
 # --- source access ---
 
 
-def test_cross_account_role_arn_uses_the_production_account():
-    assert cross_account_role_arn() == f"arn:aws:iam::{PROD.value}:role/{CROSS_ACCOUNT_ROLE_NAME}"
-
-
-def test_source_access_in_dev_assumes_the_cross_account_role():
+def test_source_access_with_a_role_assumes_it():
     sts = MagicMock()
     sts.assume_role.return_value = {"Credentials": {"AccessKeyId": "a", "SecretAccessKey": "b", "SessionToken": "c"}}
     s3 = MagicMock()
     s3.list_objects_v2.return_value = {"KeyCount": 1}
 
     with patch("dia.preflight.boto3.client", return_value=s3) as client:
-        result = check_source_access(SOURCE, DEV, sts)
+        result = check_source_access(SOURCE, ROLE_ARN, sts)
 
-    assert sts.assume_role.call_args.kwargs["RoleArn"] == cross_account_role_arn()
+    assert sts.assume_role.call_args.kwargs["RoleArn"] == ROLE_ARN
     assert client.call_args.kwargs["aws_session_token"] == "c"
     s3.list_objects_v2.assert_called_once_with(Bucket="source-bucket", Prefix="files/", MaxKeys=1)
     assert result.status is Status.OK
     assert "has objects" in result.detail
-    assert cross_account_role_arn() in result.detail
+    assert ROLE_ARN in result.detail
 
 
-def test_source_access_in_prod_reads_directly():
+def test_source_access_without_a_role_reads_directly():
     sts = MagicMock()
     s3 = MagicMock()
     s3.list_objects_v2.return_value = {"KeyCount": 0}
 
     with patch("dia.preflight.boto3.client", return_value=s3):
-        result = check_source_access(SOURCE, PROD, sts)
+        result = check_source_access(SOURCE, None, sts)
 
     sts.assume_role.assert_not_called()
     assert result.status is Status.OK
     assert "is empty" in result.detail
+    assert " via " not in result.detail
 
 
 def test_source_access_fails_when_the_role_cannot_be_assumed():
     sts = MagicMock()
     sts.assume_role.side_effect = _client_error("AccessDenied")
 
-    result = check_source_access(SOURCE, DEV, sts)
+    result = check_source_access(SOURCE, ROLE_ARN, sts)
 
     assert result.status is Status.FAIL
     assert "s3://source-bucket/files/" in result.detail
@@ -210,7 +207,7 @@ def test_source_access_fails_when_the_listing_is_denied():
     s3.list_objects_v2.side_effect = _client_error("AccessDenied")
 
     with patch("dia.preflight.boto3.client", return_value=s3):
-        result = check_source_access(SOURCE, DEV, sts)
+        result = check_source_access(SOURCE, ROLE_ARN, sts)
 
     assert result.status is Status.FAIL
 
@@ -336,6 +333,41 @@ def test_task_preflight_skips_neptune_when_the_runtime_config_failed(in_task):
     neptune.assert_not_called()
     assert results[-1].name == "neptune"
     assert results[-1].status is Status.SKIP
+
+
+def test_preflight_reads_sources_through_the_role_in_the_runtime_config(local):
+    with _patched_checks(), patch("dia.preflight.check_source_access", return_value=_OK["buckets"]) as source:
+        run_preflight()
+
+    assert source.call_args.args[1] == ROLE_ARN
+
+
+def test_preflight_reads_sources_directly_when_the_runtime_config_has_no_role(local):
+    config = CONFIG.model_copy(update={"cross_account_role_arn": None})
+
+    with _patched_checks(config=config), patch("dia.preflight.check_source_access") as source:
+        run_preflight()
+
+    assert source.call_args.args[1] is None
+
+
+def test_dev_preflight_skips_source_access_when_the_runtime_config_failed(local):
+    with _patched_checks(config=None), patch("dia.preflight.check_source_access") as source:
+        results = run_preflight()
+
+    source.assert_not_called()
+    skipped = results[-1]
+    assert (skipped.name, skipped.status) == ("source gats-business-cases", Status.SKIP)
+
+
+def test_prod_preflight_checks_source_access_even_when_the_runtime_config_failed(local):
+    with (
+        _patched_checks(identity=(_OK["identity"], PROD), config=None),
+        patch("dia.preflight.check_source_access", return_value=_OK["source gats-business-cases"]) as source,
+    ):
+        run_preflight()
+
+    assert source.call_args.args[1] is None
 
 
 def test_preflight_skips_everything_else_when_the_environment_is_unknown(local):

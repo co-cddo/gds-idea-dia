@@ -36,9 +36,6 @@ from dia.types import DataSource
 # Sources whose input location is checked. GATS business cases is the first source.
 PREFLIGHT_SOURCES = ("gats-business-cases",)
 
-# In dev, source data in the production account is read through this role.
-CROSS_ACCOUNT_ROLE_NAME = "assume_role_for_development_account"
-
 _CONNECT_TIMEOUT_SECONDS = 3
 
 # ECS sets this variable in every task container (the task metadata endpoint):
@@ -78,11 +75,6 @@ def _skip(name: str, detail: str) -> CheckResult:
 def running_in_ecs_task() -> bool:
     """Whether this process is running inside an ECS task."""
     return bool(os.environ.get(_ECS_TASK_MARKER))
-
-
-def cross_account_role_arn() -> str:
-    """ARN of the production role that lets dev read production data."""
-    return f"arn:aws:iam::{DeploymentEnvironment.PRODUCTION.value}:role/{CROSS_ACCOUNT_ROLE_NAME}"
 
 
 def check_identity(sts_client) -> tuple[CheckResult, DeploymentEnvironment | None]:
@@ -152,14 +144,15 @@ def check_buckets(names: Names, s3_client) -> CheckResult:
     return _ok("buckets", f"all {len(Bucket)} reachable")
 
 
-def source_s3_client(environment: DeploymentEnvironment, sts_client):
+def source_s3_client(role_arn: str | None, sts_client):
     """An S3 client that can read production source data.
 
-    Production reads directly. Dev reads through the shared cross-account role.
+    Without a role (production) it reads directly. With one (dev) it reads
+    through that role.
 
     Args:
-        environment: The environment this process is running in.
-        sts_client: An STS client, used to assume the cross-account role in dev.
+        role_arn: The cross-account role from the runtime config, or None.
+        sts_client: An STS client, used to assume the role.
 
     Returns:
         A boto3 S3 client.
@@ -167,12 +160,10 @@ def source_s3_client(environment: DeploymentEnvironment, sts_client):
     Raises:
         ClientError: If the role cannot be assumed.
     """
-    if environment != DeploymentEnvironment.DEVELOPMENT:
+    if role_arn is None:
         return boto3.client("s3", region_name=REGION)
 
-    credentials = sts_client.assume_role(RoleArn=cross_account_role_arn(), RoleSessionName="dia-preflight")[
-        "Credentials"
-    ]
+    credentials = sts_client.assume_role(RoleArn=role_arn, RoleSessionName="dia-preflight")["Credentials"]
     return boto3.client(
         "s3",
         region_name=REGION,
@@ -182,14 +173,20 @@ def source_s3_client(environment: DeploymentEnvironment, sts_client):
     )
 
 
-def check_source_access(source: DataSource, environment: DeploymentEnvironment, sts_client) -> CheckResult:
-    """Can one object be listed from the source's real location?"""
+def check_source_access(source: DataSource, role_arn: str | None, sts_client) -> CheckResult:
+    """Can one object be listed from the source's real location?
+
+    Args:
+        source: The source to check.
+        role_arn: The cross-account role to read through, or None to read directly.
+        sts_client: An STS client, used to assume the role.
+    """
     name = f"source {source.name}"
     location = f"s3://{source.bucket}/{source.prefix}"
-    via = f" via {cross_account_role_arn()}" if environment == DeploymentEnvironment.DEVELOPMENT else ""
+    via = f" via {role_arn}" if role_arn else ""
 
     try:
-        s3 = source_s3_client(environment, sts_client)
+        s3 = source_s3_client(role_arn, sts_client)
         response = s3.list_objects_v2(Bucket=source.bucket, Prefix=source.prefix, MaxKeys=1)
     except (ClientError, BotoCoreError) as e:
         return _fail(name, f"could not list {location}{via}: {e}")
@@ -261,12 +258,21 @@ def run_preflight() -> list[CheckResult]:
     results.append(config_result)
     results.append(check_ledger_table(names, boto3.client("dynamodb", **region)))
     results.append(check_buckets(names, boto3.client("s3", **region)))
-    results.extend(check_source_access(get_source(name), environment, sts) for name in PREFLIGHT_SOURCES)
+    results.extend(_check_sources(environment, config, sts))
 
     if in_task:
         results.append(check_neptune(config) if config else _skip("neptune", "needs the runtime config"))
 
     return results
+
+
+def _check_sources(environment: DeploymentEnvironment, config: RuntimeConfig | None, sts_client) -> list[CheckResult]:
+    """Check access to each source. Dev needs the runtime config to know which role to use."""
+    if config is None and environment != DeploymentEnvironment.PRODUCTION:
+        return [_skip(f"source {name}", "needs the runtime config") for name in PREFLIGHT_SOURCES]
+
+    role_arn = config.cross_account_role_arn if config else None
+    return [check_source_access(get_source(name), role_arn, sts_client) for name in PREFLIGHT_SOURCES]
 
 
 def _skipped_after_identity(in_task: bool) -> list[CheckResult]:

@@ -51,6 +51,13 @@ class RuntimeConfig(BaseModel):
     subnet_ids: list[str] = Field(min_length=1, description="Private subnets that tasks run in.")
     security_group_id: str = Field(min_length=1, description="Security group attached to tasks.")
     log_group: str = Field(min_length=1, description="CloudWatch log group that tasks write to.")
+    cross_account_role_arn: str | None = Field(
+        default=None,
+        description=(
+            "Production role that lets this environment read production source data. "
+            "Absent where source data is read directly (production)."
+        ),
+    )
 
     @field_validator("opensearch_endpoint", mode="before")
     @classmethod

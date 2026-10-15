@@ -70,3 +70,50 @@ def test_outputs_neptune_endpoint(synth):
     template, _, _ = synth(NeptuneStack, needs_vpc=True, needs_sg=True, sg_kwarg_name="bastion_security_group")
     outputs = template.find_outputs("*")
     assert any("NeptuneEndpoint" in key for key in outputs)
+
+
+def test_neptune_sg_allows_ingress_from_pipeline_tasks_when_given_their_security_group():
+    import aws_cdk as cdk
+    from aws_cdk import assertions
+    from aws_cdk import aws_ec2 as ec2
+    from gds_idea_cdk_constructs import DeploymentEnvironment
+
+    from config import AppConfig
+
+    config = AppConfig(environment=DeploymentEnvironment.DEVELOPMENT)
+    app = cdk.App()
+    env = cdk.Environment(account=config.account_number, region=config.region)
+    harness = cdk.Stack(app, "Harness", env=env)
+    vpc = ec2.Vpc.from_vpc_attributes(
+        harness,
+        "Vpc",
+        vpc_id="vpc-12345",
+        availability_zones=["eu-west-2a", "eu-west-2b"],
+        isolated_subnet_ids=["subnet-a", "subnet-b"],
+    )
+    stack = NeptuneStack(
+        app,
+        "TestStack",
+        config=config,
+        vpc=vpc,
+        bastion_security_group=ec2.SecurityGroup(harness, "BastionSg", vpc=vpc),
+        task_security_group=ec2.SecurityGroup(harness, "TaskSg", vpc=vpc),
+        env=env,
+    )
+
+    assertions.Template.from_stack(stack).has_resource_properties(
+        "AWS::EC2::SecurityGroupIngress",
+        {
+            "FromPort": 8182,
+            "ToPort": 8182,
+            "IpProtocol": "tcp",
+            "Description": "Allow Neptune access from pipeline tasks",
+        },
+    )
+
+
+def test_neptune_sg_has_no_task_ingress_without_a_task_security_group(synth):
+    template, _, _ = synth(NeptuneStack, needs_vpc=True, needs_sg=True, sg_kwarg_name="bastion_security_group")
+    ingress = template.find_resources("AWS::EC2::SecurityGroupIngress")
+
+    assert all(r["Properties"]["Description"] != "Allow Neptune access from pipeline tasks" for r in ingress.values())
