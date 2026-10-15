@@ -312,6 +312,14 @@ def test_runtime_config_parameter_holds_the_cluster_name_and_private_subnets(dev
     assert "subnet-isolated" not in text
 
 
+def test_runtime_config_parameter_holds_the_cross_account_role_in_dev(dev):
+    assert f'"cross_account_role_arn":"{CROSS_ACCOUNT_ROLE}"' in _parameter_json_text(dev)
+
+
+def test_runtime_config_parameter_omits_the_cross_account_role_in_prod(prod):
+    assert "cross_account_role_arn" not in _parameter_json_text(prod)
+
+
 def test_the_task_is_pointed_at_the_parameter_it_can_read(dev):
     (parameter,) = dev.template.find_resources("AWS::SSM::Parameter").values()
     (task_definition,) = dev.template.find_resources("AWS::ECS::TaskDefinition").values()

@@ -22,6 +22,7 @@ VALID = {
     "subnet_ids": ["subnet-1", "subnet-2"],
     "security_group_id": "sg-123",
     "log_group": "/dia/task-dev",
+    "cross_account_role_arn": "arn:aws:iam::588077357019:role/some-cross-account-role",
 }
 
 
@@ -185,3 +186,14 @@ def test_config_is_frozen():
 
     with pytest.raises(ValidationError):
         config.cluster_name = "other"
+
+
+# --- cross-account role ---
+
+
+def test_cross_account_role_arn_defaults_to_none_when_absent():
+    without_role = {k: v for k, v in VALID.items() if k != "cross_account_role_arn"}
+
+    config = RuntimeConfig.load(DEV_NAMES, ssm_client=_ssm(json.dumps(without_role)))
+
+    assert config.cross_account_role_arn is None

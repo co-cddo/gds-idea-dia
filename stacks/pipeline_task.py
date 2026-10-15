@@ -183,6 +183,7 @@ class PipelineTaskStack(cdk.Stack):
                     "subnet_ids": [subnet.subnet_id for subnet in vpc.private_subnets],
                     "security_group_id": task_security_group.security_group_id,
                     "log_group": self.log_group.log_group_name,
+                    "cross_account_role_arn": deployment_config.cross_account_role_arn,
                 }
             ),
         )

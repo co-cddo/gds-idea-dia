@@ -116,8 +116,9 @@ covers where we are, how we work, and facts that are not obvious from the code.
   is effectively the agent's own preflight, and could be renamed to
   `dia agent preflight` for symmetry (a job for the agent's owner).
 - **Runtime config:** CDK writes the Neptune endpoint and port, the OpenSearch
-  endpoint, cluster, task definition, subnets, security group and log group as
-  one JSON parameter, `dia-runtime-config-{phase}`. It is read through
+  endpoint, cluster, task definition, subnets, security group, log group and (in
+  dev) the cross-account role as one JSON parameter,
+  `dia-runtime-config-{phase}`. It is read through
   `dia.runtime_config.RuntimeConfig.load`, which fails fast. The task definition
   sets `DIA_RUNTIME_CONFIG` to the parameter name, and locally the name is built
   from `Names`. To add a value, add the field to `RuntimeConfig` and to the
@@ -132,8 +133,10 @@ covers where we are, how we work, and facts that are not obvious from the code.
 - **Preflight:** `dia pipeline preflight` is read-only. It checks Neptune only
   inside an ECS task (it detects one through `ECS_CONTAINER_METADATA_URI_V4`),
   because only tasks reach the VPC. Its source check is limited to GATS and
-  builds the cross-account client itself; PR 7 should take that over, and PR 9
-  should make it read the new source definitions.
+  builds the cross-account client itself, using the role from the runtime
+  config (so in dev that check is skipped if the config can't be read). PR 7
+  should take that over, and PR 9 should make it read the new source
+  definitions.
 - **Stages:** text, chunk, propositions, topics, validate, embed, load. Purge
   and prune are separate steps, and prune is deferred.
 - **Graph updates are versioned.** The agent does not yet query "current
