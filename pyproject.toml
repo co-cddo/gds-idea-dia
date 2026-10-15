@@ -31,7 +31,7 @@ requires-python = ">=3.12"
 license = {text = "MIT"}
 dependencies = [
     "boto3>=1.35.0",
-    "gds-idea-cdk-constructs>=0.7.0",
+    "gds-idea-cdk-constructs>=1.1.1",
     "pydantic>=2.9.0",
     "pydantic-settings>=2.0.0",
     "typer>=0.15.0",
@@ -67,7 +67,7 @@ agent = [
 cdk = [
     "aws-cdk-lib>=2.252.0",
     "constructs>=10.0.0,<11.0.0",
-    "gds-idea-cdk-constructs>=0.7.0",
+    "gds-idea-cdk-constructs>=1.1.1",
 ]
 
 [project.scripts]
