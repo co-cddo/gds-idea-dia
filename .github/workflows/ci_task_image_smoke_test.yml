@@ -1,0 +1,62 @@
+# Builds the pipeline task image and checks that what a task runs can be imported in it.
+#
+# This workflow is ours. It is not managed by idea-app, so `idea-app update` leaves it alone.
+#
+# Why: the image has no Node, no CDK and only the `pipeline` dependencies. Tests run in the
+# full development environment, and `cdk synth` does not build the image, so a module that
+# needs something the image lacks is found only when a task starts. See task/smoke_test.py.
+name: CI Task Image Smoke Test
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "task/**"
+      - "src/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".dockerignore"
+      - ".github/workflows/ci_task_image_smoke_test.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke_test:
+    name: Task image smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Fargate runs the task on linux/amd64, which is also what the runner is.
+      - name: Build the task image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: task/Dockerfile
+          platforms: linux/amd64
+          build-args: DIA_VERSION=0.0.0.dev0
+          load: true
+          tags: dia-task-smoke:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: The entrypoint starts
+        run: docker run --rm dia-task-smoke:ci --version
+
+      - name: Everything a task runs can be imported
+        run: docker run --rm -i --entrypoint python dia-task-smoke:ci - < task/smoke_test.py
+
+      # With no AWS credentials preflight fails at its first check and exits 1. That is the
+      # expected result here, so the exit code cannot tell it from a crash. The clean failure
+      # line can: a crash prints a traceback instead.
+      - name: Preflight runs and fails cleanly without credentials
+        run: |
+          output=$(docker run --rm dia-task-smoke:ci pipeline preflight 2>&1 || true)
+          echo "$output"
+          echo "$output" | grep -q '^\[FAIL\] identity: could not call STS'

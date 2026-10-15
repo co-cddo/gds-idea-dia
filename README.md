@@ -66,6 +66,17 @@ it with `--build-arg DIA_VERSION=<version>`. Without it the image reports
 image is x86_64, and `--platform linux/amd64` builds that (slowly, under
 emulation).
 
+The image has no Node, no CDK and no dev tools, so a module that needs one of them
+works on a laptop and fails only when a task starts. The `CI Task Image Smoke Test`
+workflow builds the image on pull requests and imports every module a task runs
+(`TASK_MODULES` in [`task/smoke_test.py`](task/smoke_test.py)). Add a module to that
+list when a task command starts to use it. To run the same check locally, after
+building the image as above:
+
+```bash
+docker run --rm -i --entrypoint python dia-task - < task/smoke_test.py
+```
+
 ## Running tests
 
 ```bash

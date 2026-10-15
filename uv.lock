@@ -1107,8 +1107,8 @@ requires-dist = [
     { name = "boto3", specifier = ">=1.35.0" },
     { name = "constructs", marker = "extra == 'cdk'", specifier = ">=10.0.0,<11.0.0" },
     { name = "fastmcp", marker = "extra == 'agent'", specifier = ">=2.14.1" },
-    { name = "gds-idea-cdk-constructs", specifier = ">=0.7.0", index = "https://co-cddo.github.io/gds-idea-pypi/simple/" },
-    { name = "gds-idea-cdk-constructs", marker = "extra == 'cdk'", specifier = ">=0.7.0", index = "https://co-cddo.github.io/gds-idea-pypi/simple/" },
+    { name = "gds-idea-cdk-constructs", specifier = ">=1.1.1", index = "https://co-cddo.github.io/gds-idea-pypi/simple/" },
+    { name = "gds-idea-cdk-constructs", marker = "extra == 'cdk'", specifier = ">=1.1.1", index = "https://co-cddo.github.io/gds-idea-pypi/simple/" },
     { name = "graphrag-lexical-graph", marker = "extra == 'agent'", specifier = ">=3.19.1" },
     { name = "graphrag-lexical-graph", marker = "extra == 'pipeline'", specifier = ">=3.19.1" },
     { name = "html-for-docx", marker = "extra == 'agent'", specifier = ">=1.2.0" },
@@ -1400,16 +1400,16 @@ wheels = [
 
 [[package]]
 name = "gds-idea-cdk-constructs"
-version = "0.7.0"
+version = "1.1.1"
 source = { registry = "https://co-cddo.github.io/gds-idea-pypi/simple/" }
 dependencies = [
     { name = "aws-cdk-aws-bedrock-agentcore-alpha" },
     { name = "aws-cdk-lib" },
     { name = "boto3" },
 ]
-sdist = { url = "https://github.com/co-cddo/gds-idea-cdk-constructs-new/releases/download/v0.7.0/gds_idea_cdk_constructs-0.7.0.tar.gz", hash = "sha256:6f62159eedcdaacfd94846676e447fbc58bb442179fdfda865ee17ab7c76550b" }
+sdist = { url = "https://github.com/co-cddo/gds-idea-cdk-constructs-new/releases/download/v1.1.1/gds_idea_cdk_constructs-1.1.1.tar.gz", hash = "sha256:c4d55dab85c5d322c117430139d9657fc7738f56fdf83e012e5a35b7e6d1fde0" }
 wheels = [
-    { url = "https://github.com/co-cddo/gds-idea-cdk-constructs-new/releases/download/v0.7.0/gds_idea_cdk_constructs-0.7.0-py3-none-any.whl", hash = "sha256:aecabccfd2d20d256f121e940e7fd71a4c812e4cc8a873b4e88dfd399c3c910e" },
+    { url = "https://github.com/co-cddo/gds-idea-cdk-constructs-new/releases/download/v1.1.1/gds_idea_cdk_constructs-1.1.1-py3-none-any.whl", hash = "sha256:c77c8a9a746fbea7c7ec290511b14a53fbcc88284e315184028965d735b48d05" },
 ]
 
 [[package]]
