@@ -135,8 +135,8 @@ agent's `sr_bids_2025`). The declarations use the enum, not string literals.
 | # | PR | Contents |
 |---|---|---|
 | 1 | DBR bucket (#75) | `Bucket.DBR_REPORTS` in `src/dia/naming.py`, created in `StorageStack` (versioned, encrypted, public access blocked, SSL enforced, RETAIN). `DocumentType.DBR_REPORT`. Read access for the pipeline task role, because preflight checks every `Bucket`. |
-| 2 | Plan and KB template | This plan. `stacks/constructs/knowledge_base.py`: `KnowledgeBaseSpec`, `DataSourceSpec`, chunking options, embedding model, and the `KnowledgeBase` construct (indexes RETAIN by default). Standalone tests. Nothing deploys. |
-| 3 | Declarations and KB stack (#74) | `knowledge_bases.py` with `knowledge_bases(config)` returning the 8 specs, and `DEPLOYED`. Owner accounts come from `DeploymentEnvironment`, never literals. `stacks/knowledge_base.py`: vector bucket `dia-kb-vectors-{phase}` (RETAIN) and one template per deployed spec, with the account's permissions boundary on each role. Outputs KB IDs and role ARNs. Wired into `app.py` after the storage stack. Needs PRs 1 and 2. |
+| 2 | Plan and KB template (#76) | This plan. `stacks/constructs/knowledge_base.py`: `KnowledgeBaseSpec`, `DataSourceSpec`, chunking options, embedding model, and the `KnowledgeBase` construct (indexes RETAIN by default). Standalone tests. Nothing deploys. |
+| 3 | Declarations and KB stack (#77) | `knowledge_bases.py` with `knowledge_bases(config)` returning the 8 specs, and `DEPLOYED`. Owner accounts come from `DeploymentEnvironment`, never literals. `stacks/knowledge_base.py`: vector bucket `dia-kb-vectors-{phase}` (RETAIN) and one template per deployed spec, with the account's permissions boundary on each role. Outputs KB IDs and role ARNs. Wired into `app.py` after the storage stack. Needs PRs 1 and 2. |
 
 Each PR runs `uv run pytest`, `uv run ruff check .` and `uv run ruff format --check .`, and updates `docs/design/handover.md`.
 
