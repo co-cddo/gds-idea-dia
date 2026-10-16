@@ -195,18 +195,34 @@ def check_source_access(source: DataSource, role_arn: str | None, sts_client) ->
     return _ok(name, f"{location} {found}{via}")
 
 
-def _tcp_connect(host: str, port: int) -> bool:
+def _tcp_connect(host: str, port: int) -> str | None:
+    """Try to open a TCP connection.
+
+    Returns:
+        None if it worked, otherwise why it did not, with what to check first.
+    """
     try:
         with socket.create_connection((host, port), timeout=_CONNECT_TIMEOUT_SECONDS):
-            return True
-    except OSError:
-        return False
+            return None
+    except socket.gaierror:
+        return (
+            "could not resolve the hostname (is the endpoint in the runtime config right, and is this task in the VPC?)"
+        )
+    except ConnectionRefusedError:
+        return "connection refused (nothing is listening on that port: check the port in the runtime config)"
+    except TimeoutError:
+        return (
+            f"timed out after {_CONNECT_TIMEOUT_SECONDS}s (a stopped cluster looks like this: check it is running, "
+            "then the task's subnet and security group)"
+        )
+    except OSError as e:
+        return f"{str(e) or type(e).__name__} (check the task's subnet and security group)"
 
 
 def check_neptune(
     config: RuntimeConfig,
     *,
-    connect: Callable[[str, int], bool] = _tcp_connect,
+    connect: Callable[[str, int], str | None] = _tcp_connect,
     client_factory: Callable[..., object] = boto3.client,
 ) -> CheckResult:
     """Is Neptune reachable, and does IAM authentication work?
@@ -215,8 +231,8 @@ def check_neptune(
 
     Args:
         config: The runtime config, which holds the Neptune endpoint and port.
-        connect: Opens a TCP connection to a host and port and says whether it worked
-            (replaceable for testing).
+        connect: Opens a TCP connection to a host and port. Returns None if it worked,
+            otherwise the reason it did not (replaceable for testing).
         client_factory: Builds the boto3 client used for the status call
             (replaceable for testing).
 
@@ -225,8 +241,9 @@ def check_neptune(
     """
     endpoint, port = config.neptune_endpoint, config.neptune_port
 
-    if not connect(endpoint, port):
-        return _fail("neptune", f"cannot connect to {endpoint}:{port} (check the task's subnet and security group)")
+    problem = connect(endpoint, port)
+    if problem is not None:
+        return _fail("neptune", f"cannot connect to {endpoint}:{port}: {problem}")
 
     try:
         client = client_factory(

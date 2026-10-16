@@ -300,8 +300,8 @@ PR off and add its link as it is raised.
   group from the runtime config. The confirmations in section 3.3 are not built
   yet: the only remote command so far is read-only. They arrive with the shared
   CLI options (item 13). See the handover.
-- [ ] 5a. Preflight says why the Neptune connect failed (timeout, refused, name
-  not resolved), and that a stopped cluster looks like a timeout.
+- [x] 5a. Preflight says why the Neptune connect failed (timeout, refused, name
+  not resolved), and that a stopped cluster looks like a timeout (#71)
 
 ### Milestone B: sources (GATS)
 
