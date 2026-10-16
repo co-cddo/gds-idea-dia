@@ -22,6 +22,7 @@ TASK_MODULES = [
     "dia.cli_helpers",
     "dia.naming",
     "dia.preflight",
+    "dia.remote",
     "dia.runtime_config",
 ]
 

@@ -161,13 +161,27 @@ def _discover_sources(ledger) -> set[str]:
 
 
 @pipeline_app.command("preflight")
-def preflight() -> None:
+def preflight(
+    remote: Annotated[
+        bool, typer.Option("--remote", help="Run the checks as a task in the cloud, where Neptune can be reached.")
+    ] = False,
+    no_wait: Annotated[
+        bool, typer.Option("--no-wait", help="With --remote: start the task and return without following it.")
+    ] = False,
+) -> None:
     """Check that this process can do what the pipeline needs.
 
     Read-only. Reports your identity, the runtime config, the ledger table, our
     buckets and access to the source data. Inside an ECS task it also checks
     Neptune, which only tasks can reach. Exits with an error if any check fails.
+
+    With --remote the checks run as a task, and this command follows its logs and
+    exits with the task's exit code. It needs no confirmation, because it only reads.
     """
+    if remote:
+        _run_remote(["pipeline", "preflight"], wait=not no_wait)
+        return
+
     from dia.preflight import Status, run_preflight
 
     labels = {Status.OK: "ok  ", Status.FAIL: "FAIL", Status.SKIP: "skip"}
@@ -180,6 +194,126 @@ def preflight() -> None:
         typer.echo(f"\n{len(failed)} of {len(results)} checks failed.")
         raise typer.Exit(code=1)
     typer.echo(f"\nAll {len(results)} checks passed or were skipped.")
+
+
+tasks_app = typer.Typer(help="Look at the pipeline's tasks in the cloud.")
+pipeline_app.add_typer(tasks_app, name="tasks")
+
+
+def _load_runtime_config():
+    """The runtime config for the active credentials, or exit with a clear message."""
+    from dia.cli_helpers import current_names
+    from dia.runtime_config import RuntimeConfig, RuntimeConfigError
+
+    try:
+        return RuntimeConfig.load(current_names())
+    except RuntimeConfigError as e:
+        typer.echo(f"Error: {e}")
+        raise typer.Exit(code=1) from None
+
+
+def _run_remote(command: list[str], wait: bool) -> None:
+    """Start `dia <command>` as a task, and (unless told not to) follow it to the end.
+
+    Exits with the task's exit code when following.
+    """
+    from dia import remote
+
+    config = _load_runtime_config()
+    try:
+        started_by = remote.caller_started_by()
+        task_id = remote.launch(config, command, started_by)
+    except remote.RemoteError as e:
+        typer.echo(f"Error: {e}")
+        raise typer.Exit(code=1) from None
+
+    typer.echo(f"Started task {task_id} ({' '.join(command)}) as {started_by}")
+    follow_hint = f"dia pipeline tasks logs {task_id} --follow"
+    if not wait:
+        typer.echo(f"Follow it with: {follow_hint}")
+        return
+
+    try:
+        exit_code = remote.follow(config, task_id, typer.echo)
+    except KeyboardInterrupt:
+        typer.echo(f"\nStopped following. The task is still running. Follow it with: {follow_hint}")
+        raise typer.Exit(code=130) from None
+    except remote.RemoteError as e:
+        typer.echo(f"Error: {e}\nThe task may still be running. Check it with: dia pipeline tasks")
+        raise typer.Exit(code=1) from None
+
+    if exit_code:
+        raise typer.Exit(code=exit_code)
+
+
+@tasks_app.callback(invoke_without_command=True)
+def tasks(
+    ctx: typer.Context,
+    mine: Annotated[bool, typer.Option("--mine", help="Only tasks you started.")] = False,
+) -> None:
+    """List the pipeline's running and recently stopped tasks, newest first."""
+    if ctx.invoked_subcommand is not None:
+        return
+
+    from dia import remote
+
+    config = _load_runtime_config()
+    try:
+        started_by = remote.caller_started_by() if mine else None
+        infos = remote.list_tasks(config, started_by=started_by)
+    except remote.RemoteError as e:
+        typer.echo(f"Error: {e}")
+        raise typer.Exit(code=1) from None
+
+    if not infos:
+        typer.echo("No tasks found.")
+    for info in infos:
+        created = info.created_at.strftime("%Y-%m-%d %H:%M:%S") if info.created_at else "-"
+        code = "-" if info.exit_code is None else str(info.exit_code)
+        typer.echo(f"{info.task_id}  {info.status:<12} exit={code:<3} {created}  {info.started_by}  {info.command}")
+    typer.echo(f"\nECS keeps stopped tasks for {remote.STOPPED_TASK_RETENTION}.")
+
+
+@tasks_app.command("logs")
+def tasks_logs(
+    task_id: Annotated[str, typer.Argument(help="The task ID (see `dia pipeline tasks`).")],
+    follow: Annotated[bool, typer.Option("--follow", "-f", help="Keep printing until the task stops.")] = False,
+) -> None:
+    """Print a task's logs. With --follow, exits with the task's exit code."""
+    from dia import remote
+
+    config = _load_runtime_config()
+    try:
+        if follow:
+            exit_code = remote.follow(config, task_id, typer.echo)
+            if exit_code:
+                raise typer.Exit(code=exit_code)
+            return
+        lines, _ = remote.read_log_page(config, task_id)
+    except KeyboardInterrupt:
+        raise typer.Exit(code=130) from None
+    except remote.RemoteError as e:
+        typer.echo(f"Error: {e}")
+        raise typer.Exit(code=1) from None
+
+    if not lines:
+        typer.echo(f"No logs yet for task {task_id}.")
+    for line in lines:
+        typer.echo(line)
+
+
+@tasks_app.command("stop")
+def tasks_stop(task_id: Annotated[str, typer.Argument(help="The task ID (see `dia pipeline tasks`).")]) -> None:
+    """Stop a running task."""
+    from dia import remote
+
+    config = _load_runtime_config()
+    try:
+        remote.stop(config, task_id)
+    except remote.RemoteError as e:
+        typer.echo(f"Error: {e}")
+        raise typer.Exit(code=1) from None
+    typer.echo(f"Asked ECS to stop task {task_id}.")
 
 
 @app.command("extract-text")

@@ -9,18 +9,26 @@ covers where we are, how we work, and facts that are not obvious from the code.
 
 ## Current position
 
-- The spec has been reviewed and merged (#61). Aakash reviewed it and is
-  reviewing each step of the build.
-- PRs 1 and 2 of the build plan (spec section 7) are merged (#62): the spec
-  update and handover, then the naming module.
-- PR 3, the Docker image, is merged (#63).
-- PR 4a, the runtime config model and `dia pipeline preflight`, is open as a
-  draft (#65).
-- PR 4b, the pipeline task stack (`stacks/pipeline_task.py`), is open as a draft
-  (#66). It is stacked on 4a. **Before merging it, deploy `dia-pipeline-task-dev`
-  to dev by hand** from the branch and run `dia pipeline preflight`.
-- **Next:** PR 5, `--remote` and `dia tasks`. It reads the cluster, task
-  definition, subnets and security group from the runtime config.
+State when this was written (check `gh pr list` and `git log origin/dev` before
+relying on it):
+
+- Merged: the spec (#61), the spec update, handover and naming module (#62), the
+  Docker image with the extras split (#63), `dia pipeline preflight` and the
+  runtime config model (#65), the pipeline task stack (#66), and the fix that
+  lets the task image import `dia` without Node, plus an image smoke test in CI
+  (#69).
+- The task stack is deployed to dev. Running `dia pipeline preflight` as a task
+  there (started by hand) showed that the image, outbound access, the runtime
+  config read, the ledger table, the buckets and the cross-account role all work
+  from inside the VPC. The Neptune check failed because the dev Neptune cluster
+  was **stopped**, not because of the network. See "Unverified assumptions" for
+  what that run did and did not settle.
+- In this PR (PR 5): `dia pipeline preflight --remote` and `dia pipeline tasks`
+  (`src/dia/remote.py`). See "Remote running" below.
+- **Next:** PR 5a, a small change so preflight says why the Neptune connect
+  failed (timeout, refused, name not resolved), then re-run
+  `dia pipeline preflight --remote` once the dev cluster is running. Then
+  Milestone B (sources), starting with PR 6.
 - Only the foundations are built so far (naming, the extras split, the task
   image, preflight and the task stack). The rest of `src/dia` is work in
   progress that nobody uses, and may be deleted as the PR that replaces each part
@@ -28,26 +36,44 @@ covers where we are, how we work, and facts that are not obvious from the code.
 
 ## How we work
 
+**With the user (David, a repo owner and org admin)**
+
+- Short messages, one decision at a time. Start from requirements in plain
+  language and keep implementation detail until it is needed. Use the question
+  tool for choices, with a recommended option first.
+- Plan first, then build. For code, **stage the change and open VS Code
+  (`code -r . <files>`) so he can review before you commit.** Small docs-only
+  commits can go straight in.
+- Do not commit, push or open PRs unless asked. When asked for a PR, open it as a
+  draft, tag `@aakash-cddo`, and say what was and was not tested.
+- He can do the admin steps you cannot (org secrets, GitHub App installs, prod
+  AWS commands). Give him the exact commands and say what the output will tell
+  you.
+- Say what is unverified rather than guessing. Correct yourself when you find you
+  were wrong.
+
+**In the repo**
+
 - **Small, reviewable PRs.** One thing per PR, with tests. Aakash reviews each.
-- **Open every PR as a draft.** Permission rules block normal PR creation.
 - **Each PR removes the old code it replaces,** rather than one large deletion
   at the end.
 - **Scope is GATS business cases first.** Other sources come after.
-- **Discuss decisions in short sections,** starting from requirements in plain
-  language. Do not go into implementation detail until it is needed.
-- Do not commit, push or open PRs unless asked.
 - **AI review:** add the `ai-review` label to a PR to get an advisory review
-  from `gds-idea-ai-reviewer[bot]` (it is non-blocking, and no label means no
-  run and no cost). It needs the `ai-review` job in
-  `.github/workflows/ci_pr_cdk_app.yml`, the org secret
-  `GDS_IDEA_AI_REVIEWER_APP_ID` shared with this repo (it is public, and that
-  secret is private to private repos unless the repo is added), and the
-  `gds-idea-ai-reviewer` GitHub App installed on the repo.
+  from `gds-idea-ai-reviewer[bot]` (non-blocking; no label means no run and no
+  cost). It does not re-run on a push; remove and re-add the label. Its job
+  shows green even when it was skipped (for example when the App is not
+  installed on the repo), so read the job log. It reviews the commit that was
+  current when the label was added. Reply to its findings on the PR by item
+  number: what was fixed, and what was left and why. It needs the `ai-review`
+  job in `.github/workflows/ci_pr_cdk_app.yml`, the org secrets
+  `GDS_IDEA_AI_REVIEWER_APP_ID` (shared with this repo, because it is public)
+  and `GDS_IDEA_AI_REVIEWER_APP_PRIVATE_KEY`, and the `gds-idea-ai-reviewer`
+  GitHub App installed on the repo.
 - **`ci_pr_cdk_app.yml` is managed by `idea-app` but edited by hand,** and
   should stay that way. The template sets `run-version-check: true`, which fails
   here because the version comes from git tags (hatch-vcs) and there is no
-  `version =` line in `pyproject.toml`. We also differ from the template in other
-  ways: the trigger includes `reopened`, and the CI jobs skip on any
+  `version =` line in `pyproject.toml`. We also differ from the template in
+  other ways: the trigger includes `reopened`, and the CI jobs skip on any
   `labeled` event (the template skips only for the `ai-review` label, so adding
   any other label, such as a release bump label, re-runs all of CI). The trigger
   also has no `branches:` filter, so a PR stacked on another branch still gets
@@ -55,6 +81,26 @@ covers where we are, how we work, and facts that are not obvious from the code.
   because the catalogue's `ci_cdk_diff.yml` only supports `dev` and `prod` as
   targets and fails on anything else. If you run `idea-app update`, do not use
   `--force` on that file.
+
+**Tooling constraints (permission rules in `~/.config/opencode/opencode.json`)**
+
+- `rm -rf` is denied (even on temp files: use `rm` on single files and fresh
+  directory names). `gh pr create` is only allowed as `--draft`. `git push`,
+  `gh pr *` and `cdk deploy` ask for approval. `cdk destroy` and
+  `gh pr merge` are denied.
+- Plan mode can be switched on again at any time. In it, read and plan only.
+- The skills in `~/.local/share/idea-oc/skills` are managed by `idea-oc`. I fixed
+  the invalid YAML in `cdk-review` and `python-cleanliness` locally (issue
+  co-cddo/gds-idea-ai-reviewer#39); a sync may overwrite that.
+
+**How to prove a CDK change renames nothing**
+
+Build every stack for dev and prod with a fake VPC (`ec2.Vpc.from_vpc_attributes`,
+as `tests/test_pipeline_task_stack.py` does), dump `Template.from_stack(...)
+.to_json()` before and after the change, and compare the files byte for byte.
+Stacks that should be unchanged must be identical. The same script, wired the way
+`app.py` wires the stacks and ending in `app.synth()`, also catches dependency
+cycles. (The throwaway scripts were in a temp directory and are gone.)
 
 ## Key facts
 
@@ -150,8 +196,109 @@ covers where we are, how we work, and facts that are not obvious from the code.
   `src/post_processing.py`). Its reconciliation works per file.
 - `retrieval_modes.py` in the agent filters on `document_type`, but nothing in
   the pipeline writes it yet. The canonical SR bids value is `sr_bids`.
-- CI deploys on merge: `dev` branch to the dev account, `prod` branch to prod.
-  The CI workflows are managed by `idea-app` and should not be hand-edited.
+- CI deploys on merge: `dev` branch to the dev account, `prod` branch to prod
+  (prod cannot deploy yet: see the open actions). The CI workflows are managed by
+  `idea-app`; the only one edited by hand is `ci_pr_cdk_app.yml`, for the reasons
+  above.
+
+## Remote running (PR 5)
+
+`dia pipeline preflight --remote` launches the command as a task, prints the task
+ID, follows the logs and exits with the container's exit code. `--no-wait` returns
+after launching. Ctrl-C stops following but leaves the task running. It needs no
+confirmation, because preflight only reads (spec section 3.3: confirmation is for
+commands that change state).
+
+- `dia pipeline tasks [--mine]` lists running and recently stopped tasks;
+  `dia pipeline tasks logs <id> [--follow]` and `dia pipeline tasks stop <id>` do
+  what they say. `stop` exists because nothing else stops a hung task (#67).
+- All the AWS calls are in `src/dia/remote.py`; `cli.py` only wires them up. The
+  later stage commands should reuse `_run_remote` in `cli.py` (launch, follow,
+  exit code) and add their own confirmation and `--limit` rules.
+- Tasks are launched with `run_task` on Fargate, with the subnets and security
+  group from the runtime config and `assignPublicIp=DISABLED` (checked: the
+  private subnets have outbound access). The command override goes on the
+  container named `Pipeline`, whose entrypoint is `dia`.
+- **`startedBy`** is `dia-cli/<name>`, so tasks on the shared cluster can be told
+  apart. The name is the caller's role name up to its first hyphen
+  (`david.gillespie-poweraccess` gives `david-gillespie`), or the whole role name
+  if that part has no dot. ECS allows letters, numbers, `-`, `/` and `_`, up to
+  128 characters. It has no timestamp: ECS records the time, and a per-run value
+  would stop `--mine` working, because `list_tasks` can only filter by exact value.
+- The cluster is shared with the web apps, so tasks are always listed by the
+  task definition family `dia-pipeline-task-{phase}`. ECS forgets stopped tasks
+  after about an hour; older runs are only in CloudWatch.
+- Log streams are `pipeline/Pipeline/<task-id>` in `/dia-task-{phase}` (checked).
+- **Who may launch:** the developer's role needs `ecs:RunTask`, `iam:PassRole` on
+  `dia-pipeline-task-{phase}` and `dia-pipeline-task-execution-{phase}`,
+  `ecs:DescribeTasks`/`ListTasks`/`StopTask`, `logs:GetLogEvents` and
+  `ssm:GetParameter` on the runtime config. None of that is managed in this repo.
+  A dev poweraccess role could already do all of it. Prod is not checked.
+- Not built yet: per-run CPU and memory (#68) and a maximum run time (#67). Both
+  would be extra `run_task` arguments or a timeout in the entrypoint; `launch`
+  takes only a command today.
+- Not built yet: a post-deploy smoke test that runs `dia pipeline preflight
+  --remote` in dev and fails on a non-zero exit. The command now supports it; the
+  open question is that the dev deploy role would need `ecs:RunTask` and
+  `iam:PassRole`, and a separate `workflow_run` workflow would be needed because
+  `ci_cd_cdk_app.yml` belongs to `idea-app`.
+
+## Task image
+
+- The image has no Node, no CDK and only the `pipeline` extra. The first task
+  crashed on `from gds_idea_cdk_constructs import DeploymentEnvironment`, because
+  the library imported `aws_cdk` (which starts Node through jsii) at the top of
+  the package. Fixed in the library (1.1.1) and guarded here.
+- `task/smoke_test.py` imports every module in `TASK_MODULES` inside the built
+  image, and `.github/workflows/ci_task_image_smoke_test.yml` runs it on PRs that
+  touch the image. `tests/test_runtime_imports.py` does the same without Docker,
+  from the same list. **Add a module to `TASK_MODULES` when a task command starts
+  to use it.** The workflow is our own file, not managed by `idea-app`.
+- The image is about 344MB compressed and still contains `aws-cdk-lib` (about
+  220MB), because the library depends on it. It is never loaded now. Making the
+  CDK an optional extra in the library would remove it, but is a breaking change
+  for every app that builds stacks.
+
+## Unverified assumptions
+
+Settled by the first real task runs in dev:
+- The OpenSearch collection endpoint does include `https://` (and uses the
+  `<id>.aoss.eu-west-2.on.aws` form). The model strips the scheme, so the scheme
+  stripping is needed. Nothing checks the domain.
+- The private subnets have outbound access (image pull, logs, SSM, STS, S3).
+- The task role can read the runtime config, the ledger table and the buckets.
+- The cross-account role can be assumed from a task, and lists the GATS business
+  cases location. The bucket is in the production account.
+- CI builds the x86_64 image and deploys the stack on a merge to `dev`.
+
+Still unverified:
+- The Neptune IAM action names in `stacks/pipeline_task.py` (`GetEngineStatus`,
+  `ReadDataViaQuery`, `WriteDataViaQuery`, `DeleteDataViaQuery`). The status call
+  has never run, because the dev cluster was stopped. Re-run
+  `dia pipeline preflight --remote` once it is running. Aakash was asked about the
+  cluster; a stopped cluster is started again by AWS after 7 days.
+- Whether the account requires the `DenyUserPermissionsPolicy` boundary on new
+  roles. It is harmless (`Allow *` with a deny on IAM user and access key
+  actions), and removing it means deleting the `permissions_boundary()` calls.
+- That role chaining caps the cross-account session at an hour. Preflight only
+  needs a moment, so this has not been exercised; PR 7 needs refreshable
+  credentials.
+- Whether the cross-account role can read the SR25 locations and the GATS
+  metadata (only the business cases location has been listed).
+
+## Upstream issues raised
+
+- co-cddo/gds-idea-cdk-constructs-new#62: `DeploymentEnvironment` imports
+  `aws_cdk` at module level, which puts about 420MB of `aws-cdk-lib` in the task
+  image. The import is now lazy (constructs-new#64, released as 1.1.1), which fixes
+  the crash without Node but not the size.
+- co-cddo/gds-idea-ai-reviewer#39: the `cdk-review` and `python-cleanliness`
+  skills have invalid YAML frontmatter and are silently skipped.
+- co-cddo/gds-idea-ai-reviewer#40: narrow the reviewer's token and the MCP tools
+  it gives the model.
+- co-cddo/gds-idea-app-kit#63: the `ci_pr_cdk_app.yml` template drops
+  `reopened`, re-runs CI on any label, and probably fails the version check for
+  hatch-vcs projects.
 
 ## Open actions
 
@@ -180,6 +327,13 @@ covers where we are, how we work, and facts that are not obvious from the code.
   `agent/config.py`), the stack names in `scripts/neptune-tunnel.sh`, and the
   `phase` default in `clients/graph_rag_config.py`.
 - Open questions on testing and on permissions and ownership (spec section 6).
+- Move the agent onto `RuntimeConfig` instead of the hand-filled Secrets Manager
+  secrets (Aakash raised the drift on #65). A job for the agent's owner.
+- The load stage needs: an `aoss` permission on the task role (the OpenSearch
+  data access policy names the account root as principal), Bedrock access for the
+  Bedrock stages, and an OpenSearch check in preflight.
+- The S3 reader (PR 7) needs refreshable cross-account credentials and a
+  narrowed session policy (see the build plan).
 
 ## Useful commands
 

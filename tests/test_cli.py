@@ -758,3 +758,215 @@ def test_preflight_exits_with_an_error_when_a_check_fails():
     assert result.exit_code == 1
     assert "[FAIL] buckets: gds-idea-dia-batch-dev: denied" in result.output
     assert "1 of 2 checks failed." in result.output
+
+
+# ---------------------------------------------------------------------------
+# dia pipeline preflight --remote, and dia pipeline tasks
+# ---------------------------------------------------------------------------
+
+
+def _runtime_config():
+    from dia.runtime_config import RuntimeConfig
+
+    return RuntimeConfig(
+        neptune_endpoint="dia-neptune-dev.cluster-abc.eu-west-2.neptune.amazonaws.com",
+        opensearch_endpoint="abc123.eu-west-2.aoss.amazonaws.com",
+        cluster_name="shared-cluster",
+        task_definition_arn="arn:aws:ecs:eu-west-2:992382722318:task-definition/dia-pipeline-task-dev:3",
+        subnet_ids=["subnet-1"],
+        security_group_id="sg-123",
+        log_group="/dia-task-dev",
+    )
+
+
+def _remote_patches(**overrides):
+    """Patch everything `dia.remote` and the config loading reach out to AWS for."""
+    targets = {
+        "dia.cli._load_runtime_config": _runtime_config(),
+        "dia.remote.caller_started_by": "dia-cli/me",
+        "dia.remote.launch": "abc123",
+        "dia.remote.follow": 0,
+    }
+    targets.update(overrides)
+    return [patch(name, return_value=value) for name, value in targets.items()]
+
+
+def _invoke_with(patches, args):
+    from contextlib import ExitStack
+
+    with ExitStack() as stack:
+        mocks = [stack.enter_context(p) for p in patches]
+        result = runner.invoke(app, args)
+    return result, mocks
+
+
+def test_preflight_remote_launches_follows_and_succeeds():
+    result, (_, _, launch, follow) = _invoke_with(_remote_patches(), ["pipeline", "preflight", "--remote"])
+
+    assert result.exit_code == 0
+    assert "Started task abc123" in result.output
+    assert launch.call_args.args[1] == ["pipeline", "preflight"]
+    assert launch.call_args.args[2] == "dia-cli/me"
+    follow.assert_called_once()
+
+
+def test_preflight_remote_exits_with_the_tasks_exit_code():
+    result, _ = _invoke_with(_remote_patches(**{"dia.remote.follow": 1}), ["pipeline", "preflight", "--remote"])
+
+    assert result.exit_code == 1
+
+
+def test_preflight_remote_never_asks_for_confirmation():
+    result, _ = _invoke_with(_remote_patches(), ["pipeline", "preflight", "--remote"])
+
+    assert "[y/N]" not in result.output
+    assert result.exit_code == 0
+
+
+def test_preflight_remote_no_wait_returns_after_launching():
+    result, (_, _, launch, follow) = _invoke_with(_remote_patches(), ["pipeline", "preflight", "--remote", "--no-wait"])
+
+    assert result.exit_code == 0
+    launch.assert_called_once()
+    follow.assert_not_called()
+    assert "dia pipeline tasks logs abc123 --follow" in result.output
+
+
+def test_preflight_remote_reports_a_launch_failure():
+    from dia.remote import RemoteError
+
+    patches = _remote_patches()
+    patches[2] = patch("dia.remote.launch", side_effect=RemoteError("ECS did not start the task: MISSING"))
+    result, _ = _invoke_with(patches, ["pipeline", "preflight", "--remote"])
+
+    assert result.exit_code == 1
+    assert "ECS did not start the task" in result.output
+
+
+def test_preflight_remote_ctrl_c_leaves_the_task_running_and_says_how_to_follow_it():
+    patches = _remote_patches()
+    patches[3] = patch("dia.remote.follow", side_effect=KeyboardInterrupt)
+    result, _ = _invoke_with(patches, ["pipeline", "preflight", "--remote"])
+
+    assert result.exit_code == 130
+    assert "still running" in result.output
+    assert "dia pipeline tasks logs abc123 --follow" in result.output
+
+
+def test_preflight_without_remote_does_not_touch_ecs():
+    from dia.preflight import CheckResult, Status
+
+    results = [CheckResult("identity", Status.OK, "dev")]
+    with (
+        patch("dia.preflight.run_preflight", return_value=results),
+        patch("dia.remote.launch") as launch,
+    ):
+        result = runner.invoke(app, ["pipeline", "preflight"])
+
+    assert result.exit_code == 0
+    launch.assert_not_called()
+
+
+def _info(task_id="abc123", status="STOPPED", exit_code=0):
+    from datetime import UTC, datetime
+
+    from dia.remote import TaskInfo
+
+    return TaskInfo(
+        task_id=task_id,
+        status=status,
+        command="pipeline preflight",
+        started_by="dia-cli/me",
+        created_at=datetime(2026, 10, 16, 9, 0, tzinfo=UTC),
+        exit_code=exit_code,
+        stop_reason=None,
+    )
+
+
+def test_tasks_lists_tasks_with_status_exit_code_and_who_started_them():
+    patches = [
+        patch("dia.cli._load_runtime_config", return_value=_runtime_config()),
+        patch("dia.remote.list_tasks", return_value=[_info()]),
+    ]
+    result, (_, list_tasks) = _invoke_with(patches, ["pipeline", "tasks"])
+
+    assert result.exit_code == 0
+    assert "abc123" in result.output
+    assert "STOPPED" in result.output
+    assert "dia-cli/me" in result.output
+    assert "pipeline preflight" in result.output
+    assert "about an hour" in result.output
+    assert list_tasks.call_args.kwargs["started_by"] is None
+
+
+def test_tasks_mine_filters_to_the_callers_label():
+    patches = [
+        patch("dia.cli._load_runtime_config", return_value=_runtime_config()),
+        patch("dia.remote.caller_started_by", return_value="dia-cli/me"),
+        patch("dia.remote.list_tasks", return_value=[]),
+    ]
+    result, (_, _, list_tasks) = _invoke_with(patches, ["pipeline", "tasks", "--mine"])
+
+    assert result.exit_code == 0
+    assert "No tasks found." in result.output
+    assert list_tasks.call_args.kwargs["started_by"] == "dia-cli/me"
+
+
+def test_tasks_logs_prints_the_lines():
+    patches = [
+        patch("dia.cli._load_runtime_config", return_value=_runtime_config()),
+        patch("dia.remote.read_log_page", return_value=(["line one", "line two"], "t")),
+    ]
+    result, _ = _invoke_with(patches, ["pipeline", "tasks", "logs", "abc123"])
+
+    assert result.exit_code == 0
+    assert "line one" in result.output
+    assert "line two" in result.output
+
+
+def test_tasks_logs_follow_exits_with_the_tasks_exit_code():
+    patches = [
+        patch("dia.cli._load_runtime_config", return_value=_runtime_config()),
+        patch("dia.remote.follow", return_value=2),
+    ]
+    result, _ = _invoke_with(patches, ["pipeline", "tasks", "logs", "abc123", "--follow"])
+
+    assert result.exit_code == 2
+
+
+def test_tasks_stop_stops_the_task():
+    patches = [
+        patch("dia.cli._load_runtime_config", return_value=_runtime_config()),
+        patch("dia.remote.stop"),
+    ]
+    result, (_, stop) = _invoke_with(patches, ["pipeline", "tasks", "stop", "abc123"])
+
+    assert result.exit_code == 0
+    assert stop.call_args.args[1] == "abc123"
+    assert "abc123" in result.output
+
+
+def test_tasks_stop_reports_a_failure():
+    from dia.remote import RemoteError
+
+    patches = [
+        patch("dia.cli._load_runtime_config", return_value=_runtime_config()),
+        patch("dia.remote.stop", side_effect=RemoteError("Could not stop task abc123: nope")),
+    ]
+    result, _ = _invoke_with(patches, ["pipeline", "tasks", "stop", "abc123"])
+
+    assert result.exit_code == 1
+    assert "Could not stop" in result.output
+
+
+def test_tasks_exits_with_a_clear_message_when_the_runtime_config_cannot_be_read():
+    from dia.runtime_config import RuntimeConfigError
+
+    with (
+        patch("dia.cli_helpers.current_names", return_value=DEV_NAMES),
+        patch("dia.runtime_config.RuntimeConfig.load", side_effect=RuntimeConfigError("parameter missing")),
+    ):
+        result = runner.invoke(app, ["pipeline", "tasks"])
+
+    assert result.exit_code == 1
+    assert "parameter missing" in result.output
