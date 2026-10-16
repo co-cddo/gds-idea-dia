@@ -22,6 +22,7 @@ def test_document_type_values():
     assert DocumentType.TECHNOLOGY_REPORT == "technology_report"
     assert DocumentType.EFFICIENCY_REPORT == "efficiency_report"
     assert DocumentType.DBR_READOUT == "dbr_readout"
+    assert DocumentType.DBR_REPORT == "dbr_report"
 
 
 # --- Completeness validation ---
@@ -68,6 +69,7 @@ def test_entity_classifications_includes_base():
         (DocumentType.TECHNOLOGY_REPORT, "Report Name"),
         (DocumentType.EFFICIENCY_REPORT, "Department Name"),
         (DocumentType.DBR_READOUT, "Readout Date"),
+        (DocumentType.DBR_REPORT, "Department Name"),
     ],
 )
 def test_entity_classifications_includes_id_field(doc_type, id_field):

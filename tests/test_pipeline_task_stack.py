@@ -12,6 +12,7 @@ from aws_cdk import aws_ec2 as ec2
 from gds_idea_cdk_constructs import DeploymentConfig, DeploymentEnvironment
 
 from config import AppConfig
+from dia.preflight import PREFLIGHT_BUCKETS
 from dia.runtime_config import RuntimeConfig
 from stacks.neptune import NeptuneStack
 from stacks.opensearch import OpenSearchStack
@@ -214,6 +215,26 @@ def test_task_role_can_read_and_write_four_pipeline_buckets_and_only_read_agent_
     assert len(writers) == 4
     (reader,) = readers
     assert not any(a.startswith(("s3:Put", "s3:Delete")) for a in _actions(reader))
+
+
+def _storage_bucket_ids(built) -> dict[str, str]:
+    """Bucket name -> logical ID, for the buckets in the storage stack."""
+    storage = assertions.Template.from_stack(built.stack.node.scope.node.find_child("Storage"))
+    return {r["Properties"]["BucketName"]: lid for lid, r in storage.find_resources("AWS::S3::Bucket").items()}
+
+
+def _granted_s3_resources(built) -> str:
+    statements = [s for s in _statements(built.template) if any(a.startswith("s3:") for a in _actions(s))]
+    return json.dumps([s["Resource"] for s in statements])
+
+
+def test_task_role_can_reach_every_bucket_preflight_checks(dev):
+    """Preflight heads each of PREFLIGHT_BUCKETS as the task role, so it needs access to each one."""
+    bucket_ids = _storage_bucket_ids(dev)
+    granted = _granted_s3_resources(dev)
+    for bucket in PREFLIGHT_BUCKETS:
+        logical_id = bucket_ids[dev.config.names(bucket)]
+        assert logical_id in granted, f"task role has no access to {bucket}"
 
 
 def test_task_role_can_use_neptune(dev):

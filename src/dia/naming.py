@@ -36,6 +36,7 @@ class Bucket(StrEnum):
     GRAPH_VALIDATED = "graph-validated"
     BATCH = "batch"
     AGENT_REPORTS = "agent-reports"
+    DBR_REPORTS = "dbr-reports"
 
 
 _BUCKET_VALUES = frozenset(bucket.value for bucket in Bucket)
