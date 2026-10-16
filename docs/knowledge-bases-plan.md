@@ -23,7 +23,8 @@ Every deployed name goes through `dia.naming.Names` (via `config.names` in CDK):
 
 - **Buckets this repo creates** are added to the `Bucket` enum in
   `src/dia/naming.py`, then named with `config.names(Bucket.X)`. This plan adds:
-  - `Bucket.DBR_READOUTS = "dbr-readouts"` → `gds-idea-dia-dbr-readouts-{phase}`
+  - `Bucket.DBR_REPORTS = "dbr-reports"` → `gds-idea-dia-dbr-reports-{phase}`
+    (DBR source documents: `readouts/` and `reports/`)
   - `Bucket.KB_VECTORS = "kb-vectors"` → `gds-idea-dia-kb-vectors-{phase}`
     (the S3 Vectors bucket)
 - **KB names** use the resource pattern: `config.names("kb-sr25-bids")` →
@@ -56,7 +57,8 @@ Every deployed name goes through `dia.naming.Names` (via `config.names` in CDK):
 | `nao_reports` | FM parsing (Haiku) |
 | `efficiency_reports` | FM parsing (Haiku). Key kept so the agent code doesn't change. |
 | `other_reports` | Renamed from `tech_reports`. FM parsing (Haiku). |
-| `dbr_readouts_letter` | New. Post-DBR letters, mainly text PDFs (default parsing). New bucket created by this repo. |
+| `dbr_readouts_letter` | New. Post-DBR letters, mainly text PDFs (default parsing). DBR bucket, `readouts/` prefix. |
+| `dbr_reports` | New. Old DIA-generated DBR reports. DBR bucket, `reports/` prefix. |
 
 ## Metadata keys
 
@@ -72,10 +74,12 @@ declaration.
 | `sr25_bids` | + `spend_id`, `project_name`, `file_reference` |
 | `sr21_bids` | + `project_name` |
 | `dbr_readouts_letter` | + `readout_date`, `is_latest` |
+| `dbr_reports` | + `report_date` |
 
 - The keys are what a document *may* carry. Not every file will have every key
   (for example, `alb` only applies when the submitter is an ALB).
-- `year` and `readout_date` are numbers (`2026`, `20260901`), so range filters work.
+- `year`, `readout_date` and `report_date` are numbers (`2026`, `20260901`,
+  `202606`), so range filters work.
 - `document_type` values match what the agent filters on: SR bids are
   `sr_bids_2025` and `sr_bids_2021`, following
   `src/dia/agent/mcp/retrieval_modes.py`.
@@ -94,7 +98,7 @@ to match this plan, and the sidecars regenerated:
 - `year` and `report_type` are only written where a source's metadata CSV has
   those columns. SR21 and GATS get neither.
 - `assurance_date` isn't written.
-- No sidecars exist yet for efficiency reports or DBR letters.
+- No sidecars exist yet for efficiency reports, DBR letters or DBR reports.
 - Possible bug: the tech reports source reads `files/metadata/nao_reports_metadata.csv`.
 
 The `document_type` values for every KB are the `DocumentType` values in
@@ -109,14 +113,25 @@ agent's `sr_bids_2025`). The declarations use the enum, not string literals.
 - `department` = text between `Letter to ` and ` - `, normalised via
   `src/dia/department_mapping.py`
 - `is_latest` = `true` for the newest letter per department, otherwise `false`
+- `document_type` = `dbr_readout`
+
+### DBR report filenames
+
+`llm_dbr_report_hmrc_062026` gives:
+
+- `department` = text between `llm_dbr_report_` and the final `_`, normalised
+  via `src/dia/department_mapping.py` (case-insensitive, since filenames are
+  lowercase)
+- `report_date` = `202606` (the trailing `MMYYYY`, stored as `YYYYMM`)
+- `document_type` = `dbr_report`
 
 ## Commits
 
 | # | Commit | Contents |
 |---|---|---|
 | 1 | KB template | `stacks/constructs/knowledge_base.py`: `KnowledgeBaseSpec`, `DataSourceSpec`, chunking options, embedding model, `KnowledgeBase` construct. Standalone tests. |
-| 2 | DBR bucket | Add `Bucket.DBR_READOUTS` to `src/dia/naming.py`. Create it in `StorageStack` with `config.names(Bucket.DBR_READOUTS)` (versioned, encrypted, public access blocked, SSL enforced, RETAIN). |
-| 3 | Declarations | `knowledge_bases.py` with `knowledge_bases(config)` returning the 7 specs. Owner accounts come from `DeploymentEnvironment`, never literals. Config tests for dev and prod. |
+| 2 | DBR bucket | Add `Bucket.DBR_REPORTS` to `src/dia/naming.py`. Create it in `StorageStack` with `config.names(Bucket.DBR_REPORTS)` (versioned, encrypted, public access blocked, SSL enforced, RETAIN). Add `DocumentType.DBR_REPORT`. |
+| 3 | Declarations | `knowledge_bases.py` with `knowledge_bases(config)` returning the 8 specs. Owner accounts come from `DeploymentEnvironment`, never literals. Config tests for dev and prod. |
 | 4 | KB stack | Add `Bucket.KB_VECTORS` to `src/dia/naming.py`. `stacks/knowledge_base.py`: vector bucket (RETAIN) and one template per spec, named with `config.names(...)`. Outputs KB IDs and role ARNs. Stack tests. |
 | 5 | Secret wiring | SecretsStack builds `kb_<key>` from the KB stack. In `app.py`: storage → KB → secrets dependencies. |
 | 6 | Verify | `uv run pytest`, `uv run ruff check .`, `uv run ruff format --check .`, `cdk synth`, template inspection. No deploy. Update `docs/design/handover.md`. |
