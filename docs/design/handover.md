@@ -270,13 +270,15 @@ Settled by the first real task runs in dev:
 - The cross-account role can be assumed from a task, and lists the GATS business
   cases location. The bucket is in the production account.
 - CI builds the x86_64 image and deploys the stack on a merge to `dev`.
+- A task reaches Neptune on 8182, and IAM auth with `GetEngineStatus` works
+  (`dia pipeline preflight --remote` passes all 6 checks in dev). The first
+  attempt failed only because the dev cluster was stopped. A stopped cluster looks
+  like a connect timeout, and AWS starts it again after 7 days.
 
 Still unverified:
-- The Neptune IAM action names in `stacks/pipeline_task.py` (`GetEngineStatus`,
-  `ReadDataViaQuery`, `WriteDataViaQuery`, `DeleteDataViaQuery`). The status call
-  has never run, because the dev cluster was stopped. Re-run
-  `dia pipeline preflight --remote` once it is running. Aakash was asked about the
-  cluster; a stopped cluster is started again by AWS after 7 days.
+- The Neptune read, write and delete action names in `stacks/pipeline_task.py`
+  (`ReadDataViaQuery`, `WriteDataViaQuery`, `DeleteDataViaQuery`). Only
+  `GetEngineStatus` has been exercised.
 - Whether the account requires the `DenyUserPermissionsPolicy` boundary on new
   roles. It is harmless (`Allow *` with a deny on IAM user and access key
   actions), and removing it means deleting the `permissions_boundary()` calls.
