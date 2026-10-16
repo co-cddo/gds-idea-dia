@@ -26,10 +26,11 @@ relying on it):
 - PR 5 (#70): `dia pipeline preflight --remote` and `dia pipeline tasks`
   (`src/dia/remote.py`). See "Remote running" below. Run for real in dev, where
   `dia pipeline preflight --remote` passes all 6 checks including Neptune.
-- **Next:** PR 5a, a small change so preflight says why the Neptune connect
-  failed (timeout, refused, name not resolved), then re-run
-  `dia pipeline preflight --remote` once the dev cluster is running. Then
-  Milestone B (sources), starting with PR 6.
+- PR 5a (#71): preflight says why the Neptune connect failed (timeout, refused,
+  name not resolved). A timeout message mentions that a stopped cluster looks
+  like this.
+- **Next:** Milestone B (sources), starting with PR 6 (source protocols and the
+  common metadata model). It needs a design conversation first.
 - Only the foundations are built so far (naming, the extras split, the task
   image, preflight and the task stack). The rest of `src/dia` is work in
   progress that nobody uses, and may be deleted as the PR that replaces each part
