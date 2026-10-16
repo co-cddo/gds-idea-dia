@@ -25,8 +25,9 @@ Every deployed name goes through `dia.naming.Names` (via `config.names` in CDK):
   `src/dia/naming.py`, then named with `config.names(Bucket.X)`. This plan adds:
   - `Bucket.DBR_REPORTS = "dbr-reports"` → `gds-idea-dia-dbr-reports-{phase}`
     (DBR source documents: `readouts/` and `reports/`)
-  - `Bucket.KB_VECTORS = "kb-vectors"` → `gds-idea-dia-kb-vectors-{phase}`
-    (the S3 Vectors bucket)
+- **The S3 Vectors bucket** is not in the `Bucket` enum, because preflight
+  calls `head_bucket` on every `Bucket` and that only works for S3 buckets. It
+  uses the resource pattern: `config.names("kb-vectors")` → `dia-kb-vectors-{phase}`.
 - **KB names** use the resource pattern: `config.names("kb-sr25-bids")` →
   `dia-kb-sr25-bids-{phase}`. The template derives index and data source names
   from it.
@@ -44,7 +45,8 @@ Every deployed name goes through `dia.naming.Names` (via `config.names` in CDK):
 | Source buckets | KBs read the existing buckets directly, wherever they are. Sidecars sit next to each document. Moving the buckets we own into this repo is tracked separately in #64. |
 | Cross-account | The KB role reads the bucket directly. The data source sets `bucketOwnerAccountId`, and the source bucket policy must allow the KB role. Bedrock can't assume a role for S3, so the pipeline's `assume_role_for_development_account` route doesn't apply to KBs. |
 | Prod | Same source buckets in both phases. Each declaration states which environment owns its bucket (`DeploymentEnvironment.DEVELOPMENT` or `PRODUCTION`). It's cross-account whenever that isn't the deploying environment. The GATS bucket is in the prod account, so it's cross-account in dev and same-account in prod. |
-| Secret wiring | SecretsStack builds `kb_<key>` entries from the KB stack's outputs. |
+| What deploys | Only the keys in `knowledge_bases.DEPLOYED`. This PR deploys the two DBR KBs. The other six are declared and tested but not deployed. |
+| Secret wiring | Deferred. The `dia-kb-arns` secret's keys are fixed in `SecretsStack`, and the agent's KB IDs are set in it by hand. Changing its keys in CDK would overwrite those values. For now the KB stack outputs each KB ID. |
 | Agent tools | Out of scope. Tools will come from AgentCore Gateway later. |
 
 ## Knowledge bases
@@ -135,14 +137,15 @@ agent's `sr_bids_2025`). The declarations use the enum, not string literals.
 | 1 | KB template | `stacks/constructs/knowledge_base.py`: `KnowledgeBaseSpec`, `DataSourceSpec`, chunking options, embedding model, `KnowledgeBase` construct. Standalone tests. |
 | 2 | DBR bucket | Add `Bucket.DBR_REPORTS` to `src/dia/naming.py`. Create it in `StorageStack` with `config.names(Bucket.DBR_REPORTS)` (versioned, encrypted, public access blocked, SSL enforced, RETAIN). Add `DocumentType.DBR_REPORT`. |
 | 3 | Declarations | `knowledge_bases.py` with `knowledge_bases(config)` returning the 8 specs. Owner accounts come from `DeploymentEnvironment`, never literals. Config tests for dev and prod. |
-| 4 | KB stack | Add `Bucket.KB_VECTORS` to `src/dia/naming.py`. `stacks/knowledge_base.py`: vector bucket (RETAIN) and one template per spec, named with `config.names(...)`. Outputs KB IDs and role ARNs. Stack tests. |
-| 5 | Secret wiring | SecretsStack builds `kb_<key>` from the KB stack. In `app.py`: storage → KB → secrets dependencies. |
-| 6 | Verify | `uv run pytest`, `uv run ruff check .`, `uv run ruff format --check .`, `cdk synth`, template inspection. No deploy. Update `docs/design/handover.md`. |
+| 4 | KB stack | `stacks/knowledge_base.py`: vector bucket `dia-kb-vectors-{phase}` (RETAIN) and one template per deployed spec, with the account's permissions boundary on each role. Indexes RETAIN. Outputs KB IDs and role ARNs. Stack tests. Also gives the pipeline task role read access to the DBR bucket, because preflight checks every `Bucket`. |
+| 5 | Verify | `uv run pytest`, `uv run ruff check .`, `uv run ruff format --check .`, synth, template inspection. Update `docs/design/handover.md`. |
 
 ## Follow-up work (not in this plan)
 
 1. Metadata-writer CLI that validates against `metadata_keys`, replacing the old repo's `scripts/generate_kb_metadata.py`. Start with the DBR filename parser. Align it with the common metadata model (pipeline build plan PR 6).
 2. Bucket policies on the source buckets allowing the new KB roles: the GATS bucket for the dev KB role, and the dev-account buckets for the prod KB roles.
-3. Deploy, then start ingestion jobs for every data source.
-4. Retire the old `AssuranceKB-*` stacks and delete the old vector bucket by hand (it was set to RETAIN).
+3. After deploy: upload the DBR documents and their `.metadata.json` files, then start an ingestion job for each data source.
+4. Once all eight are deployed, retire the old `AssuranceKB-*` stacks and delete the old vector bucket by hand (it was set to RETAIN).
 5. Move the source buckets we own into this repo (#64).
+6. Deploy the other six KBs, by adding their keys to `DEPLOYED`. Check the SR25 and SR21 prefixes first: with none set, the whole bucket is ingested.
+7. Secret wiring: write KB IDs into the `dia-kb-arns` secret from CDK (or move the agent to a different lookup) without wiping the values set by hand.
