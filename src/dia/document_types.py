@@ -144,6 +144,7 @@ class DocumentType(StrEnum):
     TECHNOLOGY_REPORT = "technology_report"
     EFFICIENCY_REPORT = "efficiency_report"
     DBR_READOUT = "dbr_readout"
+    DBR_REPORT = "dbr_report"
 
     @property
     def config(self) -> DocumentTypeConfig:
@@ -177,6 +178,7 @@ _CONFIGS: dict[DocumentType, DocumentTypeConfig] = {
     DocumentType.TECHNOLOGY_REPORT: DocumentTypeConfig(id_field="Report Name"),
     DocumentType.EFFICIENCY_REPORT: DocumentTypeConfig(id_field="Department Name"),
     DocumentType.DBR_READOUT: DocumentTypeConfig(id_field="Readout Date"),
+    DocumentType.DBR_REPORT: DocumentTypeConfig(id_field="Department Name"),
 }
 
 # Validate completeness at import time — if you add a DocumentType but forget
