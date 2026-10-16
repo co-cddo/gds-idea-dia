@@ -160,6 +160,9 @@ class KnowledgeBase(Construct):
             single hyphens only.
         vector_bucket: S3 Vectors bucket the index is created in.
         permissions_boundary: Optional permissions boundary for the service role.
+        index_removal_policy: What happens to the vector index (and its vectors)
+            when it is removed from the stack. Defaults to RETAIN, because
+            rebuilding it means re-ingesting every document.
     """
 
     def __init__(
@@ -171,6 +174,7 @@ class KnowledgeBase(Construct):
         name: str,
         vector_bucket: s3vectors.CfnVectorBucket,
         permissions_boundary: iam.IManagedPolicy | None = None,
+        index_removal_policy: cdk.RemovalPolicy = cdk.RemovalPolicy.RETAIN,
     ) -> None:
         super().__init__(scope, construct_id)
         _validate_name(name)
@@ -189,6 +193,7 @@ class KnowledgeBase(Construct):
                 non_filterable_metadata_keys=list(BEDROCK_NON_FILTERABLE_KEYS),
             ),
         )
+        self._index.apply_removal_policy(index_removal_policy)
 
         self._role = iam.Role(
             self,
