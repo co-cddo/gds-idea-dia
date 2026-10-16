@@ -201,9 +201,11 @@ cycles. (The throwaway scripts were in a temp directory and are gone.)
   `src/post_processing.py`). Its reconciliation works per file.
 - `retrieval_modes.py` in the agent filters on `document_type`, but nothing in
   the pipeline writes it yet. `DocumentType` values match the agent's filters
-  (SR bids are `sr_bids_2025`), and a test checks they agree. The types used
-  only by knowledge bases (NAO, technology, efficiency, DBR) have placeholder
-  `id_field` values, since they don't go through graph extraction yet.
+  (SR bids are `sr_bids_2025`), and a test checks they agree. Each type's
+  `id_field` (the identifying entity for graph extraction) is: Spend ID for
+  business cases, Bid Name for SR bids, Contract ID for Contract Finder, Report
+  Name for NAO and technology reports, Department Name for efficiency reports,
+  and Readout Date for DBR letters.
 - CI deploys on merge: `dev` branch to the dev account, `prod` branch to prod
   (prod cannot deploy yet: see the open actions). The CI workflows are managed by
   `idea-app`; the only one edited by hand is `ci_pr_cdk_app.yml`, for the reasons

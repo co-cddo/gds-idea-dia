@@ -57,10 +57,27 @@ def test_entity_classifications_includes_base():
         assert classification in result
 
 
-def test_entity_classifications_includes_id_field():
-    assert "Spend ID" in DocumentType.BUSINESS_CASE.entity_classifications
-    assert "Spend ID" in DocumentType.SR_BIDS_2025.entity_classifications
-    assert "Contract ID" in DocumentType.CONTRACT_FINDER.entity_classifications
+@pytest.mark.parametrize(
+    "doc_type,id_field",
+    [
+        (DocumentType.BUSINESS_CASE, "Spend ID"),
+        (DocumentType.SR_BIDS_2025, "Bid Name"),
+        (DocumentType.SR_BIDS_2021, "Bid Name"),
+        (DocumentType.CONTRACT_FINDER, "Contract ID"),
+        (DocumentType.NAO_REPORT, "Report Name"),
+        (DocumentType.TECHNOLOGY_REPORT, "Report Name"),
+        (DocumentType.EFFICIENCY_REPORT, "Department Name"),
+        (DocumentType.DBR_READOUT, "Readout Date"),
+    ],
+)
+def test_entity_classifications_includes_id_field(doc_type, id_field):
+    assert doc_type.config.id_field == id_field
+    assert id_field in doc_type.entity_classifications
+
+
+def test_no_id_field_duplicates_a_base_classification():
+    for doc_type in DocumentType:
+        assert doc_type.config.id_field not in BASE_ENTITY_CLASSIFICATIONS
 
 
 def test_entity_classifications_excludes_wrong_id():

@@ -20,8 +20,9 @@ Deviations from the legacy version:
   toolkit's own header spelling avoids this.
 - The "Spend ID" classification definition is generalised to "Primary
   Identifier", since the actual ID-type classification is document-type
-  dependent (Spend ID for business cases/SR bids, Contract ID for Contract
-  Finder — see DocumentType.entity_classifications in document_types.py).
+  dependent (for example Spend ID for business cases, Bid Name for SR bids,
+  Contract ID for Contract Finder — see DocumentType.entity_classifications
+  in document_types.py).
   Hardcoding "Spend ID" would misguide extraction on Contract Finder docs.
 - Renamed away from "GATS" — this prompt is shared across all DocumentTypes,
   not just GATS business cases.

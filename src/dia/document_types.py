@@ -167,15 +167,15 @@ class DocumentType(StrEnum):
 
 _CONFIGS: dict[DocumentType, DocumentTypeConfig] = {
     DocumentType.BUSINESS_CASE: DocumentTypeConfig(id_field="Spend ID"),
-    DocumentType.SR_BIDS_2025: DocumentTypeConfig(id_field="Spend ID"),
-    DocumentType.SR_BIDS_2021: DocumentTypeConfig(id_field="Spend ID"),
+    DocumentType.SR_BIDS_2025: DocumentTypeConfig(id_field="Bid Name"),
+    DocumentType.SR_BIDS_2021: DocumentTypeConfig(id_field="Bid Name"),
     DocumentType.CONTRACT_FINDER: DocumentTypeConfig(
         id_field="Contract ID",
         chunking=ChunkingConfig(use_semantic_splitting=False),
     ),
-    DocumentType.NAO_REPORT: DocumentTypeConfig(id_field="Report Title"),
-    DocumentType.TECHNOLOGY_REPORT: DocumentTypeConfig(id_field="Report Title"),
-    DocumentType.EFFICIENCY_REPORT: DocumentTypeConfig(id_field="Report Title"),
+    DocumentType.NAO_REPORT: DocumentTypeConfig(id_field="Report Name"),
+    DocumentType.TECHNOLOGY_REPORT: DocumentTypeConfig(id_field="Report Name"),
+    DocumentType.EFFICIENCY_REPORT: DocumentTypeConfig(id_field="Department Name"),
     DocumentType.DBR_READOUT: DocumentTypeConfig(id_field="Readout Date"),
 }
 
