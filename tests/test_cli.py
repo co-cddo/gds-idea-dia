@@ -1,5 +1,6 @@
 """Tests for dia.cli — CLI entry point."""
 
+import re
 from importlib.metadata import version
 from unittest.mock import patch
 
@@ -972,3 +973,14 @@ def test_tasks_exits_with_a_clear_message_when_the_runtime_config_cannot_be_read
 
     assert result.exit_code == 1
     assert "parameter missing" in result.output
+
+
+def test_no_wait_without_remote_is_a_usage_error():
+    with patch("dia.preflight.run_preflight") as run:
+        result = runner.invoke(app, ["pipeline", "preflight", "--no-wait"])
+
+    # In GitHub Actions typer colours its errors, which splits the text with ANSI codes.
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert result.exit_code == 2
+    assert "--no-wait only applies with --remote" in plain
+    run.assert_not_called()

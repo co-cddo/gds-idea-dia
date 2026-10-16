@@ -130,6 +130,18 @@ def _logs(client: BaseClient | None) -> BaseClient:
     return client or boto3.client("logs", region_name=REGION)
 
 
+def _status(task: dict) -> str:
+    """ECS's last known status, or STOPPING when ECS has been told to stop the task but it has not yet.
+
+    STOPPING is our label, not an ECS status: until the task has shut down ECS still reports its
+    last status (usually RUNNING), which looks as if a stop had no effect.
+    """
+    status = task.get("lastStatus", "UNKNOWN")
+    if task.get("desiredStatus") == "STOPPED" and status != "STOPPED":
+        return "STOPPING"
+    return status
+
+
 def _to_info(task: dict) -> TaskInfo:
     overrides = task.get("overrides", {}).get("containerOverrides", [])
     command = next((" ".join(o.get("command", [])) for o in overrides if o.get("name") == CONTAINER_NAME), "")
@@ -137,7 +149,7 @@ def _to_info(task: dict) -> TaskInfo:
     exit_code = containers[0].get("exitCode") if containers else None
     return TaskInfo(
         task_id=task_id_from_arn(task["taskArn"]),
-        status=task.get("lastStatus", "UNKNOWN"),
+        status=_status(task),
         command=command,
         started_by=task.get("startedBy", ""),
         created_at=task.get("createdAt"),
