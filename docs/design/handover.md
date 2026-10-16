@@ -139,6 +139,13 @@ cycles. (The throwaway scripts were in a temp directory and are gone.)
   the list, and needs at least a read grant to the task role in
   `stacks/pipeline_task.py` (a test checks this). S3 Vectors buckets don't
   belong in the enum.
+- **Knowledge bases:** deploying creates them but ingests nothing. Upload
+  documents and their `.metadata.json` files, then start an ingestion job per
+  data source. The `dia-kb-arns` secret is not written by CDK yet, because its
+  values are set by hand and changing its keys in CDK would overwrite them. The
+  KB stack outputs each KB ID instead. Changing a KB's chunking, parsing or index
+  metadata settings replaces the resource, and its fixed name then needs to
+  change too.
 - **Dependencies are split into extras:** the core is only what the CLI and
   naming need. `pipeline` is the document pipeline, `agent` is the agent and its
   report output, and `cdk` is for CDK. CI uses `uv sync --all-extras`.
