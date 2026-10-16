@@ -58,6 +58,9 @@ uv run dia pipeline tasks logs <task-id> --follow  # read (and follow) a task's 
 uv run dia pipeline tasks stop <task-id>           # stop a running task
 ```
 
+`--remote` needs the pipeline task stack deployed in the account (it reads the
+runtime config that stack writes: see Preflight above).
+
 Only this pipeline's tasks are listed, because the ECS cluster is shared with other
 applications. Each task is started as `dia-cli/<your name>`, taken from your AWS role
 name. ECS forgets stopped tasks after about an hour. Your role needs permission to run

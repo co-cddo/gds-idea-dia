@@ -1,5 +1,7 @@
 """CLI entry point for dia."""
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Annotated
 
 import typer
@@ -200,16 +202,32 @@ tasks_app = typer.Typer(help="Look at the pipeline's tasks in the cloud.")
 pipeline_app.add_typer(tasks_app, name="tasks")
 
 
+@contextmanager
+def _exit_on_remote_error(hint: str = "") -> Iterator[None]:
+    """Turn a failure to read the runtime config or reach ECS into a message and exit code 1.
+
+    Args:
+        hint: Extra text printed after the error, for example what to do next.
+    """
+    from dia.remote import RemoteError
+    from dia.runtime_config import RuntimeConfigError
+
+    try:
+        yield
+    except (RemoteError, RuntimeConfigError) as e:
+        typer.echo(f"Error: {e}")
+        if hint:
+            typer.echo(hint)
+        raise typer.Exit(code=1) from None
+
+
 def _load_runtime_config():
     """The runtime config for the active credentials, or exit with a clear message."""
     from dia.cli_helpers import current_names
-    from dia.runtime_config import RuntimeConfig, RuntimeConfigError
+    from dia.runtime_config import RuntimeConfig
 
-    try:
+    with _exit_on_remote_error():
         return RuntimeConfig.load(current_names())
-    except RuntimeConfigError as e:
-        typer.echo(f"Error: {e}")
-        raise typer.Exit(code=1) from None
 
 
 def _run_remote(command: list[str], wait: bool) -> None:
@@ -220,12 +238,9 @@ def _run_remote(command: list[str], wait: bool) -> None:
     from dia import remote
 
     config = _load_runtime_config()
-    try:
+    with _exit_on_remote_error():
         started_by = remote.caller_started_by()
         task_id = remote.launch(config, command, started_by)
-    except remote.RemoteError as e:
-        typer.echo(f"Error: {e}")
-        raise typer.Exit(code=1) from None
 
     typer.echo(f"Started task {task_id} ({' '.join(command)}) as {started_by}")
     follow_hint = f"dia pipeline tasks logs {task_id} --follow"
@@ -234,13 +249,11 @@ def _run_remote(command: list[str], wait: bool) -> None:
         return
 
     try:
-        exit_code = remote.follow(config, task_id, typer.echo)
+        with _exit_on_remote_error("The task may still be running. Check it with: dia pipeline tasks"):
+            exit_code = remote.follow(config, task_id, typer.echo)
     except KeyboardInterrupt:
         typer.echo(f"\nStopped following. The task is still running. Follow it with: {follow_hint}")
         raise typer.Exit(code=130) from None
-    except remote.RemoteError as e:
-        typer.echo(f"Error: {e}\nThe task may still be running. Check it with: dia pipeline tasks")
-        raise typer.Exit(code=1) from None
 
     if exit_code:
         raise typer.Exit(code=exit_code)
@@ -258,12 +271,9 @@ def tasks(
     from dia import remote
 
     config = _load_runtime_config()
-    try:
+    with _exit_on_remote_error():
         started_by = remote.caller_started_by() if mine else None
         infos = remote.list_tasks(config, started_by=started_by)
-    except remote.RemoteError as e:
-        typer.echo(f"Error: {e}")
-        raise typer.Exit(code=1) from None
 
     if not infos:
         typer.echo("No tasks found.")
@@ -284,21 +294,19 @@ def tasks_logs(
 
     config = _load_runtime_config()
     try:
-        if follow:
-            exit_code = remote.follow(config, task_id, typer.echo)
-            if exit_code:
-                raise typer.Exit(code=exit_code)
-            return
-        lines, _ = remote.read_log_page(config, task_id)
+        with _exit_on_remote_error():
+            if follow:
+                exit_code = remote.follow(config, task_id, typer.echo)
+                if exit_code:
+                    raise typer.Exit(code=exit_code)
+                return
+            page = remote.read_log_page(config, task_id)
     except KeyboardInterrupt:
         raise typer.Exit(code=130) from None
-    except remote.RemoteError as e:
-        typer.echo(f"Error: {e}")
-        raise typer.Exit(code=1) from None
 
-    if not lines:
+    if not page.lines:
         typer.echo(f"No logs yet for task {task_id}.")
-    for line in lines:
+    for line in page.lines:
         typer.echo(line)
 
 
@@ -308,11 +316,8 @@ def tasks_stop(task_id: Annotated[str, typer.Argument(help="The task ID (see `di
     from dia import remote
 
     config = _load_runtime_config()
-    try:
+    with _exit_on_remote_error():
         remote.stop(config, task_id)
-    except remote.RemoteError as e:
-        typer.echo(f"Error: {e}")
-        raise typer.Exit(code=1) from None
     typer.echo(f"Asked ECS to stop task {task_id}.")
 
 

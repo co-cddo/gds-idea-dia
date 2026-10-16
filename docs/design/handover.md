@@ -23,8 +23,9 @@ relying on it):
   from inside the VPC. The Neptune check failed because the dev Neptune cluster
   was **stopped**, not because of the network. See "Unverified assumptions" for
   what that run did and did not settle.
-- In this PR (PR 5): `dia pipeline preflight --remote` and `dia pipeline tasks`
-  (`src/dia/remote.py`). See "Remote running" below.
+- PR 5 (#70): `dia pipeline preflight --remote` and `dia pipeline tasks`
+  (`src/dia/remote.py`). See "Remote running" below. Run for real in dev, where
+  `dia pipeline preflight --remote` passes all 6 checks including Neptune.
 - **Next:** PR 5a, a small change so preflight says why the Neptune connect
   failed (timeout, refused, name not resolved), then re-run
   `dia pipeline preflight --remote` once the dev cluster is running. Then
@@ -234,6 +235,10 @@ commands that change state).
   `ecs:DescribeTasks`/`ListTasks`/`StopTask`, `logs:GetLogEvents` and
   `ssm:GetParameter` on the runtime config. None of that is managed in this repo.
   A dev poweraccess role could already do all of it. Prod is not checked.
+- **The CDK diff comment on a PR warns `TaskDefinition ... WILL_REPLACE`** whenever
+  the PR touches `src/`, `task/` or `pyproject.toml`: the image hash is part of the
+  task definition, so each change registers a new revision. That is expected. Old
+  revisions stay in ECS and nothing is deleted.
 - Not built yet: per-run CPU and memory (#68) and a maximum run time (#67). Both
   would be extra `run_task` arguments or a timeout in the entrypoint; `launch`
   takes only a command today.

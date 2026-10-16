@@ -7,6 +7,7 @@ import pytest
 from botocore.exceptions import ClientError
 
 from dia.remote import (
+    LogPage,
     RemoteError,
     TaskInfo,
     caller_started_by,
@@ -239,10 +240,10 @@ def test_read_log_page_reads_until_the_token_stops_moving():
         {"events": [], "nextForwardToken": "t1"},
     )
 
-    lines, token = read_log_page(CONFIG, "abc123", logs_client=logs)
+    page = read_log_page(CONFIG, "abc123", logs_client=logs)
 
-    assert lines == ["one", "two"]
-    assert token == "t1"
+    assert page.lines == ["one", "two"]
+    assert page.token == "t1"
     first = logs.get_log_events.call_args_list[0].kwargs
     assert first["logGroupName"] == "/dia-task-dev"
     assert first["logStreamName"] == "pipeline/Pipeline/abc123"
@@ -253,7 +254,7 @@ def test_read_log_page_gives_no_lines_before_the_stream_exists():
     logs = MagicMock()
     logs.get_log_events.side_effect = _client_error("ResourceNotFoundException")
 
-    assert read_log_page(CONFIG, "abc123", logs_client=logs) == ([], None)
+    assert read_log_page(CONFIG, "abc123", logs_client=logs) == LogPage([], None)
 
 
 def test_read_log_page_reports_other_errors():

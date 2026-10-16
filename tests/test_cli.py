@@ -913,9 +913,11 @@ def test_tasks_mine_filters_to_the_callers_label():
 
 
 def test_tasks_logs_prints_the_lines():
+    from dia.remote import LogPage
+
     patches = [
         patch("dia.cli._load_runtime_config", return_value=_runtime_config()),
-        patch("dia.remote.read_log_page", return_value=(["line one", "line two"], "t")),
+        patch("dia.remote.read_log_page", return_value=LogPage(["line one", "line two"], "t")),
     ]
     result, _ = _invoke_with(patches, ["pipeline", "tasks", "logs", "abc123"])
 

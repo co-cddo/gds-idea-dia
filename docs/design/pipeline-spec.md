@@ -294,7 +294,7 @@ PR off and add its link as it is raised.
   (#66)
 - [x] 4c. Fix: the task image imports `dia` without Node, and CI builds the
   image and imports every task module in it (#69)
-- [x] 5. `--remote` and `dia pipeline tasks`: launch any command as a task
+- [x] 5. `--remote` and `dia pipeline tasks` (#70): launch any command as a task
   (first target: `dia pipeline preflight --remote`), follow its logs, and list,
   read and stop tasks. Reads the cluster, task definition, subnets and security
   group from the runtime config. The confirmations in section 3.3 are not built

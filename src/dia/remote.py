@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import boto3
+from botocore.client import BaseClient
 from botocore.exceptions import BotoCoreError, ClientError
 
 from dia.naming import REGION
@@ -58,6 +59,15 @@ class TaskInfo:
     stop_reason: str | None
 
 
+@dataclass(frozen=True)
+class LogPage:
+    """Log lines read from a task's stream, and where to carry on from."""
+
+    lines: list[str]
+    token: str | None
+    """Pass this back to `read_log_page` to read only what is written after these lines."""
+
+
 # --- who is launching ---
 
 
@@ -85,7 +95,7 @@ def started_by_label(caller_arn: str) -> str:
     return (STARTED_BY_PREFIX + label)[:_STARTED_BY_MAX_LENGTH]
 
 
-def caller_started_by(sts_client=None) -> str:
+def caller_started_by(sts_client: BaseClient | None = None) -> str:
     """The `startedBy` value for the active credentials.
 
     Raises:
@@ -112,11 +122,11 @@ def task_id_from_arn(task_arn: str) -> str:
     return task_arn.rsplit("/", 1)[-1]
 
 
-def _ecs(client):
+def _ecs(client: BaseClient | None) -> BaseClient:
     return client or boto3.client("ecs", region_name=REGION)
 
 
-def _logs(client):
+def _logs(client: BaseClient | None) -> BaseClient:
     return client or boto3.client("logs", region_name=REGION)
 
 
@@ -139,7 +149,7 @@ def _to_info(task: dict) -> TaskInfo:
 # --- ECS ---
 
 
-def launch(config: RuntimeConfig, command: list[str], started_by: str, ecs_client=None) -> str:
+def launch(config: RuntimeConfig, command: list[str], started_by: str, ecs_client: BaseClient | None = None) -> str:
     """Start a task that runs `dia <command>`.
 
     Args:
@@ -180,8 +190,16 @@ def launch(config: RuntimeConfig, command: list[str], started_by: str, ecs_clien
     return task_id_from_arn(response["tasks"][0]["taskArn"])
 
 
-def describe(config: RuntimeConfig, task_id: str, ecs_client=None) -> TaskInfo:
+def describe(config: RuntimeConfig, task_id: str, ecs_client: BaseClient | None = None) -> TaskInfo:
     """Describe one task.
+
+    Args:
+        config: The runtime config.
+        task_id: The task to describe.
+        ecs_client: Optional injected ECS client (for testing).
+
+    Returns:
+        What ECS reports about the task.
 
     Raises:
         RemoteError: If the task cannot be read or is not found (ECS forgets stopped
@@ -197,13 +215,18 @@ def describe(config: RuntimeConfig, task_id: str, ecs_client=None) -> TaskInfo:
     return _to_info(response["tasks"][0])
 
 
-def list_tasks(config: RuntimeConfig, started_by: str | None = None, ecs_client=None) -> list[TaskInfo]:
+def list_tasks(
+    config: RuntimeConfig, started_by: str | None = None, ecs_client: BaseClient | None = None
+) -> list[TaskInfo]:
     """Running and recently stopped tasks of the pipeline task definition, newest first.
 
     Args:
         config: The runtime config.
         started_by: If given, only tasks started with this exact `startedBy` value.
         ecs_client: Optional injected ECS client (for testing).
+
+    Returns:
+        The tasks, newest first.
 
     Raises:
         RemoteError: If ECS cannot be read.
@@ -230,8 +253,13 @@ def list_tasks(config: RuntimeConfig, started_by: str | None = None, ecs_client=
     return sorted(infos, key=lambda i: (i.created_at is not None, i.created_at), reverse=True)
 
 
-def stop(config: RuntimeConfig, task_id: str, ecs_client=None) -> None:
+def stop(config: RuntimeConfig, task_id: str, ecs_client: BaseClient | None = None) -> None:
     """Stop a running task.
+
+    Args:
+        config: The runtime config.
+        task_id: The task to stop.
+        ecs_client: Optional injected ECS client (for testing).
 
     Raises:
         RemoteError: If ECS refuses.
@@ -252,11 +280,26 @@ def log_stream_name(task_id: str) -> str:
     return f"{LOG_STREAM_PREFIX}/{CONTAINER_NAME}/{task_id}"
 
 
-def read_log_page(config: RuntimeConfig, task_id: str, token: str | None = None, logs_client=None):
-    """Log lines written since `token`, and the token to continue from.
+def read_log_page(
+    config: RuntimeConfig,
+    task_id: str,
+    token: str | None = None,
+    logs_client: BaseClient | None = None,
+) -> LogPage:
+    """Read a task's log lines, from the start or from where an earlier read stopped.
 
-    Pass no token to read from the start. If the stream does not exist yet (the
-    container has not started) there are no lines and the token is unchanged.
+    If the stream does not exist yet (the container has not started) there are no
+    lines and the token is unchanged.
+
+    Args:
+        config: The runtime config.
+        task_id: The task whose logs to read.
+        token: The `token` of an earlier `LogPage`, to read only what came after it.
+            None reads from the start.
+        logs_client: Optional injected logs client (for testing).
+
+    Returns:
+        The new lines, and the token to continue from.
 
     Raises:
         RemoteError: If the logs cannot be read.
@@ -271,7 +314,7 @@ def read_log_page(config: RuntimeConfig, task_id: str, token: str | None = None,
             response = logs.get_log_events(**kwargs)
         except ClientError as e:
             if e.response.get("Error", {}).get("Code") == "ResourceNotFoundException":
-                return lines, token
+                return LogPage(lines, token)
             raise RemoteError(f"Could not read the logs of task {task_id}: {e}") from e
         except BotoCoreError as e:
             raise RemoteError(f"Could not read the logs of task {task_id}: {e}") from e
@@ -280,7 +323,7 @@ def read_log_page(config: RuntimeConfig, task_id: str, token: str | None = None,
 
         next_token = response.get("nextForwardToken")
         if not response["events"] or next_token == token:
-            return lines, next_token or token
+            return LogPage(lines, next_token or token)
         token = next_token
 
 
@@ -289,12 +332,15 @@ def follow(
     task_id: str,
     emit: Callable[[str], None],
     *,
-    ecs_client=None,
-    logs_client=None,
+    ecs_client: BaseClient | None = None,
+    logs_client: BaseClient | None = None,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
 ) -> int:
     """Print a task's log lines as they arrive, until the task stops.
+
+    There is no time limit: this follows until the task stops, and a task has none
+    (see #67). Ctrl-C stops following without stopping the task.
 
     Also prints the task's status when it changes, and a "Still ..." line when
     nothing has been printed for a while, so a slow start does not look stuck.
@@ -328,10 +374,11 @@ def follow(
             last_output = clock()
 
         # Read the logs after the status, so lines written just before the stop are not missed.
-        lines, token = read_log_page(config, task_id, token, logs_client)
-        for line in lines:
+        page = read_log_page(config, task_id, token, logs_client)
+        token = page.token
+        for line in page.lines:
             emit(line)
-        if lines:
+        if page.lines:
             last_output = clock()
 
         if stopped:
