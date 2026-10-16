@@ -287,7 +287,7 @@ def test_follow_prints_new_lines_each_poll_and_returns_the_exit_code():
     code = follow(CONFIG, "abc123", out.append, ecs_client=ecs, logs_client=logs, sleep=sleeps.append)
 
     assert code == 0
-    assert out == ["a", "b"]
+    assert [line for line in out if not line.startswith("Task status")] == ["a", "b"]
     assert len(sleeps) == 2
 
 
@@ -313,3 +313,59 @@ def test_follow_reports_the_stop_reason_when_the_task_never_ran():
 
     assert code == 1
     assert "CannotPullContainerError" in out[-1]
+
+
+class _Clock:
+    """A fake clock that moves on only when the test's `sleep` is called."""
+
+    def __init__(self, step: float):
+        self.now = 0.0
+        self.step = step
+
+    def __call__(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += self.step
+
+
+def _follow_statuses(statuses, step, logs=None):
+    ecs = MagicMock()
+    ecs.describe_tasks.side_effect = [{"tasks": [_task(status=s, exit_code=0)]} for s in statuses]
+    logs = logs or MagicMock(**{"get_log_events.side_effect": _client_error("ResourceNotFoundException")})
+    clock = _Clock(step)
+    out: list[str] = []
+    follow(CONFIG, "abc123", out.append, ecs_client=ecs, logs_client=logs, sleep=clock.sleep, clock=clock)
+    return out
+
+
+def test_follow_says_when_the_status_changes_and_only_then():
+    out = _follow_statuses(["PENDING", "PENDING", "RUNNING", "STOPPED"], step=1)
+
+    assert out == ["Task status: PENDING", "Task status: RUNNING", "Task status: STOPPED"]
+
+
+def test_follow_says_it_is_still_waiting_when_nothing_is_printed_for_a_while():
+    out = _follow_statuses(["PENDING"] * 12 + ["STOPPED"], step=3)
+
+    assert out[0] == "Task status: PENDING"
+    assert [line for line in out if line.startswith("Still")] == ["Still PENDING (15s)", "Still PENDING (30s)"]
+
+
+def test_follow_does_not_repeat_itself_while_logs_are_arriving():
+    calls = {"n": 0}
+
+    def get_log_events(**kwargs):
+        # A new line on every other call (the first read of each poll), nothing on the confirming read.
+        calls["n"] += 1
+        if calls["n"] % 2:
+            return {"events": [{"message": f"line {calls['n']}"}], "nextForwardToken": f"t{calls['n']}"}
+        return {"events": [], "nextForwardToken": kwargs["nextToken"]}
+
+    logs = MagicMock()
+    logs.get_log_events.side_effect = get_log_events
+
+    out = _follow_statuses(["RUNNING"] * 8 + ["STOPPED"], step=3, logs=logs)
+
+    assert any(line.startswith("line") for line in out)
+    assert not [line for line in out if line.startswith("Still")]

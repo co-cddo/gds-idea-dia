@@ -34,6 +34,9 @@ _STARTED_BY_DISALLOWED = re.compile(r"[^A-Za-z0-9_/-]")
 
 _POLL_SECONDS = 3
 
+# While nothing else is printed (Fargate takes a minute or so to start a task), say so this often.
+_QUIET_SECONDS = 15
+
 # ECS stops listing stopped tasks after about an hour.
 STOPPED_TASK_RETENTION = "about an hour"
 
@@ -289,16 +292,21 @@ def follow(
     ecs_client=None,
     logs_client=None,
     sleep: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
 ) -> int:
     """Print a task's log lines as they arrive, until the task stops.
+
+    Also prints the task's status when it changes, and a "Still ..." line when
+    nothing has been printed for a while, so a slow start does not look stuck.
 
     Args:
         config: The runtime config.
         task_id: The task to follow.
-        emit: Called with each new log line.
+        emit: Called with each new log line and progress message.
         ecs_client: Optional injected ECS client (for testing).
         logs_client: Optional injected logs client (for testing).
         sleep: Waits between polls (replaceable for testing).
+        clock: Seconds from a monotonic clock (replaceable for testing).
 
     Returns:
         The container's exit code. 1 if the task stopped without one, for example
@@ -308,18 +316,31 @@ def follow(
         RemoteError: If ECS or the logs cannot be read.
     """
     token = None
+    started = last_output = clock()
+    last_status = None
     while True:
         info = describe(config, task_id, ecs_client)
         stopped = info.status == "STOPPED"
+
+        if info.status != last_status:
+            emit(f"Task status: {info.status}")
+            last_status = info.status
+            last_output = clock()
 
         # Read the logs after the status, so lines written just before the stop are not missed.
         lines, token = read_log_page(config, task_id, token, logs_client)
         for line in lines:
             emit(line)
+        if lines:
+            last_output = clock()
 
         if stopped:
             if info.exit_code is None:
                 emit(f"Task stopped without running: {info.stop_reason or 'no reason given'}")
                 return 1
             return info.exit_code
+
+        if clock() - last_output >= _QUIET_SECONDS:
+            emit(f"Still {info.status} ({int(clock() - started)}s)")
+            last_output = clock()
         sleep(_POLL_SECONDS)
