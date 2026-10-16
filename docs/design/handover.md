@@ -209,7 +209,8 @@ cycles. (The throwaway scripts were in a temp directory and are gone.)
   `id_field` (the identifying entity for graph extraction) is: Spend ID for
   business cases, Bid Name for SR bids, Contract ID for Contract Finder, Report
   Name for NAO and technology reports, Department Name for efficiency reports,
-  and Readout Date for DBR letters.
+  Readout Date for DBR letters, and Department Name for DIA-generated DBR
+  reports.
 - CI deploys on merge: `dev` branch to the dev account, `prod` branch to prod
   (prod cannot deploy yet: see the open actions). The CI workflows are managed by
   `idea-app`; the only one edited by hand is `ci_pr_cdk_app.yml`, for the reasons
