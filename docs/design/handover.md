@@ -134,10 +134,14 @@ cycles. (The throwaway scripts were in a temp directory and are gone.)
   `dia-ledger-dev`, and `names(Bucket.TEXT_EXTRACTED)` gives
   `gds-idea-dia-text-extracted-dev`. In CDK use `config.names`. In the CLI use
   `dia.cli_helpers.current_names()`, which looks up the account.
-- **The `Bucket` enum is checked by preflight:** `check_buckets` calls
-  `head_bucket` on every `Bucket`, as the task role. A new `Bucket` therefore
-  needs at least a read grant to the task role in `stacks/pipeline_task.py` (a
-  test checks this). S3 Vectors buckets don't belong in the enum.
+- **Preflight checks a named list of buckets:** `check_buckets` calls
+  `head_bucket`, as the task role, on `dia.preflight.PREFLIGHT_BUCKETS`. The
+  list is for the Neptune extraction steps and names the pipeline buckets
+  explicitly, so knowledge base buckets such as the DBR bucket are not on it and
+  the task role has no access to them. A new pipeline `Bucket` must be added to
+  the list, and needs at least a read grant to the task role in
+  `stacks/pipeline_task.py` (a test checks this). S3 Vectors buckets don't
+  belong in the enum.
 - **Knowledge bases:** deploying creates them but ingests nothing. Upload
   documents and their `.metadata.json` files, then start an ingestion job per
   data source. The `dia-kb-arns` secret is not written by CDK yet, because its

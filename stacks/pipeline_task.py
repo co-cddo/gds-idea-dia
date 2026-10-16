@@ -199,7 +199,6 @@ class PipelineTaskStack(cdk.Stack):
             bucket.grant_read_write(self.task_role)
         # Read-only: preflight checks that every bucket is reachable.
         storage.agent_reports_bucket.grant_read(self.task_role)
-        storage.dbr_reports_bucket.grant_read(self.task_role)
 
         self.runtime_config_parameter.grant_read(self.task_role)
 
