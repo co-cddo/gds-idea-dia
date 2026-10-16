@@ -348,3 +348,28 @@ def test_invalid_data_source_rejected(fields):
 def test_invalid_name_rejected(name):
     with pytest.raises(ValueError):
         _synth(_spec(), name=name)
+
+
+# --- removal policy ---
+
+
+def test_vector_index_is_retained_by_default():
+    index = next(iter(_synth(_spec()).find_resources("AWS::S3Vectors::Index").values()))
+    assert index["DeletionPolicy"] == "Retain"
+    assert index["UpdateReplacePolicy"] == "Retain"
+
+
+def test_vector_index_removal_policy_can_be_overridden():
+    app = cdk.App()
+    stack = cdk.Stack(app, "TestStack", env=cdk.Environment(account=ACCOUNT, region=REGION))
+    bucket = s3vectors.CfnVectorBucket(stack, "VectorBucket", vector_bucket_name="app-vectors")
+    KnowledgeBase(
+        stack,
+        "Kb",
+        spec=_spec(),
+        name="app-kb-reports-dev",
+        vector_bucket=bucket,
+        index_removal_policy=cdk.RemovalPolicy.DESTROY,
+    )
+    index = next(iter(assertions.Template.from_stack(stack).find_resources("AWS::S3Vectors::Index").values()))
+    assert index["DeletionPolicy"] == "Delete"
