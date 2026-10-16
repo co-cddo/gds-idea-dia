@@ -39,6 +39,34 @@ The parameter is written by the pipeline task stack (`stacks/pipeline_task.py`),
 so the "runtime config" check fails in an account until that stack has been
 deployed there. Your own role also needs `ssm:GetParameter` on it.
 
+### Running in the cloud
+
+Add `--remote` to run the command as an ECS task, where it can reach Neptune:
+
+```bash
+uv run dia pipeline preflight --remote             # start a task and follow its logs
+uv run dia pipeline preflight --remote --no-wait   # start it and return
+```
+
+It prints the task ID, follows the logs, and exits with the task's exit code.
+Ctrl-C stops following but leaves the task running. To look at tasks:
+
+```bash
+uv run dia pipeline tasks                          # running and recently stopped tasks
+uv run dia pipeline tasks --mine                   # only the ones you started
+uv run dia pipeline tasks logs <task-id> --follow  # read (and follow) a task's logs
+uv run dia pipeline tasks stop <task-id>           # stop a running task
+```
+
+`--remote` needs the pipeline task stack deployed in the account (it reads the
+runtime config that stack writes: see Preflight above).
+
+Only this pipeline's tasks are listed, because the ECS cluster is shared with other
+applications. Each task is started as `dia-cli/<your name>`, taken from your AWS role
+name. ECS forgets stopped tasks after about an hour. Your role needs permission to run
+tasks, pass the task's roles, and read logs; those permissions are not managed here.
+Nothing limits how long a task runs (see #67), so stop one that hangs.
+
 ## Task image
 
 Pipeline commands run in the cloud as ECS tasks, from the image defined in

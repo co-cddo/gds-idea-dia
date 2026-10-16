@@ -123,9 +123,11 @@ cost estimate show how many records were padding.
   running anything.
 - Common flags: `--remote`, `--limit`, `--departments`, `--ignore-ledger`,
   `--retry-failed`, a flag to include documents marked stale, and `--yes`.
-- **Dev:** running any command without `--limit` warns and asks for
-  confirmation, defaulting to no.
-- **Prod:** every `--remote` run asks for confirmation.
+- **Commands that change state:**
+  - **Dev:** running without `--limit` warns and asks for confirmation,
+    defaulting to no.
+  - **Prod:** every `--remote` run asks for confirmation.
+- Read-only commands such as `preflight` never ask, locally or with `--remote`.
 - `--yes` skips confirmation prompts.
 
 ### 3.4 Sources
@@ -253,7 +255,10 @@ How it behaves:
 - Confirm the prod locations for GATS metadata and SR25 documents. The current
   names end in `-dev`.
 - Agree the change to the agent (current versions only) with whoever owns the
-  agent.
+  agent, and move it onto the runtime config (section 3.2) in place of its
+  hand-filled Secrets Manager endpoints.
+- Give the repository prod deploy access: it is in `repositories_access_dev.tf`
+  but not `repositories_access_prod.tf` in `gds-idea-cdk-access`.
 
 ## 6. Questions for reviewers
 
@@ -285,9 +290,18 @@ PR off and add its link as it is raised.
 - [x] 3. Docker image of the `dia` package, with a local build check (#63)
 - [x] 4a. The runtime config model and `dia pipeline preflight` (#65)
 - [x] 4b. ECS task definition and IAM in CDK (read-only on source locations),
-  the security group for Neptune access, and the runtime config parameter (#66)
-- [ ] 5. `--remote` and `dia tasks`: launch any command as a task, and list
-  recent tasks with status and a log link
+  the security group for Neptune access, and the runtime config parameter
+  (#66)
+- [x] 4c. Fix: the task image imports `dia` without Node, and CI builds the
+  image and imports every task module in it (#69)
+- [x] 5. `--remote` and `dia pipeline tasks` (#70): launch any command as a task
+  (first target: `dia pipeline preflight --remote`), follow its logs, and list,
+  read and stop tasks. Reads the cluster, task definition, subnets and security
+  group from the runtime config. The confirmations in section 3.3 are not built
+  yet: the only remote command so far is read-only. They arrive with the shared
+  CLI options (item 13). See the handover.
+- [ ] 5a. Preflight says why the Neptune connect failed (timeout, refused, name
+  not resolved), and that a stopped cluster looks like a timeout.
 
 ### Milestone B: sources (GATS)
 
