@@ -1,5 +1,6 @@
 """Tests for dia.preflight — the checks, with AWS mocked."""
 
+import socket
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 
@@ -224,7 +225,7 @@ def _neptune_client(status: str = "healthy") -> MagicMock:
 def test_neptune_check_reports_the_engine_status():
     factory = MagicMock(return_value=_neptune_client())
 
-    result = check_neptune(CONFIG, connect=lambda host, port: True, client_factory=factory)
+    result = check_neptune(CONFIG, connect=lambda host, port: None, client_factory=factory)
 
     assert result.status is Status.OK
     assert "healthy" in result.detail
@@ -232,17 +233,42 @@ def test_neptune_check_reports_the_engine_status():
 
 
 def test_neptune_check_fails_when_it_cannot_connect():
-    result = check_neptune(CONFIG, connect=lambda host, port: False)
+    result = check_neptune(CONFIG, connect=lambda host, port: "timed out after 3s (check it is running)")
 
     assert result.status is Status.FAIL
-    assert "security group" in result.detail
+    assert CONFIG.neptune_endpoint in result.detail
+    assert "timed out after 3s" in result.detail
+
+
+@pytest.mark.parametrize(
+    "error,expected",
+    [
+        (TimeoutError("timed out"), "stopped cluster"),
+        (ConnectionRefusedError(), "nothing is listening"),
+        (socket.gaierror(-2, "Name or service not known"), "could not resolve"),
+        (OSError("Network is unreachable"), "Network is unreachable"),
+    ],
+)
+def test_neptune_connect_says_why_it_failed(error, expected):
+    with patch("dia.preflight.socket.create_connection", side_effect=error):
+        result = check_neptune(CONFIG)
+
+    assert result.status is Status.FAIL
+    assert expected in result.detail
+
+
+def test_neptune_connect_gives_no_reason_when_it_works():
+    from dia.preflight import _tcp_connect
+
+    with patch("dia.preflight.socket.create_connection"):
+        assert _tcp_connect("host", 8182) is None
 
 
 def test_neptune_check_fails_when_the_status_call_is_denied():
     client = MagicMock()
     client.get_engine_status.side_effect = _client_error("AccessDeniedException")
 
-    result = check_neptune(CONFIG, connect=lambda host, port: True, client_factory=MagicMock(return_value=client))
+    result = check_neptune(CONFIG, connect=lambda host, port: None, client_factory=MagicMock(return_value=client))
 
     assert result.status is Status.FAIL
     assert "status call failed" in result.detail
