@@ -8,7 +8,7 @@ from gds_idea_cdk_constructs import DeploymentEnvironment
 
 from config import AppConfig
 from dia.document_types import DocumentType
-from knowledge_bases import COMMON_METADATA_KEYS, DOCUMENT_TYPES, knowledge_bases
+from knowledge_bases import COMMON_METADATA_KEYS, DEPLOYED, DOCUMENT_TYPES, deployed_knowledge_bases, knowledge_bases
 
 DEV = DeploymentEnvironment.DEVELOPMENT
 PROD = DeploymentEnvironment.PRODUCTION
@@ -109,3 +109,16 @@ def test_text_knowledge_bases_use_default_parsing(key):
 def test_declarations_contain_no_account_ids():
     source = Path(__file__).resolve().parent.parent.joinpath("knowledge_bases.py").read_text()
     assert not re.search(r"\b\d{12}\b", source)
+
+
+# --- what gets deployed ---
+
+
+def test_deployed_keys_are_declared():
+    assert DEPLOYED <= EXPECTED_KEYS
+
+
+@pytest.mark.parametrize("environment", ENVIRONMENTS)
+def test_only_the_dbr_knowledge_bases_are_deployed(environment):
+    keys = {spec.key for spec in deployed_knowledge_bases(AppConfig(environment=environment))}
+    assert keys == {"dbr_readouts_letter", "dbr_reports"}

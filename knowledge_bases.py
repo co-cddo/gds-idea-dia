@@ -2,7 +2,8 @@
 
 Each entry is a `KnowledgeBaseSpec` for the reusable template in
 `stacks/constructs/knowledge_base.py`. Adding a knowledge base means adding one
-entry to `knowledge_bases()`, and its document type to `DOCUMENT_TYPES`.
+entry to `knowledge_bases()` and its document type to `DOCUMENT_TYPES`. It is
+deployed once its key is in `DEPLOYED`.
 
 Source buckets owned by other projects are named literally. Buckets this repo
 creates are named through `config.names(Bucket.X)`. Each source states which
@@ -42,6 +43,15 @@ DOCUMENT_TYPES: dict[str, DocumentType] = {
 }
 
 _DIA_DOCUMENTS_BUCKET = "gds-idea-digital-intelligence-agent-documents"
+
+# Knowledge bases the stack deploys. Others are declared but not deployed yet;
+# add a key here to deploy it.
+DEPLOYED: frozenset[str] = frozenset({"dbr_readouts_letter", "dbr_reports"})
+
+
+def deployed_knowledge_bases(config: AppConfig) -> list[KnowledgeBaseSpec]:
+    """The knowledge bases in `DEPLOYED`, for the given environment."""
+    return [spec for spec in knowledge_bases(config) if spec.key in DEPLOYED]
 
 
 def knowledge_bases(config: AppConfig) -> list[KnowledgeBaseSpec]:
