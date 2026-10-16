@@ -16,7 +16,12 @@ from dia.document_types import (
 def test_document_type_values():
     assert DocumentType.BUSINESS_CASE == "business_case"
     assert DocumentType.SR_BIDS_2025 == "sr_bids_2025"
+    assert DocumentType.SR_BIDS_2021 == "sr_bids_2021"
     assert DocumentType.CONTRACT_FINDER == "contract_finder"
+    assert DocumentType.NAO_REPORT == "nao_report"
+    assert DocumentType.TECHNOLOGY_REPORT == "technology_report"
+    assert DocumentType.EFFICIENCY_REPORT == "efficiency_report"
+    assert DocumentType.DBR_READOUT == "dbr_readout"
 
 
 # --- Completeness validation ---

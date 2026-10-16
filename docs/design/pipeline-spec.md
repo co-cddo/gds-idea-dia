@@ -213,7 +213,8 @@ How it behaves:
 - A batch job that fails or expires is resubmitted by the batch handling
   itself.
 - `document_type` values are the `DocumentType` values, which match what the
-  agent's retrieval modes filter on. SR bids are `sr_bids_2025`.
+  agent's retrieval modes filter on. SR bids are `sr_bids_2025` and
+  `sr_bids_2021`.
 
 ### 3.8 Graph updates
 
