@@ -125,7 +125,10 @@ BASE_ENTITY_CLASSIFICATIONS: list[str] = [
 
 
 class DocumentType(StrEnum):
-    """Document types supported by the extraction pipeline.
+    """Document types, used as the `document_type` metadata value.
+
+    The values are what the agent filters on, so they must match the agent's
+    retrieval modes.
 
     Each value carries per-type processing configuration via properties:
         doc_type.config                 → DocumentTypeConfig
@@ -134,7 +137,7 @@ class DocumentType(StrEnum):
     """
 
     BUSINESS_CASE = "business_case"
-    SR_BIDS = "sr_bids"
+    SR_BIDS_2025 = "sr_bids_2025"
     CONTRACT_FINDER = "contract_finder"
 
     @property
@@ -159,7 +162,7 @@ class DocumentType(StrEnum):
 
 _CONFIGS: dict[DocumentType, DocumentTypeConfig] = {
     DocumentType.BUSINESS_CASE: DocumentTypeConfig(id_field="Spend ID"),
-    DocumentType.SR_BIDS: DocumentTypeConfig(id_field="Spend ID"),
+    DocumentType.SR_BIDS_2025: DocumentTypeConfig(id_field="Spend ID"),
     DocumentType.CONTRACT_FINDER: DocumentTypeConfig(
         id_field="Contract ID",
         chunking=ChunkingConfig(use_semantic_splitting=False),

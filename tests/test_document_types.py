@@ -15,7 +15,7 @@ from dia.document_types import (
 
 def test_document_type_values():
     assert DocumentType.BUSINESS_CASE == "business_case"
-    assert DocumentType.SR_BIDS == "sr_bids"
+    assert DocumentType.SR_BIDS_2025 == "sr_bids_2025"
     assert DocumentType.CONTRACT_FINDER == "contract_finder"
 
 
@@ -54,7 +54,7 @@ def test_entity_classifications_includes_base():
 
 def test_entity_classifications_includes_id_field():
     assert "Spend ID" in DocumentType.BUSINESS_CASE.entity_classifications
-    assert "Spend ID" in DocumentType.SR_BIDS.entity_classifications
+    assert "Spend ID" in DocumentType.SR_BIDS_2025.entity_classifications
     assert "Contract ID" in DocumentType.CONTRACT_FINDER.entity_classifications
 
 
@@ -78,7 +78,7 @@ def test_business_case_uses_full_chunking():
 
 
 def test_sr_bids_uses_full_chunking():
-    chunking = DocumentType.SR_BIDS.chunking
+    chunking = DocumentType.SR_BIDS_2025.chunking
     assert chunking.use_semantic_splitting is True
 
 

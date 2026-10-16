@@ -212,8 +212,8 @@ How it behaves:
   a run uses `--retry-failed`.
 - A batch job that fails or expires is resubmitted by the batch handling
   itself.
-- `document_type` for SR bids is `sr_bids`, and the agent's retrieval modes must
-  use the same value.
+- `document_type` values are the `DocumentType` values, which match what the
+  agent's retrieval modes filter on. SR bids are `sr_bids_2025`.
 
 ### 3.8 Graph updates
 
