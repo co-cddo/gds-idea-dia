@@ -14,7 +14,7 @@ from stacks.storage import StorageStack
 )
 def test_creates_three_buckets(synth, environment, phase):
     template = synth(StorageStack, environment)
-    template.resource_count_is("AWS::S3::Bucket", 5)
+    template.resource_count_is("AWS::S3::Bucket", 6)
 
 
 @pytest.mark.parametrize(
@@ -53,11 +53,13 @@ def test_bucket_names_follow_pattern(synth, environment, phase):
         (DeploymentEnvironment.DEVELOPMENT, "dev", "graph-validated"),
         (DeploymentEnvironment.DEVELOPMENT, "dev", "batch"),
         (DeploymentEnvironment.DEVELOPMENT, "dev", "agent-reports"),
+        (DeploymentEnvironment.DEVELOPMENT, "dev", "dbr-reports"),
         (DeploymentEnvironment.PRODUCTION, "prod", "text-extracted"),
         (DeploymentEnvironment.PRODUCTION, "prod", "graph-raw"),
         (DeploymentEnvironment.PRODUCTION, "prod", "graph-validated"),
         (DeploymentEnvironment.PRODUCTION, "prod", "batch"),
         (DeploymentEnvironment.PRODUCTION, "prod", "agent-reports"),
+        (DeploymentEnvironment.PRODUCTION, "prod", "dbr-reports"),
     ],
 )
 def test_expected_bucket_exists(synth, environment, phase, purpose):
@@ -79,7 +81,7 @@ def test_batch_bucket_has_lifecycle_rule(synth):
     )
 
 
-@pytest.mark.parametrize("purpose", ["text-extracted", "graph-raw", "graph-validated", "agent-reports"])
+@pytest.mark.parametrize("purpose", ["text-extracted", "graph-raw", "graph-validated", "agent-reports", "dbr-reports"])
 def test_data_buckets_are_versioned(synth, purpose):
     template = synth(StorageStack)
     template.has_resource_properties(
@@ -87,6 +89,40 @@ def test_data_buckets_are_versioned(synth, purpose):
         {
             "BucketName": f"gds-idea-dia-{purpose}-dev",
             "VersioningConfiguration": {"Status": "Enabled"},
+        },
+    )
+
+
+@pytest.mark.parametrize("environment", [DeploymentEnvironment.DEVELOPMENT, DeploymentEnvironment.PRODUCTION])
+def test_dbr_reports_bucket_is_retained(synth, environment):
+    phase = environment.short_name
+    template = synth(StorageStack, environment)
+    buckets = template.find_resources(
+        "AWS::S3::Bucket",
+        {"Properties": {"BucketName": f"gds-idea-dia-dbr-reports-{phase}"}},
+    )
+    (bucket,) = buckets.values()
+    assert bucket["DeletionPolicy"] == "Retain"
+    assert bucket["UpdateReplacePolicy"] == "Retain"
+
+
+def test_dbr_reports_bucket_is_private_and_encrypted(synth):
+    template = synth(StorageStack)
+    template.has_resource_properties(
+        "AWS::S3::Bucket",
+        {
+            "BucketName": "gds-idea-dia-dbr-reports-dev",
+            "BucketEncryption": {
+                "ServerSideEncryptionConfiguration": [
+                    {"ServerSideEncryptionByDefault": {"SSEAlgorithm": "AES256"}},
+                ]
+            },
+            "PublicAccessBlockConfiguration": {
+                "BlockPublicAcls": True,
+                "BlockPublicPolicy": True,
+                "IgnorePublicAcls": True,
+                "RestrictPublicBuckets": True,
+            },
         },
     )
 
