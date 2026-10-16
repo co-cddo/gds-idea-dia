@@ -29,9 +29,12 @@ relying on it):
 - PR 5a (#71): preflight says why the Neptune connect failed (timeout, refused,
   name not resolved). A timeout message mentions that a stopped cluster looks
   like this.
-- Open: `DocumentType` values aligned with the agent (`sr_bids_2025`), plus the
-  document types the Bedrock knowledge bases need. This reverses the earlier
-  spec decision that SR bids are `sr_bids`.
+- Merged (#72): `DocumentType` values aligned with the agent (`sr_bids_2025`),
+  plus the document types the Bedrock knowledge bases need. This reversed the
+  earlier spec decision that SR bids are `sr_bids`.
+- Open (Bedrock knowledge bases, a separate track from the pipeline build plan):
+  the DBR bucket (`Bucket.DBR_REPORTS`, prefixes `readouts/` and `reports/`) and
+  `DocumentType.DBR_REPORT`.
 - **Next:** Milestone B (sources), starting with PR 6 (source protocols and the
   common metadata model). It needs a design conversation first.
 - Only the foundations are built so far (naming, the extras split, the task
@@ -125,6 +128,10 @@ cycles. (The throwaway scripts were in a temp directory and are gone.)
   `dia-ledger-dev`, and `names(Bucket.TEXT_EXTRACTED)` gives
   `gds-idea-dia-text-extracted-dev`. In CDK use `config.names`. In the CLI use
   `dia.cli_helpers.current_names()`, which looks up the account.
+- **The `Bucket` enum is checked by preflight:** `check_buckets` calls
+  `head_bucket` on every `Bucket`, as the task role. A new `Bucket` therefore
+  needs at least a read grant to the task role in `stacks/pipeline_task.py` (a
+  test checks this). S3 Vectors buckets don't belong in the enum.
 - **Dependencies are split into extras:** the core is only what the CLI and
   naming need. `pipeline` is the document pipeline, `agent` is the agent and its
   report output, and `cdk` is for CDK. CI uses `uv sync --all-extras`.
