@@ -216,7 +216,7 @@ def _tcp_connect(host: str, port: int) -> str | None:
             "then the task's subnet and security group)"
         )
     except OSError as e:
-        return f"{e} (check the task's subnet and security group)"
+        return f"{str(e) or type(e).__name__} (check the task's subnet and security group)"
 
 
 def check_neptune(
@@ -242,7 +242,7 @@ def check_neptune(
     endpoint, port = config.neptune_endpoint, config.neptune_port
 
     problem = connect(endpoint, port)
-    if problem:
+    if problem is not None:
         return _fail("neptune", f"cannot connect to {endpoint}:{port}: {problem}")
 
     try:

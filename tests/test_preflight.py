@@ -247,6 +247,7 @@ def test_neptune_check_fails_when_it_cannot_connect():
         (ConnectionRefusedError(), "nothing is listening"),
         (socket.gaierror(-2, "Name or service not known"), "could not resolve"),
         (OSError("Network is unreachable"), "Network is unreachable"),
+        (OSError(), "OSError (check"),
     ],
 )
 def test_neptune_connect_says_why_it_failed(error, expected):
