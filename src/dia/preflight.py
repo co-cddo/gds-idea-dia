@@ -36,6 +36,15 @@ from dia.types import DataSource
 # Sources whose input location is checked. GATS business cases is the first source.
 PREFLIGHT_SOURCES = ("gats-business-cases",)
 
+# Buckets the buckets check heads: the ones the pipeline uses.
+PREFLIGHT_BUCKETS: tuple[Bucket, ...] = (
+    Bucket.TEXT_EXTRACTED,
+    Bucket.GRAPH_RAW,
+    Bucket.GRAPH_VALIDATED,
+    Bucket.BATCH,
+    Bucket.AGENT_REPORTS,
+)
+
 _CONNECT_TIMEOUT_SECONDS = 3
 
 # ECS sets this variable in every task container (the task metadata endpoint):
@@ -130,9 +139,9 @@ def check_ledger_table(names: Names, dynamodb_client) -> CheckResult:
 
 
 def check_buckets(names: Names, s3_client) -> CheckResult:
-    """Can every bucket this project owns be reached?"""
+    """Can every bucket the pipeline uses be reached?"""
     failures = []
-    for bucket in Bucket:
+    for bucket in PREFLIGHT_BUCKETS:
         name = names(bucket)
         try:
             s3_client.head_bucket(Bucket=name)
@@ -141,7 +150,7 @@ def check_buckets(names: Names, s3_client) -> CheckResult:
 
     if failures:
         return _fail("buckets", "; ".join(failures))
-    return _ok("buckets", f"all {len(Bucket)} reachable")
+    return _ok("buckets", f"all {len(PREFLIGHT_BUCKETS)} reachable")
 
 
 def source_s3_client(role_arn: str | None, sts_client):
