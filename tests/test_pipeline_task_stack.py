@@ -206,14 +206,26 @@ def test_task_role_can_use_the_ledger(dev):
     assert "dynamodb:PutItem" in actions
 
 
-def test_task_role_can_read_and_write_four_pipeline_buckets_and_only_read_agent_reports(dev):
+def test_task_role_can_read_and_write_four_pipeline_buckets_and_only_read_the_others(dev):
     s3_statements = [s for s in _statements(dev.template) if any(a.startswith("s3:") for a in _actions(s))]
     writers = [s for s in s3_statements if any(a.startswith("s3:PutObject") for a in _actions(s))]
     readers = [s for s in s3_statements if s not in writers]
 
     assert len(writers) == 4
-    (reader,) = readers
-    assert not any(a.startswith(("s3:Put", "s3:Delete")) for a in _actions(reader))
+    assert len(readers) == 2  # agent reports and DBR reports
+    for reader in readers:
+        assert not any(a.startswith(("s3:Put", "s3:Delete")) for a in _actions(reader))
+
+
+def test_task_role_can_reach_every_bucket_preflight_checks(dev):
+    """Preflight calls head_bucket on every Bucket, so the task role needs access to each one."""
+    granted = json.dumps(
+        [s["Resource"] for s in _statements(dev.template) if any(a.startswith("s3:") for a in _actions(s))]
+    )
+    storage_buckets = dev.stack.node.scope.node.find_child("Storage")
+    template = assertions.Template.from_stack(storage_buckets)
+    for logical_id in template.find_resources("AWS::S3::Bucket"):
+        assert logical_id in granted, f"task role has no access to {logical_id}"
 
 
 def test_task_role_can_use_neptune(dev):
