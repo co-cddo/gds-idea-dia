@@ -15,8 +15,13 @@ from dia.document_types import (
 
 def test_document_type_values():
     assert DocumentType.BUSINESS_CASE == "business_case"
-    assert DocumentType.SR_BIDS == "sr_bids"
+    assert DocumentType.SR_BIDS_2025 == "sr_bids_2025"
+    assert DocumentType.SR_BIDS_2021 == "sr_bids_2021"
     assert DocumentType.CONTRACT_FINDER == "contract_finder"
+    assert DocumentType.NAO_REPORT == "nao_report"
+    assert DocumentType.TECHNOLOGY_REPORT == "technology_report"
+    assert DocumentType.EFFICIENCY_REPORT == "efficiency_report"
+    assert DocumentType.DBR_READOUT == "dbr_readout"
 
 
 # --- Completeness validation ---
@@ -52,10 +57,27 @@ def test_entity_classifications_includes_base():
         assert classification in result
 
 
-def test_entity_classifications_includes_id_field():
-    assert "Spend ID" in DocumentType.BUSINESS_CASE.entity_classifications
-    assert "Spend ID" in DocumentType.SR_BIDS.entity_classifications
-    assert "Contract ID" in DocumentType.CONTRACT_FINDER.entity_classifications
+@pytest.mark.parametrize(
+    "doc_type,id_field",
+    [
+        (DocumentType.BUSINESS_CASE, "Spend ID"),
+        (DocumentType.SR_BIDS_2025, "Bid Name"),
+        (DocumentType.SR_BIDS_2021, "Bid Name"),
+        (DocumentType.CONTRACT_FINDER, "Contract ID"),
+        (DocumentType.NAO_REPORT, "Report Name"),
+        (DocumentType.TECHNOLOGY_REPORT, "Report Name"),
+        (DocumentType.EFFICIENCY_REPORT, "Department Name"),
+        (DocumentType.DBR_READOUT, "Readout Date"),
+    ],
+)
+def test_entity_classifications_includes_id_field(doc_type, id_field):
+    assert doc_type.config.id_field == id_field
+    assert id_field in doc_type.entity_classifications
+
+
+def test_no_id_field_duplicates_a_base_classification():
+    for doc_type in DocumentType:
+        assert doc_type.config.id_field not in BASE_ENTITY_CLASSIFICATIONS
 
 
 def test_entity_classifications_excludes_wrong_id():
@@ -78,7 +100,7 @@ def test_business_case_uses_full_chunking():
 
 
 def test_sr_bids_uses_full_chunking():
-    chunking = DocumentType.SR_BIDS.chunking
+    chunking = DocumentType.SR_BIDS_2025.chunking
     assert chunking.use_semantic_splitting is True
 
 

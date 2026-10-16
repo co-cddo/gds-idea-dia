@@ -29,6 +29,9 @@ relying on it):
 - PR 5a (#71): preflight says why the Neptune connect failed (timeout, refused,
   name not resolved). A timeout message mentions that a stopped cluster looks
   like this.
+- Open: `DocumentType` values aligned with the agent (`sr_bids_2025`), plus the
+  document types the Bedrock knowledge bases need. This reverses the earlier
+  spec decision that SR bids are `sr_bids`.
 - **Next:** Milestone B (sources), starting with PR 6 (source protocols and the
   common metadata model). It needs a design conversation first.
 - Only the foundations are built so far (naming, the extras split, the task
@@ -197,7 +200,12 @@ cycles. (The throwaway scripts were in a temp directory and are gone.)
   `gds-idea-assurance-knowledge-graphs` (`src/topic_reconciliation.py`,
   `src/post_processing.py`). Its reconciliation works per file.
 - `retrieval_modes.py` in the agent filters on `document_type`, but nothing in
-  the pipeline writes it yet. The canonical SR bids value is `sr_bids`.
+  the pipeline writes it yet. `DocumentType` values match the agent's filters
+  (SR bids are `sr_bids_2025`), and a test checks they agree. Each type's
+  `id_field` (the identifying entity for graph extraction) is: Spend ID for
+  business cases, Bid Name for SR bids, Contract ID for Contract Finder, Report
+  Name for NAO and technology reports, Department Name for efficiency reports,
+  and Readout Date for DBR letters.
 - CI deploys on merge: `dev` branch to the dev account, `prod` branch to prod
   (prod cannot deploy yet: see the open actions). The CI workflows are managed by
   `idea-app`; the only one edited by hand is `ci_pr_cdk_app.yml`, for the reasons

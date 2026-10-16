@@ -17,6 +17,7 @@ from dia.agent.mcp.retrieval_modes import (
     _make_filter_eq_and,
     update_tool_params,
 )
+from dia.document_types import DocumentType
 
 # --- _make_filter_eq_and ---
 
@@ -227,6 +228,21 @@ def test_contract_finder_all_sets_single_text_match_filter():
     update_tool_params({"mode": "contract_finder_all"}, kwargs)
     fc = kwargs["filter_config"]
     assert fc.source_filters.filters[0].value == "contract_finder"
+
+
+@pytest.mark.parametrize(
+    "mode,document_type",
+    [
+        ("business_case_all", DocumentType.BUSINESS_CASE),
+        ("sr_bids_all", DocumentType.SR_BIDS_2025),
+        ("contract_finder_all", DocumentType.CONTRACT_FINDER),
+    ],
+)
+def test_agent_filters_match_document_type_values(mode, document_type):
+    """The pipeline writes DocumentType values, so the agent must filter on the same ones."""
+    kwargs = {}
+    update_tool_params({"mode": mode}, kwargs)
+    assert kwargs["filter_config"].source_filters.filters[0].value == document_type
 
 
 # --- unrecognized mode: silent fallback to default (documents current behavior) ---

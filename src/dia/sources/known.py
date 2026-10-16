@@ -13,7 +13,7 @@ KNOWN_SOURCES: dict[str, DataSource] = {
     ),
     "sr-bids-2025": DataSource(
         name="sr-bids-2025",
-        document_type=DocumentType.SR_BIDS,
+        document_type=DocumentType.SR_BIDS_2025,
         bucket="gds-idea-sr-query-documentstore-dev",
         prefix="",
     ),

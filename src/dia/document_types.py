@@ -125,7 +125,10 @@ BASE_ENTITY_CLASSIFICATIONS: list[str] = [
 
 
 class DocumentType(StrEnum):
-    """Document types supported by the extraction pipeline.
+    """Document types, used as the `document_type` metadata value.
+
+    The values are what the agent filters on, so they must match the agent's
+    retrieval modes and the knowledge base metadata files.
 
     Each value carries per-type processing configuration via properties:
         doc_type.config                 → DocumentTypeConfig
@@ -134,8 +137,13 @@ class DocumentType(StrEnum):
     """
 
     BUSINESS_CASE = "business_case"
-    SR_BIDS = "sr_bids"
+    SR_BIDS_2025 = "sr_bids_2025"
+    SR_BIDS_2021 = "sr_bids_2021"
     CONTRACT_FINDER = "contract_finder"
+    NAO_REPORT = "nao_report"
+    TECHNOLOGY_REPORT = "technology_report"
+    EFFICIENCY_REPORT = "efficiency_report"
+    DBR_READOUT = "dbr_readout"
 
     @property
     def config(self) -> DocumentTypeConfig:
@@ -159,11 +167,16 @@ class DocumentType(StrEnum):
 
 _CONFIGS: dict[DocumentType, DocumentTypeConfig] = {
     DocumentType.BUSINESS_CASE: DocumentTypeConfig(id_field="Spend ID"),
-    DocumentType.SR_BIDS: DocumentTypeConfig(id_field="Spend ID"),
+    DocumentType.SR_BIDS_2025: DocumentTypeConfig(id_field="Bid Name"),
+    DocumentType.SR_BIDS_2021: DocumentTypeConfig(id_field="Bid Name"),
     DocumentType.CONTRACT_FINDER: DocumentTypeConfig(
         id_field="Contract ID",
         chunking=ChunkingConfig(use_semantic_splitting=False),
     ),
+    DocumentType.NAO_REPORT: DocumentTypeConfig(id_field="Report Name"),
+    DocumentType.TECHNOLOGY_REPORT: DocumentTypeConfig(id_field="Report Name"),
+    DocumentType.EFFICIENCY_REPORT: DocumentTypeConfig(id_field="Department Name"),
+    DocumentType.DBR_READOUT: DocumentTypeConfig(id_field="Readout Date"),
 }
 
 # Validate completeness at import time — if you add a DocumentType but forget
