@@ -33,9 +33,14 @@ relying on it):
   plus the document types the Bedrock knowledge bases need. This reversed the
   earlier spec decision that SR bids are `sr_bids`.
 - Open (Bedrock knowledge bases, a separate track from the pipeline build plan,
-  planned in [`../knowledge-bases-plan.md`](../knowledge-bases-plan.md)): the
-  reusable KB construct (`stacks/constructs/knowledge_base.py`). Nothing uses it
-  until the KB stack PR.
+  planned in [`../knowledge-bases-plan.md`](../knowledge-bases-plan.md)), as
+  three PRs:
+  - the DBR bucket (`Bucket.DBR_REPORTS`, prefixes `readouts/` and `reports/`)
+    and `DocumentType.DBR_REPORT` (#75);
+  - the reusable KB construct (`stacks/constructs/knowledge_base.py`) and the
+    plan (#76);
+  - the declarations (`knowledge_bases.py`) and the KB stack, which deploys only
+    the two DBR KBs for now (`knowledge_bases.DEPLOYED`).
 - **Next:** Milestone B (sources), starting with PR 6 (source protocols and the
   common metadata model). It needs a design conversation first.
 - Only the foundations are built so far (naming, the extras split, the task
@@ -129,6 +134,21 @@ cycles. (The throwaway scripts were in a temp directory and are gone.)
   `dia-ledger-dev`, and `names(Bucket.TEXT_EXTRACTED)` gives
   `gds-idea-dia-text-extracted-dev`. In CDK use `config.names`. In the CLI use
   `dia.cli_helpers.current_names()`, which looks up the account.
+- **Preflight checks a named list of buckets:** `check_buckets` calls
+  `head_bucket`, as the task role, on `dia.preflight.PREFLIGHT_BUCKETS`. The
+  list is for the Neptune extraction steps and names the pipeline buckets
+  explicitly, so knowledge base buckets such as the DBR bucket are not on it and
+  the task role has no access to them. A new pipeline `Bucket` must be added to
+  the list, and needs at least a read grant to the task role in
+  `stacks/pipeline_task.py` (a test checks this). S3 Vectors buckets don't
+  belong in the enum.
+- **Knowledge bases:** deploying creates them but ingests nothing. Upload
+  documents and their `.metadata.json` files, then start an ingestion job per
+  data source. The `dia-kb-arns` secret is not written by CDK yet, because its
+  values are set by hand and changing its keys in CDK would overwrite them. The
+  KB stack outputs each KB ID instead. Changing a KB's chunking, parsing or index
+  metadata settings replaces the resource, and its fixed name then needs to
+  change too.
 - **Dependencies are split into extras:** the core is only what the CLI and
   naming need. `pipeline` is the document pipeline, `agent` is the agent and its
   report output, and `cdk` is for CDK. CI uses `uv sync --all-extras`.
@@ -209,7 +229,8 @@ cycles. (The throwaway scripts were in a temp directory and are gone.)
   `id_field` (the identifying entity for graph extraction) is: Spend ID for
   business cases, Bid Name for SR bids, Contract ID for Contract Finder, Report
   Name for NAO and technology reports, Department Name for efficiency reports,
-  and Readout Date for DBR letters.
+  Readout Date for DBR letters, and Department Name for DIA-generated DBR
+  reports.
 - CI deploys on merge: `dev` branch to the dev account, `prod` branch to prod
   (prod cannot deploy yet: see the open actions). The CI workflows are managed by
   `idea-app`; the only one edited by hand is `ci_pr_cdk_app.yml`, for the reasons
