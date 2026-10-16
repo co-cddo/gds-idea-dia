@@ -40,7 +40,9 @@ def _client_error(code: str = "AccessDenied") -> ClientError:
     return ClientError({"Error": {"Code": code, "Message": "nope"}}, "Operation")
 
 
-def _task(task_id="abc123", status="STOPPED", exit_code=0, started_by="dia-cli/me", created=None, reason=None):
+def _task(
+    task_id="abc123", status="STOPPED", exit_code=0, started_by="dia-cli/me", created=None, reason=None, desired=None
+):
     task = {
         "taskArn": f"arn:aws:ecs:eu-west-2:992382722318:task/shared-cluster/{task_id}",
         "lastStatus": status,
@@ -51,6 +53,8 @@ def _task(task_id="abc123", status="STOPPED", exit_code=0, started_by="dia-cli/m
     }
     if reason:
         task["stoppedReason"] = reason
+    if desired:
+        task["desiredStatus"] = desired
     return task
 
 
@@ -156,7 +160,42 @@ def test_describe_reports_status_command_and_exit_code():
     )
 
 
-def test_describe_says_when_ecs_has_forgotten_the_task():
+@pytest.mark.parametrize(
+    "status,desired,expected",
+    [
+        ("RUNNING", "RUNNING", "RUNNING"),
+        ("RUNNING", "STOPPED", "STOPPING"),
+        ("PENDING", "STOPPED", "STOPPING"),
+        ("STOPPED", "STOPPED", "STOPPED"),
+    ],
+)
+def test_a_task_ecs_is_stopping_shows_as_stopping(status, desired, expected):
+    ecs = MagicMock()
+    ecs.describe_tasks.return_value = {"tasks": [_task(status=status, desired=desired, exit_code=None)]}
+
+    assert describe(CONFIG, "abc123", ecs).status == expected
+
+
+def test_follow_keeps_waiting_while_a_task_is_stopping():
+    ecs = MagicMock()
+    ecs.describe_tasks.side_effect = [
+        {"tasks": [_task(status="RUNNING", desired="STOPPED", exit_code=None)]},
+        {"tasks": [_task(status="STOPPED", desired="STOPPED", exit_code=137)]},
+    ]
+    out: list[str] = []
+
+    code = follow(
+        CONFIG,
+        "abc123",
+        out.append,
+        ecs_client=ecs,
+        logs_client=_logs({"events": []}, {"events": []}),
+        sleep=lambda s: None,
+    )
+
+    assert code == 137
+    assert "Task status: STOPPING" in out
+
     ecs = MagicMock()
     ecs.describe_tasks.return_value = {"tasks": []}
 

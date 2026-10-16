@@ -180,6 +180,9 @@ def preflight(
     With --remote the checks run as a task, and this command follows its logs and
     exits with the task's exit code. It needs no confirmation, because it only reads.
     """
+    if no_wait and not remote:
+        raise typer.BadParameter("--no-wait only applies with --remote.", param_hint="--no-wait")
+
     if remote:
         _run_remote(["pipeline", "preflight"], wait=not no_wait)
         return
