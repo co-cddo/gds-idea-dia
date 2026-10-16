@@ -23,6 +23,8 @@ class StorageStack(cdk.Stack):
             - graph-validated: Normalised/validated output ready for Neptune/AOSS
             - batch: Bedrock batch inference working area (transient)
             - agent-reports: agent query outputs (markdown and docx)
+            - dbr-reports: DBR source documents for the knowledge bases
+              (readouts/: post-DBR letters, reports/: DIA-generated DBR reports)
         DynamoDB Tables:
             - ledger: Tracks which documents have been successfully processed
         IAM:
@@ -95,6 +97,17 @@ class StorageStack(cdk.Stack):
             self,
             "AgentReports",
             bucket_name=config.names(Bucket.AGENT_REPORTS),
+            versioned=True,
+            encryption=s3.BucketEncryption.S3_MANAGED,
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            enforce_ssl=True,
+            removal_policy=cdk.RemovalPolicy.RETAIN,
+        )
+
+        self.dbr_reports_bucket = s3.Bucket(
+            self,
+            "DbrReports",
+            bucket_name=config.names(Bucket.DBR_REPORTS),
             versioned=True,
             encryption=s3.BucketEncryption.S3_MANAGED,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
