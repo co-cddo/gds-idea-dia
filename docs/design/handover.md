@@ -33,9 +33,14 @@ relying on it):
   plus the document types the Bedrock knowledge bases need. This reversed the
   earlier spec decision that SR bids are `sr_bids`.
 - Open (Bedrock knowledge bases, a separate track from the pipeline build plan,
-  planned in [`../knowledge-bases-plan.md`](../knowledge-bases-plan.md)): the
-  reusable KB construct (`stacks/constructs/knowledge_base.py`). Nothing uses it
-  until the KB stack PR.
+  planned in [`../knowledge-bases-plan.md`](../knowledge-bases-plan.md)), as
+  three PRs:
+  - the DBR bucket (`Bucket.DBR_REPORTS`, prefixes `readouts/` and `reports/`)
+    and `DocumentType.DBR_REPORT` (#75);
+  - the reusable KB construct (`stacks/constructs/knowledge_base.py`) and the
+    plan (#76);
+  - the declarations (`knowledge_bases.py`) and the KB stack, which deploys only
+    the two DBR KBs for now (`knowledge_bases.DEPLOYED`).
 - **Next:** Milestone B (sources), starting with PR 6 (source protocols and the
   common metadata model). It needs a design conversation first.
 - Only the foundations are built so far (naming, the extras split, the task
@@ -129,6 +134,10 @@ cycles. (The throwaway scripts were in a temp directory and are gone.)
   `dia-ledger-dev`, and `names(Bucket.TEXT_EXTRACTED)` gives
   `gds-idea-dia-text-extracted-dev`. In CDK use `config.names`. In the CLI use
   `dia.cli_helpers.current_names()`, which looks up the account.
+- **The `Bucket` enum is checked by preflight:** `check_buckets` calls
+  `head_bucket` on every `Bucket`, as the task role. A new `Bucket` therefore
+  needs at least a read grant to the task role in `stacks/pipeline_task.py` (a
+  test checks this). S3 Vectors buckets don't belong in the enum.
 - **Dependencies are split into extras:** the core is only what the CLI and
   naming need. `pipeline` is the document pipeline, `agent` is the agent and its
   report output, and `cdk` is for CDK. CI uses `uv sync --all-extras`.
