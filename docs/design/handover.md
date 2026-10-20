@@ -33,11 +33,16 @@ relying on it):
   plus the document types the Bedrock knowledge bases need. This reversed the
   earlier spec decision that SR bids are `sr_bids`.
 - Open (Bedrock knowledge bases, a separate track from the pipeline build plan,
-  planned in [`../knowledge-bases-plan.md`](../knowledge-bases-plan.md)): the DBR
-  bucket (`Bucket.DBR_REPORTS`, prefixes `readouts/` and `reports/`) and
-  `DocumentType.DBR_REPORT` are merged. The reusable KB construct
-  (`stacks/constructs/knowledge_base.py`) is built, and nothing uses it until the
-  KB stack PR.
+  planned in [`../knowledge-bases-plan.md`](../knowledge-bases-plan.md)), as
+  three PRs:
+  - the DBR bucket (`Bucket.DBR_REPORTS`, prefixes `readouts/` and `reports/`)
+    and `DocumentType.DBR_REPORT` (#75, merged);
+  - the reusable KB construct (`stacks/constructs/knowledge_base.py`) and the
+    plan (#76);
+  - the declarations (the `knowledge_bases.py` table, with its models in
+    `stacks/knowledge_base_entries.py`) and the KB stack, which deploys only
+    the two DBR KBs for now (entries in
+    `knowledge_bases.KNOWLEDGE_BASES` with `deployed=True`).
 - **Next:** Milestone B (sources), starting with PR 6 (source protocols and the
   common metadata model). It needs a design conversation first.
 - Only the foundations are built so far (naming, the extras split, the task

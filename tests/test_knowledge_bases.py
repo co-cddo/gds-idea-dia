@@ -8,7 +8,9 @@ from gds_idea_cdk_constructs import DeploymentEnvironment
 
 from config import AppConfig
 from dia.document_types import DocumentType
-from knowledge_bases import COMMON_METADATA_KEYS, DEPLOYED, DOCUMENT_TYPES, deployed_knowledge_bases, knowledge_bases
+from dia.naming import Bucket
+from knowledge_bases import DOCUMENT_TYPES, KNOWLEDGE_BASES
+from stacks.knowledge_base_entries import COMMON_METADATA_KEYS, Source, deployed_knowledge_bases, knowledge_bases
 
 DEV = DeploymentEnvironment.DEVELOPMENT
 PROD = DeploymentEnvironment.PRODUCTION
@@ -29,12 +31,12 @@ DEV_ACCOUNT_SOURCES = {"sr25_bids", "sr21_bids", "nao_reports", "efficiency_repo
 
 
 def _by_key(environment: DeploymentEnvironment) -> dict:
-    return {spec.key: spec for spec in knowledge_bases(AppConfig(environment=environment))}
+    return {spec.key: spec for spec in knowledge_bases(AppConfig(environment=environment), KNOWLEDGE_BASES)}
 
 
 @pytest.mark.parametrize("environment", ENVIRONMENTS)
 def test_declares_every_knowledge_base_once(environment):
-    specs = knowledge_bases(AppConfig(environment=environment))
+    specs = knowledge_bases(AppConfig(environment=environment), KNOWLEDGE_BASES)
     keys = [spec.key for spec in specs]
     assert len(keys) == len(set(keys))
     assert set(keys) == EXPECTED_KEYS
@@ -47,12 +49,12 @@ def test_every_knowledge_base_has_a_document_type():
 
 @pytest.mark.parametrize("environment", ENVIRONMENTS)
 def test_every_knowledge_base_carries_the_common_metadata_keys(environment):
-    for spec in knowledge_bases(AppConfig(environment=environment)):
+    for spec in knowledge_bases(AppConfig(environment=environment), KNOWLEDGE_BASES):
         assert set(COMMON_METADATA_KEYS) <= set(spec.metadata_keys), spec.key
 
 
 def test_metadata_uses_department_name():
-    for spec in knowledge_bases(AppConfig(environment=DEV)):
+    for spec in knowledge_bases(AppConfig(environment=DEV), KNOWLEDGE_BASES):
         assert "department" not in spec.metadata_keys, spec.key
 
 
@@ -103,6 +105,19 @@ def test_text_knowledge_bases_use_default_parsing(key):
     assert source.parsing_model is None
 
 
+# --- source validation ---
+
+
+def test_a_literal_bucket_must_say_who_owns_it():
+    with pytest.raises(ValueError, match="owner"):
+        Source(bucket="some-bucket")
+
+
+def test_a_bucket_this_repo_creates_must_not_name_an_owner():
+    with pytest.raises(ValueError, match="owner"):
+        Source(bucket=Bucket.DBR_REPORTS, owner=DEV)
+
+
 # --- open-source safety ---
 
 
@@ -114,11 +129,11 @@ def test_declarations_contain_no_account_ids():
 # --- what gets deployed ---
 
 
-def test_deployed_keys_are_declared():
-    assert DEPLOYED <= EXPECTED_KEYS
+def test_deployed_entries_are_the_two_dbr_ones():
+    assert {key for key, entry in KNOWLEDGE_BASES.items() if entry.deployed} == {"dbr_readouts_letter", "dbr_reports"}
 
 
 @pytest.mark.parametrize("environment", ENVIRONMENTS)
 def test_only_the_dbr_knowledge_bases_are_deployed(environment):
-    keys = {spec.key for spec in deployed_knowledge_bases(AppConfig(environment=environment))}
+    keys = {spec.key for spec in deployed_knowledge_bases(AppConfig(environment=environment), KNOWLEDGE_BASES)}
     assert keys == {"dbr_readouts_letter", "dbr_reports"}

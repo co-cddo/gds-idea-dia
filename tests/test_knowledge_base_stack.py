@@ -9,8 +9,9 @@ from aws_cdk import assertions
 from gds_idea_cdk_constructs import DeploymentEnvironment, IdeaTags
 
 from config import AppConfig
-from knowledge_bases import deployed_knowledge_bases
+from knowledge_bases import KNOWLEDGE_BASES
 from stacks.knowledge_base import KnowledgeBaseStack, knowledge_base_name
+from stacks.knowledge_base_entries import deployed_knowledge_bases
 
 DEV = DeploymentEnvironment.DEVELOPMENT
 PROD = DeploymentEnvironment.PRODUCTION
@@ -24,7 +25,7 @@ def _template(environment: DeploymentEnvironment, *, tagged: bool = False) -> as
         app,
         "KnowledgeBases",
         config=config,
-        specs=deployed_knowledge_bases(config),
+        specs=deployed_knowledge_bases(config, KNOWLEDGE_BASES),
         env=cdk.Environment(account=config.account_number, region=config.region),
     )
     if tagged:
