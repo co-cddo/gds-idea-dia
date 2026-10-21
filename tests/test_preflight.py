@@ -8,8 +8,9 @@ import pytest
 from botocore.exceptions import ClientError
 from gds_idea_cdk_constructs import DeploymentEnvironment
 
-from dia.naming import Bucket, Names
+from dia.naming import Names
 from dia.preflight import (
+    PREFLIGHT_BUCKETS,
     CheckResult,
     Status,
     check_buckets,
@@ -132,13 +133,14 @@ def test_ledger_table_check_fails_when_it_cannot_be_described():
     assert check_ledger_table(DEV_NAMES, dynamodb).status is Status.FAIL
 
 
-def test_buckets_check_heads_every_bucket():
+def test_buckets_check_heads_every_pipeline_bucket():
     s3 = MagicMock()
 
     result = check_buckets(DEV_NAMES, s3)
 
     assert result.status is Status.OK
-    assert {call.kwargs["Bucket"] for call in s3.head_bucket.call_args_list} == {DEV_NAMES(b) for b in Bucket}
+    expected = {DEV_NAMES(b) for b in PREFLIGHT_BUCKETS}
+    assert {call.kwargs["Bucket"] for call in s3.head_bucket.call_args_list} == expected
 
 
 def test_buckets_check_names_each_bucket_that_fails():
