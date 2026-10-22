@@ -8,7 +8,8 @@ file that declares which KBs to deploy.
 
 - One generic, reusable KB template (a CDK construct) with no dia-specific names.
 - One declarations file listing the KBs. Adding a KB means adding one entry.
-- KB IDs written into the `dia-kb-arns` secret automatically.
+- KB IDs available to the agent. Writing them into the `dia-kb-arns` secret is
+  deferred (see follow-up work); the KB stack outputs them for now.
 - Per-document metadata (`<file>.metadata.json` sidecars) so the agent can filter
   searches.
 - Safe to open-source: no account IDs in code. Bucket owner accounts come from
@@ -26,11 +27,12 @@ Every deployed name goes through `dia.naming.Names` (via `config.names` in CDK):
   - `Bucket.DBR_REPORTS = "dbr-reports"` → `gds-idea-dia-dbr-reports-{phase}`
     (DBR source documents: `readouts/` and `reports/`)
 - **The S3 Vectors bucket** is not in the `Bucket` enum, because preflight
-  calls `head_bucket` on every `Bucket` and that only works for S3 buckets. It
-  uses the resource pattern: `config.names("kb-vectors")` → `dia-kb-vectors-{phase}`.
+  `Bucket` members are S3 buckets that the pipeline checks and grants access
+  to, and an S3 Vectors bucket is neither. It uses the resource pattern: `config.names("kb-vectors")` → `dia-kb-vectors-{phase}`.
 - **KB names** use the resource pattern: `config.names("kb-sr25-bids")` →
-  `dia-kb-sr25-bids-{phase}`. The template derives index and data source names
-  from it.
+  `dia-kb-sr25-bids-{phase}`. The template derives the index name from it, and each
+  data source name from it plus the data source's `key`
+  (`dia-kb-sr25-bids-{phase}-ds-<key>`), never from its position.
 - **Stack ID:** `config.names("knowledge-bases")`.
 - **Source buckets owned by other projects** aren't created here, so they stay
   as literal names in the declarations file.
@@ -134,11 +136,21 @@ agent's `sr_bids_2025`). The declarations use the enum, not string literals.
 
 | # | PR | Contents |
 |---|---|---|
-| 1 | DBR bucket (#75) | `Bucket.DBR_REPORTS` in `src/dia/naming.py`, created in `StorageStack` (versioned, encrypted, public access blocked, SSL enforced, RETAIN). `DocumentType.DBR_REPORT`. Read access for the pipeline task role, because preflight checks every `Bucket`. |
-| 2 | Plan and KB template (#76) | This plan. `stacks/constructs/knowledge_base.py`: `KnowledgeBaseSpec`, `DataSourceSpec`, chunking options, embedding model, and the `KnowledgeBase` construct (indexes RETAIN by default). Standalone tests. Nothing deploys. |
+| 1 | DBR bucket (#75) | `Bucket.DBR_REPORTS` in `src/dia/naming.py`, created in `StorageStack` (versioned, encrypted, public access blocked, SSL enforced, RETAIN). `DocumentType.DBR_REPORT`. Preflight checks a named list of pipeline buckets (`PREFLIGHT_BUCKETS`), so the DBR bucket is not on it and the pipeline task role has no access to it. |
+| 2 | Plan and KB template (#76) | This plan. `stacks/constructs/knowledge_base.py`: `KnowledgeBaseSpec`, `DataSourceSpec` (each with a stable `key`), chunking options, embedding model, and the `KnowledgeBase` construct (indexes RETAIN by default). Standalone tests. Nothing deploys. |
 | 3 | Declarations and KB stack (#77) | `knowledge_bases.py` with `knowledge_bases(config)` returning the 8 specs, and `DEPLOYED`. Owner accounts come from `DeploymentEnvironment`, never literals. `stacks/knowledge_base.py`: vector bucket `dia-kb-vectors-{phase}` (RETAIN) and one template per deployed spec, with the account's permissions boundary on each role. Outputs KB IDs and role ARNs. Wired into `app.py` after the storage stack. Needs PRs 1 and 2. |
 
 Each PR runs `uv run pytest`, `uv run ruff check .` and `uv run ruff format --check .`, and updates `docs/design/handover.md`.
+
+## Later: shared source declaration
+
+The pipeline already declares its sources in `src/dia/sources/known.py`
+(`KNOWN_SOURCES`). Later, the KB sources will come from that shared source
+declaration instead of a separate list, and the `.metadata.json` sidecars will be
+written by a separate metadata step (pipeline build plan PR 6, the source
+protocols and the common metadata model). The declarations in #77's
+`knowledge_bases.py` will move onto the shared declaration then. Until then they
+repeat a few details, such as the GATS and SR25 bucket names.
 
 ## Follow-up work (not in this plan)
 
