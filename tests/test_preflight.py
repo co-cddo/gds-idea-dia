@@ -23,7 +23,7 @@ from dia.preflight import (
     running_in_ecs_task,
 )
 from dia.runtime_config import RuntimeConfig, RuntimeConfigError
-from dia.types import DataSource, DocumentType
+from dia.sources.models import ResolvedLocation
 
 DEV = DeploymentEnvironment.DEVELOPMENT
 PROD = DeploymentEnvironment.PRODUCTION
@@ -41,12 +41,9 @@ CONFIG = RuntimeConfig(
     cross_account_role_arn=ROLE_ARN,
 )
 
-SOURCE = DataSource(
-    name="test-source",
-    document_type=DocumentType.BUSINESS_CASE,
-    bucket="source-bucket",
-    prefix="files/",
-)
+# A source read through the cross-account role (dev reading a prod bucket), and one read directly.
+CROSS_ACCOUNT = ResolvedLocation("source-bucket", "files/", cross_account=True, ours=False)
+DIRECT = ResolvedLocation("source-bucket", "files/", cross_account=False, ours=False)
 
 
 def _client_error(code: str = "AccessDenied") -> ClientError:
@@ -169,7 +166,7 @@ def test_source_access_with_a_role_assumes_it():
     s3.list_objects_v2.return_value = {"KeyCount": 1}
 
     with patch("dia.preflight.boto3.client", return_value=s3) as client:
-        result = check_source_access(SOURCE, ROLE_ARN, sts)
+        result = check_source_access("test_source", CROSS_ACCOUNT, ROLE_ARN, sts)
 
     assert sts.assume_role.call_args.kwargs["RoleArn"] == ROLE_ARN
     assert client.call_args.kwargs["aws_session_token"] == "c"
@@ -185,7 +182,7 @@ def test_source_access_without_a_role_reads_directly():
     s3.list_objects_v2.return_value = {"KeyCount": 0}
 
     with patch("dia.preflight.boto3.client", return_value=s3):
-        result = check_source_access(SOURCE, None, sts)
+        result = check_source_access("test_source", DIRECT, None, sts)
 
     sts.assume_role.assert_not_called()
     assert result.status is Status.OK
@@ -193,11 +190,34 @@ def test_source_access_without_a_role_reads_directly():
     assert " via " not in result.detail
 
 
+def test_source_access_does_not_use_the_role_for_a_bucket_that_is_not_cross_account():
+    sts = MagicMock()
+    s3 = MagicMock()
+    s3.list_objects_v2.return_value = {"KeyCount": 1}
+
+    with patch("dia.preflight.boto3.client", return_value=s3):
+        result = check_source_access("test_source", DIRECT, ROLE_ARN, sts)
+
+    sts.assume_role.assert_not_called()
+    assert result.status is Status.OK
+    assert " via " not in result.detail
+
+
+def test_source_access_fails_when_the_bucket_needs_the_role_and_the_runtime_config_has_none():
+    sts = MagicMock()
+
+    result = check_source_access("test_source", CROSS_ACCOUNT, None, sts)
+
+    assert result.status is Status.FAIL
+    assert "cross-account role" in result.detail
+    sts.assume_role.assert_not_called()
+
+
 def test_source_access_fails_when_the_role_cannot_be_assumed():
     sts = MagicMock()
     sts.assume_role.side_effect = _client_error("AccessDenied")
 
-    result = check_source_access(SOURCE, ROLE_ARN, sts)
+    result = check_source_access("test_source", CROSS_ACCOUNT, ROLE_ARN, sts)
 
     assert result.status is Status.FAIL
     assert "s3://source-bucket/files/" in result.detail
@@ -210,7 +230,7 @@ def test_source_access_fails_when_the_listing_is_denied():
     s3.list_objects_v2.side_effect = _client_error("AccessDenied")
 
     with patch("dia.preflight.boto3.client", return_value=s3):
-        result = check_source_access(SOURCE, ROLE_ARN, sts)
+        result = check_source_access("test_source", CROSS_ACCOUNT, ROLE_ARN, sts)
 
     assert result.status is Status.FAIL
 
@@ -295,7 +315,7 @@ _OK = {
     "runtime config": CheckResult("runtime config", Status.OK, "x"),
     "ledger table": CheckResult("ledger table", Status.OK, "x"),
     "buckets": CheckResult("buckets", Status.OK, "x"),
-    "source gats-business-cases": CheckResult("source gats-business-cases", Status.OK, "x"),
+    "source gats_business_cases": CheckResult("source gats_business_cases", Status.OK, "x"),
     "neptune": CheckResult("neptune", Status.OK, "x"),
 }
 
@@ -310,7 +330,7 @@ def _patched_checks(*, identity=None, config=CONFIG):
         patch("dia.preflight.check_runtime_config", return_value=(_OK["runtime config"], config)),
         patch("dia.preflight.check_ledger_table", return_value=_OK["ledger table"]),
         patch("dia.preflight.check_buckets", return_value=_OK["buckets"]),
-        patch("dia.preflight.check_source_access", return_value=_OK["source gats-business-cases"]),
+        patch("dia.preflight.check_source_access", return_value=_OK["source gats_business_cases"]),
         patch("dia.preflight.check_neptune", return_value=_OK["neptune"]) as neptune,
     ):
         yield neptune
@@ -335,7 +355,7 @@ def test_local_preflight_runs_the_checks_local_runs_need_and_not_neptune(local):
         "runtime config",
         "ledger table",
         "buckets",
-        "source gats-business-cases",
+        "source gats_business_cases",
     ]
     neptune.assert_not_called()
 
@@ -368,7 +388,7 @@ def test_preflight_reads_sources_through_the_role_in_the_runtime_config(local):
     with _patched_checks(), patch("dia.preflight.check_source_access", return_value=_OK["buckets"]) as source:
         run_preflight()
 
-    assert source.call_args.args[1] == ROLE_ARN
+    assert source.call_args.args[2] == ROLE_ARN
 
 
 def test_preflight_reads_sources_directly_when_the_runtime_config_has_no_role(local):
@@ -377,7 +397,7 @@ def test_preflight_reads_sources_directly_when_the_runtime_config_has_no_role(lo
     with _patched_checks(config=config), patch("dia.preflight.check_source_access") as source:
         run_preflight()
 
-    assert source.call_args.args[1] is None
+    assert source.call_args.args[2] is None
 
 
 def test_dev_preflight_skips_source_access_when_the_runtime_config_failed(local):
@@ -386,17 +406,17 @@ def test_dev_preflight_skips_source_access_when_the_runtime_config_failed(local)
 
     source.assert_not_called()
     skipped = results[-1]
-    assert (skipped.name, skipped.status) == ("source gats-business-cases", Status.SKIP)
+    assert (skipped.name, skipped.status) == ("source gats_business_cases", Status.SKIP)
 
 
 def test_prod_preflight_checks_source_access_even_when_the_runtime_config_failed(local):
     with (
         _patched_checks(identity=(_OK["identity"], PROD), config=None),
-        patch("dia.preflight.check_source_access", return_value=_OK["source gats-business-cases"]) as source,
+        patch("dia.preflight.check_source_access", return_value=_OK["source gats_business_cases"]) as source,
     ):
         run_preflight()
 
-    assert source.call_args.args[1] is None
+    assert source.call_args.args[2] is None
 
 
 def test_preflight_skips_everything_else_when_the_environment_is_unknown(local):

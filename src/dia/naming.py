@@ -37,6 +37,10 @@ class Bucket(StrEnum):
     BATCH = "batch"
     AGENT_REPORTS = "agent-reports"
     DBR_REPORTS = "dbr-reports"
+    SR25_BIDS = "sr25-bids"
+    SR21_BIDS = "sr21-bids"
+    NAO_REPORTS = "nao-reports"
+    REPORTS = "reports"
 
 
 _BUCKET_VALUES = frozenset(bucket.value for bucket in Bucket)

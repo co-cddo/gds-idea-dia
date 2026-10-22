@@ -25,6 +25,7 @@ from gds_idea_cdk_constructs import DeploymentConfig, DeploymentEnvironment
 from config import AppConfig
 from dia import __version__
 from dia.runtime_config import RUNTIME_CONFIG_ENV_VAR, RUNTIME_CONFIG_RESOURCE
+from dia.sources.models import ResolvedLocation
 from stacks.neptune import NeptuneStack
 from stacks.opensearch import OpenSearchStack
 from stacks.shared.iam import permissions_boundary
@@ -69,7 +70,7 @@ class PipelineTaskStack(cdk.Stack):
         *,
         config: AppConfig,
         deployment_config: DeploymentConfig,
-        source_buckets: Sequence[str],
+        source_locations: Sequence[ResolvedLocation],
         task_security_group: ec2.ISecurityGroup,
         storage: StorageStack,
         neptune: NeptuneStack,
@@ -86,7 +87,9 @@ class PipelineTaskStack(cdk.Stack):
             deployment_config: The shared deployment config, for the ECS cluster, the VPC
                 and the cross-account role to assume to read production source data
                 (None in prod, where the source buckets are read directly).
-            source_buckets: Names of the source data buckets that tasks read.
+            source_locations: Where the sources that tasks read are, in this environment
+                (see `dia.sources.models.resolve`). A cross-account location is read through
+                the cross-account role, and every other bucket directly.
             task_security_group: Security group for tasks.
             storage: The storage stack, for the ledger table and buckets.
             neptune: The Neptune stack, for the cluster.
@@ -213,7 +216,9 @@ class PipelineTaskStack(cdk.Stack):
             )
         )
 
-        if deployment_config.cross_account_role_arn:
+        if any(location.cross_account for location in source_locations):
+            if not deployment_config.cross_account_role_arn:
+                raise ValueError("a source is read through the cross-account role, but this environment has none")
             self.task_role.add_to_policy(
                 iam.PolicyStatement(
                     sid="AssumeSourceDataReadRole",
@@ -221,9 +226,9 @@ class PipelineTaskStack(cdk.Stack):
                     resources=[deployment_config.cross_account_role_arn],
                 )
             )
-        else:
-            for index, bucket_name in enumerate(source_buckets):
-                s3.Bucket.from_bucket_name(self, f"SourceBucket{index}", bucket_name).grant_read(self.task_role)
+        direct_buckets = sorted({location.bucket for location in source_locations if not location.cross_account})
+        for index, bucket_name in enumerate(direct_buckets):
+            s3.Bucket.from_bucket_name(self, f"SourceBucket{index}", bucket_name).grant_read(self.task_role)
 
         # --- Outputs ---
         cdk.CfnOutput(

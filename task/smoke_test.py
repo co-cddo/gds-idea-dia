@@ -24,6 +24,8 @@ TASK_MODULES = [
     "dia.preflight",
     "dia.remote",
     "dia.runtime_config",
+    "dia.sources.definitions",
+    "dia.sources.models",
 ]
 
 

@@ -9,7 +9,8 @@ from gds_idea_cdk_constructs.config import DeploymentConfig
 
 from config import AppConfig
 from dia.naming import PROJECT
-from dia.sources.known import get_source
+from dia.sources.definitions import graph_sources
+from dia.sources.models import resolve
 from stacks.bastion import BastionStack
 from stacks.neptune import NeptuneStack
 from stacks.networking import NetworkingStack
@@ -76,14 +77,14 @@ neptune_stack = NeptuneStack(
 opensearch_stack = OpenSearchStack(app, config.names("opensearch"), config=config, env=cdk_env)
 
 # Pipeline tasks: the image, task definition, roles and runtime config.
-# In dev, source data in the production account is read through the shared
-# cross-account role (None in prod, where the source buckets are read directly).
+# In dev, a source in the production account is read through the shared cross-account
+# role (None in prod, where the source buckets are read directly).
 pipeline_task_stack = PipelineTaskStack(
     app,
     config.names("pipeline-task"),
     config=config,
     deployment_config=deployment_config,
-    source_buckets=[get_source("gats-business-cases").bucket],
+    source_locations=[resolve(source.location, config.environment) for source in graph_sources().values()],
     task_security_group=networking_stack.task_security_group,
     storage=storage_stack,
     neptune=neptune_stack,

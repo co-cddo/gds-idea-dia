@@ -12,9 +12,9 @@ from stacks.storage import StorageStack
         (DeploymentEnvironment.PRODUCTION, "prod"),
     ],
 )
-def test_creates_three_buckets(synth, environment, phase):
+def test_creates_ten_buckets(synth, environment, phase):
     template = synth(StorageStack, environment)
-    template.resource_count_is("AWS::S3::Bucket", 6)
+    template.resource_count_is("AWS::S3::Bucket", 10)
 
 
 @pytest.mark.parametrize(
@@ -54,12 +54,20 @@ def test_bucket_names_follow_pattern(synth, environment, phase):
         (DeploymentEnvironment.DEVELOPMENT, "dev", "batch"),
         (DeploymentEnvironment.DEVELOPMENT, "dev", "agent-reports"),
         (DeploymentEnvironment.DEVELOPMENT, "dev", "dbr-reports"),
+        (DeploymentEnvironment.DEVELOPMENT, "dev", "sr25-bids"),
+        (DeploymentEnvironment.DEVELOPMENT, "dev", "sr21-bids"),
+        (DeploymentEnvironment.DEVELOPMENT, "dev", "nao-reports"),
+        (DeploymentEnvironment.DEVELOPMENT, "dev", "reports"),
         (DeploymentEnvironment.PRODUCTION, "prod", "text-extracted"),
         (DeploymentEnvironment.PRODUCTION, "prod", "graph-raw"),
         (DeploymentEnvironment.PRODUCTION, "prod", "graph-validated"),
         (DeploymentEnvironment.PRODUCTION, "prod", "batch"),
         (DeploymentEnvironment.PRODUCTION, "prod", "agent-reports"),
         (DeploymentEnvironment.PRODUCTION, "prod", "dbr-reports"),
+        (DeploymentEnvironment.PRODUCTION, "prod", "sr25-bids"),
+        (DeploymentEnvironment.PRODUCTION, "prod", "sr21-bids"),
+        (DeploymentEnvironment.PRODUCTION, "prod", "nao-reports"),
+        (DeploymentEnvironment.PRODUCTION, "prod", "reports"),
     ],
 )
 def test_expected_bucket_exists(synth, environment, phase, purpose):
@@ -81,7 +89,20 @@ def test_batch_bucket_has_lifecycle_rule(synth):
     )
 
 
-@pytest.mark.parametrize("purpose", ["text-extracted", "graph-raw", "graph-validated", "agent-reports", "dbr-reports"])
+@pytest.mark.parametrize(
+    "purpose",
+    [
+        "text-extracted",
+        "graph-raw",
+        "graph-validated",
+        "agent-reports",
+        "dbr-reports",
+        "sr25-bids",
+        "sr21-bids",
+        "nao-reports",
+        "reports",
+    ],
+)
 def test_data_buckets_are_versioned(synth, purpose):
     template = synth(StorageStack)
     template.has_resource_properties(
@@ -258,3 +279,39 @@ def test_outputs_batch_inference_role_arn(synth):
     template = synth(StorageStack)
     outputs = template.find_outputs("*")
     assert any("BatchInferenceRoleArn" in key for key in outputs)
+
+
+SOURCE_BUCKETS = ["sr25-bids", "sr21-bids", "nao-reports", "reports"]
+
+
+@pytest.mark.parametrize("environment", [DeploymentEnvironment.DEVELOPMENT, DeploymentEnvironment.PRODUCTION])
+@pytest.mark.parametrize("purpose", SOURCE_BUCKETS)
+def test_source_buckets_are_retained(synth, environment, purpose):
+    phase = environment.short_name
+    template = synth(StorageStack, environment)
+    buckets = template.find_resources(
+        "AWS::S3::Bucket", {"Properties": {"BucketName": f"gds-idea-dia-{purpose}-{phase}"}}
+    )
+
+    assert len(buckets) == 1
+    (bucket,) = buckets.values()
+    assert bucket["DeletionPolicy"] == "Retain"
+    assert bucket["UpdateReplacePolicy"] == "Retain"
+
+
+@pytest.mark.parametrize("purpose", SOURCE_BUCKETS)
+def test_source_buckets_are_private_and_encrypted(synth, purpose):
+    template = synth(StorageStack)
+    template.has_resource_properties(
+        "AWS::S3::Bucket",
+        {
+            "BucketName": f"gds-idea-dia-{purpose}-dev",
+            "PublicAccessBlockConfiguration": {
+                "BlockPublicAcls": True,
+                "BlockPublicPolicy": True,
+                "IgnorePublicAcls": True,
+                "RestrictPublicBuckets": True,
+            },
+            "BucketEncryption": assertions.Match.any_value(),
+        },
+    )

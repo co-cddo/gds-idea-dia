@@ -132,7 +132,18 @@ cost estimate show how many records were padding.
 
 ### 3.4 Sources
 
-- A source is defined in Python. Each definition chooses three parts, and each
+- There are **two pipelines**: the graph pipeline (the stages above) and Bedrock
+  knowledge bases. They complement each other and are separate. Every dataset is
+  **declared once**, in `dia.sources.definitions`, whichever pipeline it feeds: its
+  location, its document type, and a `graph` flag and/or a knowledge base block.
+- A location is one of our buckets (a `Bucket` member, in both phases) or an
+  external bucket with every name written out (see section 3.5).
+- **Metadata is its own step**, separate from both pipelines. It writes a
+  `<document>.metadata.json` sidecar in Bedrock's format next to every document. The
+  KB reads the sidecar as it is. The graph's text stage reads it and adds its fields
+  to the extracted text; a document with no sidecar is skipped and logged. One typed
+  model holds the field names, matching the keys the KBs already use. (Not built yet.)
+- A graph source is defined in Python. Each definition chooses three parts, and each
   part is a protocol:
   - a **reader**, which lists documents, gives each one a stable key and a
     version, and returns its content;
@@ -160,16 +171,19 @@ cost estimate show how many records were padding.
 
 ### 3.5 Source locations and environments
 
-- Each source has **one real location**: where an existing process already
-  drops its files. We never copy or move source data in prod. (An earlier idea
-  of copying source data into buckets of our own for each phase is dropped.)
-- **Prod** reads that location directly.
-- **Dev** reads the same location through the shared cross-account role
-  (`assume_role_for_development_account`, from `gds_idea_cdk_constructs`). A
-  source can instead name its own **dev override bucket** in our dev account.
-- Metadata follows the same rules as documents.
-- The pipeline only ever reads source locations, enforced in IAM. All writes go
-  to the current phase's own buckets, ledger and graph.
+- A source's documents are in **one of our buckets** or in **an external
+  bucket** that another team owns. Ours are `Bucket` members: they exist in both
+  phases, named by `Names`, and we may write to them. An external bucket gives the
+  prod bucket and either a dev bucket or a flag that dev reads the prod bucket
+  through the shared cross-account role (`assume_role_for_development_account`).
+  Names are never derived or guessed.
+- **Prod** reads its bucket directly. **Dev** reads its own bucket, or the prod
+  bucket through the cross-account role.
+- The graph pipeline reads source buckets and never writes to them, except for
+  metadata sidecars. Sidecars are written in every bucket, including external
+  ones such as GATS, but only by a phase that can write there: a dev run cannot
+  write to a prod bucket it reads through the role, so it warns instead. All other
+  writes go to the current phase's own buckets, ledger and graph.
 - It is accepted that real data will exist in dev and on laptops.
 - Our buckets, tables and other resources are named by phase from one place,
   shared by the CDK and the runtime code.
@@ -314,8 +328,10 @@ PR off and add its link as it is raised.
   credentials are role credentials, so a second `AssumeRole` is role chaining and
   its sessions last at most an hour, which a long extraction in dev would outlast)
 - [ ] 8. GATS metadata strategy (after looking at real GATS documents)
-- [ ] 9. GATS source definition and its validation, replacing
-  `sources/known.py` and `metadata/registry.py`
+- [x] 9a. Shared source declarations for both pipelines (`dia.sources.definitions`),
+  the four new KB source buckets, and preflight and the task stack reading them
+- [ ] 9. GATS metadata step and its sidecar files, replacing `sources/known.py`
+  and `metadata/registry.py`
 - [ ] 10. Powertools logging and metrics
 
 ### Milestone C: ledger and text stage
