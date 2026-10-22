@@ -10,7 +10,10 @@ from gds_idea_cdk_constructs.config import DeploymentConfig
 from config import AppConfig
 from dia.naming import PROJECT
 from dia.sources.known import get_source
+from knowledge_bases import KNOWLEDGE_BASES
 from stacks.bastion import BastionStack
+from stacks.knowledge_base import KnowledgeBaseStack
+from stacks.knowledge_base_entries import deployed_knowledge_bases
 from stacks.neptune import NeptuneStack
 from stacks.networking import NetworkingStack
 from stacks.opensearch import OpenSearchStack
@@ -94,5 +97,16 @@ pipeline_task_stack.add_dependency(storage_stack)
 pipeline_task_stack.add_dependency(networking_stack)
 pipeline_task_stack.add_dependency(neptune_stack)
 pipeline_task_stack.add_dependency(opensearch_stack)
+
+# Bedrock knowledge bases. Only entries in knowledge_bases.KNOWLEDGE_BASES with
+# deployed=True are created. The DBR knowledge bases read the DBR bucket in the storage stack.
+knowledge_base_stack = KnowledgeBaseStack(
+    app,
+    config.names("knowledge-bases"),
+    config=config,
+    specs=deployed_knowledge_bases(config, KNOWLEDGE_BASES),
+    env=cdk_env,
+)
+knowledge_base_stack.add_dependency(storage_stack)
 
 app.synth()

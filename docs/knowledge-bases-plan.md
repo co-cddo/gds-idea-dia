@@ -47,7 +47,7 @@ Every deployed name goes through `dia.naming.Names` (via `config.names` in CDK):
 | Source buckets | KBs read the existing buckets directly, wherever they are. Sidecars sit next to each document. Moving the buckets we own into this repo is tracked separately in #64. |
 | Cross-account | The KB role reads the bucket directly. The data source sets `bucketOwnerAccountId`, and the source bucket policy must allow the KB role. Bedrock can't assume a role for S3, so the pipeline's `assume_role_for_development_account` route doesn't apply to KBs. |
 | Prod | Same source buckets in both phases. Each declaration states which environment owns its bucket (`DeploymentEnvironment.DEVELOPMENT` or `PRODUCTION`). It's cross-account whenever that isn't the deploying environment. The GATS bucket is in the prod account, so it's cross-account in dev and same-account in prod. |
-| What deploys | Only the keys in `knowledge_bases.DEPLOYED`. This PR deploys the two DBR KBs. The other six are declared and tested but not deployed. |
+| What deploys | Only the entries in `knowledge_bases.KNOWLEDGE_BASES` with `deployed=True`. This PR deploys the two DBR KBs. The other six are declared and tested but not deployed. |
 | Secret wiring | Deferred. The `dia-kb-arns` secret's keys are fixed in `SecretsStack`, and the agent's KB IDs are set in it by hand. Changing its keys in CDK would overwrite those values. For now the KB stack outputs each KB ID. |
 | Agent tools | Out of scope. Tools will come from AgentCore Gateway later. |
 
@@ -138,7 +138,7 @@ agent's `sr_bids_2025`). The declarations use the enum, not string literals.
 |---|---|---|
 | 1 | DBR bucket (#75) | `Bucket.DBR_REPORTS` in `src/dia/naming.py`, created in `StorageStack` (versioned, encrypted, public access blocked, SSL enforced, RETAIN). `DocumentType.DBR_REPORT`. Preflight checks a named list of pipeline buckets (`PREFLIGHT_BUCKETS`), so the DBR bucket is not on it and the pipeline task role has no access to it. |
 | 2 | Plan and KB template (#76) | This plan. `stacks/constructs/knowledge_base.py`: `KnowledgeBaseSpec`, `DataSourceSpec` (each with a stable `key`), chunking options, embedding model, and the `KnowledgeBase` construct (indexes RETAIN by default). Standalone tests. Nothing deploys. |
-| 3 | Declarations and KB stack (#77) | `knowledge_bases.py` with `knowledge_bases(config)` returning the 8 specs, and `DEPLOYED`. Owner accounts come from `DeploymentEnvironment`, never literals. `stacks/knowledge_base.py`: vector bucket `dia-kb-vectors-{phase}` (RETAIN) and one template per deployed spec, with the account's permissions boundary on each role. Outputs KB IDs and role ARNs. Wired into `app.py` after the storage stack. Needs PRs 1 and 2. |
+| 3 | Declarations and KB stack (#77) | `knowledge_bases.py`: the `KNOWLEDGE_BASES` table, one entry per KB with a `deployed` flag, and the only file to edit to add a KB. `stacks/knowledge_base_entries.py`: the entry models, and `knowledge_bases(config, entries)` and `deployed_knowledge_bases(config, entries)` turning the table into specs. Owner accounts come from `DeploymentEnvironment`, never literals. `stacks/knowledge_base.py`: vector bucket `dia-kb-vectors-{phase}` (RETAIN) and one template per deployed spec, with the account's permissions boundary on each role. Outputs KB IDs and role ARNs. Wired into `app.py` after the storage stack. Needs PRs 1 and 2. |
 
 Each PR runs `uv run pytest`, `uv run ruff check .` and `uv run ruff format --check .`, and updates `docs/design/handover.md`.
 
@@ -159,5 +159,5 @@ repeat a few details, such as the GATS and SR25 bucket names.
 3. After deploy: upload the DBR documents and their `.metadata.json` files, then start an ingestion job for each data source.
 4. Once all eight are deployed, retire the old `AssuranceKB-*` stacks and delete the old vector bucket by hand (it was set to RETAIN).
 5. Move the source buckets we own into this repo (#64).
-6. Deploy the other six KBs, by adding their keys to `DEPLOYED`. Check the SR25 and SR21 prefixes first: with none set, the whole bucket is ingested.
+6. Deploy the other six KBs, by setting `deployed=True` on their entries. Check the SR25 and SR21 prefixes first: with none set, the whole bucket is ingested.
 7. Secret wiring: write KB IDs into the `dia-kb-arns` secret from CDK (or move the agent to a different lookup) without wiping the values set by hand.
