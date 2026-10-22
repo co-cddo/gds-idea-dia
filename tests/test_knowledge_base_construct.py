@@ -26,7 +26,7 @@ def _spec(**overrides) -> KnowledgeBaseSpec:
     fields = {
         "key": "reports",
         "description": "Test reports",
-        "data_sources": [DataSourceSpec(bucket_name="source-bucket", prefix="files/")],
+        "data_sources": [DataSourceSpec(key="files", bucket_name="source-bucket", prefix="files/")],
     }
     return KnowledgeBaseSpec(**{**fields, **overrides})
 
@@ -50,7 +50,12 @@ def _policy_statements(template: assertions.Template) -> dict[str, dict]:
 
 def test_creates_one_kb_index_role_and_data_source_per_source():
     template = _synth(
-        _spec(data_sources=[DataSourceSpec(bucket_name="bucket-a"), DataSourceSpec(bucket_name="bucket-b")])
+        _spec(
+            data_sources=[
+                DataSourceSpec(key="a", bucket_name="bucket-a"),
+                DataSourceSpec(key="b", bucket_name="bucket-b"),
+            ]
+        )
     )
     template.resource_count_is("AWS::Bedrock::KnowledgeBase", 1)
     template.resource_count_is("AWS::S3Vectors::Index", 1)
@@ -62,7 +67,7 @@ def test_names_derive_from_supplied_name():
     template = _synth(_spec())
     template.has_resource_properties("AWS::Bedrock::KnowledgeBase", {"Name": "app-kb-reports-dev"})
     template.has_resource_properties("AWS::S3Vectors::Index", {"IndexName": "app-kb-reports-dev-index"})
-    template.has_resource_properties("AWS::Bedrock::DataSource", {"Name": "app-kb-reports-dev-ds-0"})
+    template.has_resource_properties("AWS::Bedrock::DataSource", {"Name": "app-kb-reports-dev-ds-files"})
 
 
 def test_knowledge_base_uses_s3_vectors_and_embedding_model():
@@ -127,7 +132,9 @@ def test_same_account_data_source_has_prefix_and_no_owner_account():
 
 def test_cross_account_data_source_sets_bucket_owner():
     template = _synth(
-        _spec(data_sources=[DataSourceSpec(bucket_name="their-bucket", bucket_owner_account=OTHER_ACCOUNT)])
+        _spec(
+            data_sources=[DataSourceSpec(key="theirs", bucket_name="their-bucket", bucket_owner_account=OTHER_ACCOUNT)]
+        )
     )
     template.has_resource_properties(
         "AWS::Bedrock::DataSource",
@@ -188,8 +195,8 @@ def test_parsing_config_only_when_parsing_model_set():
     template = _synth(
         _spec(
             data_sources=[
-                DataSourceSpec(bucket_name="plain-bucket"),
-                DataSourceSpec(bucket_name="parsed-bucket", parsing_model=PARSER),
+                DataSourceSpec(key="plain", bucket_name="plain-bucket"),
+                DataSourceSpec(key="parsed", bucket_name="parsed-bucket", parsing_model=PARSER),
             ]
         )
     )
@@ -243,7 +250,13 @@ def test_source_read_is_scoped_to_prefix_and_owner_account():
 
 def test_cross_account_source_read_pins_owner_account():
     statements = _policy_statements(
-        _synth(_spec(data_sources=[DataSourceSpec(bucket_name="their-bucket", bucket_owner_account=OTHER_ACCOUNT)]))
+        _synth(
+            _spec(
+                data_sources=[
+                    DataSourceSpec(key="theirs", bucket_name="their-bucket", bucket_owner_account=OTHER_ACCOUNT)
+                ]
+            )
+        )
     )
     owner = {"StringEquals": {"aws:ResourceAccount": OTHER_ACCOUNT}}
     assert statements["ListSourceBucket0"]["Condition"] == owner
@@ -276,8 +289,8 @@ def test_parsing_model_grants_profile_and_foundation_model_once_per_profile():
         _synth(
             _spec(
                 data_sources=[
-                    DataSourceSpec(bucket_name="bucket-a", parsing_model=PARSER),
-                    DataSourceSpec(bucket_name="bucket-b", parsing_model=PARSER),
+                    DataSourceSpec(key="a", bucket_name="bucket-a", parsing_model=PARSER),
+                    DataSourceSpec(key="b", bucket_name="bucket-b", parsing_model=PARSER),
                 ]
             )
         )
@@ -298,7 +311,13 @@ def test_no_parsing_grants_without_parsing_model():
 
 def test_no_assume_role_or_wildcard_resources():
     statements = _policy_statements(
-        _synth(_spec(data_sources=[DataSourceSpec(bucket_name="their-bucket", bucket_owner_account=OTHER_ACCOUNT)]))
+        _synth(
+            _spec(
+                data_sources=[
+                    DataSourceSpec(key="theirs", bucket_name="their-bucket", bucket_owner_account=OTHER_ACCOUNT)
+                ]
+            )
+        )
     )
     for statement in statements.values():
         actions = statement["Action"] if isinstance(statement["Action"], list) else [statement["Action"]]
@@ -334,14 +353,40 @@ def test_invalid_spec_rejected(overrides):
 @pytest.mark.parametrize(
     "fields",
     [
-        {"bucket_name": "Bad_Bucket"},
-        {"bucket_name": "ok-bucket", "bucket_owner_account": "123"},
-        {"bucket_name": "ok-bucket", "parsing_model": "anthropic.claude-haiku-4-5-20251001-v1:0"},
+        {"key": "src", "bucket_name": "Bad_Bucket"},
+        {"key": "src", "bucket_name": "ok-bucket", "bucket_owner_account": "123"},
+        {"key": "src", "bucket_name": "ok-bucket", "parsing_model": "anthropic.claude-haiku-4-5-20251001-v1:0"},
+        {"key": "Upper", "bucket_name": "ok-bucket"},
+        {"key": "double__underscore", "bucket_name": "ok-bucket"},
+        {"key": "x" * 31, "bucket_name": "ok-bucket"},
     ],
 )
 def test_invalid_data_source_rejected(fields):
     with pytest.raises(ValidationError):
         DataSourceSpec(**fields)
+
+
+def test_duplicate_data_source_keys_rejected():
+    with pytest.raises(ValidationError, match="unique"):
+        _spec(
+            data_sources=[
+                DataSourceSpec(key="same", bucket_name="bucket-a"),
+                DataSourceSpec(key="same", bucket_name="bucket-b"),
+            ]
+        )
+
+
+def test_data_source_names_do_not_depend_on_order():
+    sources = [DataSourceSpec(key="a", bucket_name="bucket-a"), DataSourceSpec(key="b", bucket_name="bucket-b")]
+
+    def names_by_bucket(data_sources):
+        template = _synth(_spec(data_sources=data_sources))
+        return {
+            r["Properties"]["DataSourceConfiguration"]["S3Configuration"]["BucketArn"]: (lid, r["Properties"]["Name"])
+            for lid, r in template.find_resources("AWS::Bedrock::DataSource").items()
+        }
+
+    assert names_by_bucket(sources) == names_by_bucket(list(reversed(sources)))
 
 
 @pytest.mark.parametrize("name", ["Upper-Case", "double--hyphen", "under_score", "x" * 58])

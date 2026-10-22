@@ -14,7 +14,7 @@ Usage:
     spec = KnowledgeBaseSpec(
         key="reports",
         description="Published reports",
-        data_sources=[DataSourceSpec(bucket_name="my-reports", prefix="files/")],
+        data_sources=[DataSourceSpec(key="files", bucket_name="my-reports", prefix="files/")],
         metadata_keys=("department", "year"),
     )
     kb = KnowledgeBase(self, "Reports", spec=spec, name="myapp-kb-reports-dev", vector_bucket=bucket)
@@ -47,6 +47,11 @@ INFERENCE_PROFILE_GEOGRAPHIES = frozenset({"eu", "global"})
 # names and Bedrock knowledge base / data source names.
 _NAME_PATTERN = re.compile(r"^[a-z0-9](-?[a-z0-9])*$")
 _INDEX_SUFFIX = "-index"
+_DATA_SOURCE_INFIX = "-ds-"
+# snake_case: lowercase alphanumerics separated by single underscores.
+_KEY_PATTERN = r"^[a-z][a-z0-9]*(_[a-z0-9]+)*$"
+# Keeps `{name}-ds-{key}` inside Bedrock's 100 character limit for names up to 57.
+_MAX_DATA_SOURCE_KEY_LENGTH = 30
 _MAX_INDEX_NAME_LENGTH = 63
 
 
@@ -90,6 +95,11 @@ class DataSourceSpec(BaseModel, frozen=True):
     """An S3 location ingested into a knowledge base.
 
     Attributes:
+        key: Stable identifier (snake_case, unique within the knowledge base).
+            The data source's name and construct ID come from it, not from its
+            position, so reordering or removing other sources never renames it.
+            Renaming a key replaces the data source, and the documents are
+            ingested again.
         bucket_name: Source S3 bucket.
         prefix: Only ingest objects under this prefix. Empty means the whole bucket.
         bucket_owner_account: Account that owns the bucket, if not the deploying
@@ -99,6 +109,7 @@ class DataSourceSpec(BaseModel, frozen=True):
             a foundation model. ``None`` uses Bedrock's default text parser.
     """
 
+    key: str = Field(pattern=_KEY_PATTERN, max_length=_MAX_DATA_SOURCE_KEY_LENGTH)
     bucket_name: str = Field(pattern=r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
     prefix: str = ""
     bucket_owner_account: str | None = Field(default=None, pattern=r"^\d{12}$")
@@ -121,7 +132,8 @@ class KnowledgeBaseSpec(BaseModel, frozen=True):
     Attributes:
         key: Stable identifier (snake_case), used by callers for naming and lookups.
         description: Human-readable description stored on the knowledge base.
-        data_sources: S3 locations to ingest. At least one is required.
+        data_sources: S3 locations to ingest. At least one is required. Their keys
+            must be unique.
         embedding_model: Model used to embed chunks; sets the index dimension.
         chunking: How documents are split before embedding.
         metadata_keys: Custom metadata keys documents are expected to carry in
@@ -134,6 +146,15 @@ class KnowledgeBaseSpec(BaseModel, frozen=True):
     embedding_model: EmbeddingModel = TITAN_EMBED_TEXT_V2
     chunking: Chunking = SemanticChunking()
     metadata_keys: tuple[str, ...] = ()
+
+    @field_validator("data_sources")
+    @classmethod
+    def _data_source_keys_unique(cls, value: list[DataSourceSpec]) -> list[DataSourceSpec]:
+        keys = [data_source.key for data_source in value]
+        duplicates = sorted({key for key in keys if keys.count(key) > 1})
+        if duplicates:
+            raise ValueError(f"data source keys must be unique, duplicated: {duplicates}")
+        return value
 
     @field_validator("metadata_keys")
     @classmethod
@@ -256,12 +277,12 @@ class KnowledgeBase(Construct):
         # Bedrock validates the role's permissions at creation, so its policy must exist first.
         self._knowledge_base.node.add_dependency(self._role)
 
-        for i, data_source in enumerate(spec.data_sources):
+        for data_source in spec.data_sources:
             bedrock.CfnDataSource(
                 self,
-                f"DataSource{i}",
+                f"DataSource{data_source.key.replace('_', ' ').title().replace(' ', '')}",
                 knowledge_base_id=self._knowledge_base.attr_knowledge_base_id,
-                name=f"{name}-ds-{i}",
+                name=f"{name}{_DATA_SOURCE_INFIX}{data_source.key.replace('_', '-')}",
                 data_source_configuration=bedrock.CfnDataSource.DataSourceConfigurationProperty(
                     type="S3",
                     s3_configuration=bedrock.CfnDataSource.S3DataSourceConfigurationProperty(
