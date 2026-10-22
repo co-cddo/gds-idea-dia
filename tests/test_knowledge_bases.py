@@ -10,7 +10,13 @@ from config import AppConfig
 from dia.document_types import DocumentType
 from dia.naming import Bucket
 from knowledge_bases import DOCUMENT_TYPES, KNOWLEDGE_BASES
-from stacks.knowledge_base_entries import COMMON_METADATA_KEYS, Source, deployed_knowledge_bases, knowledge_bases
+from stacks.knowledge_base_entries import (
+    COMMON_METADATA_KEYS,
+    KnowledgeBaseEntry,
+    Source,
+    deployed_knowledge_bases,
+    knowledge_bases,
+)
 
 DEV = DeploymentEnvironment.DEVELOPMENT
 PROD = DeploymentEnvironment.PRODUCTION
@@ -116,6 +122,35 @@ def test_a_literal_bucket_must_say_who_owns_it():
 def test_a_bucket_this_repo_creates_must_not_name_an_owner():
     with pytest.raises(ValueError, match="owner"):
         Source(bucket=Bucket.DBR_REPORTS, owner=DEV)
+
+
+# --- data source keys ---
+
+
+def _entry(*sources: Source) -> KnowledgeBaseEntry:
+    return KnowledgeBaseEntry(
+        description="Test", document_type=DocumentType.TECHNOLOGY_REPORT, data_sources=list(sources)
+    )
+
+
+def test_a_single_source_is_keyed_by_its_knowledge_base():
+    for spec in knowledge_bases(AppConfig(environment=DEV), KNOWLEDGE_BASES):
+        (source,) = spec.data_sources
+        assert source.key == spec.key
+
+
+def test_several_sources_use_their_own_keys():
+    entry = _entry(
+        Source(key="first", bucket="bucket-a", owner=DEV),
+        Source(key="second", bucket="bucket-b", owner=DEV),
+    )
+    (spec,) = knowledge_bases(AppConfig(environment=DEV), {"reports": entry})
+    assert [source.key for source in spec.data_sources] == ["first", "second"]
+
+
+def test_several_sources_without_keys_are_rejected():
+    with pytest.raises(ValueError, match="key"):
+        _entry(Source(key="first", bucket="bucket-a", owner=DEV), Source(bucket="bucket-b", owner=DEV))
 
 
 # --- open-source safety ---

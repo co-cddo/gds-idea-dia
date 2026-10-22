@@ -32,6 +32,9 @@ class Source(BaseModel, frozen=True):
     """An S3 location a knowledge base ingests.
 
     Attributes:
+        key: Stable identifier (snake_case) the data source is named by. Leave
+            out when the knowledge base has one source: it then uses the
+            knowledge base's key. Required when there are several.
         bucket: Literal name of a bucket owned by another project, or a `Bucket`
             member for a bucket this repo creates.
         owner: Environment whose account owns a literal bucket. Leave out for a
@@ -41,6 +44,7 @@ class Source(BaseModel, frozen=True):
             model (for pptx or image-heavy PDFs). `None` uses the default parser.
     """
 
+    key: str | None = None
     bucket: str | Bucket
     owner: DeploymentEnvironment | None = None
     prefix: str = ""
@@ -72,6 +76,12 @@ class KnowledgeBaseEntry(BaseModel, frozen=True):
     extra_metadata_keys: tuple[str, ...] = ()
     deployed: bool = False
 
+    @model_validator(mode="after")
+    def _several_sources_have_keys(self) -> KnowledgeBaseEntry:
+        if len(self.data_sources) > 1 and any(source.key is None for source in self.data_sources):
+            raise ValueError("every source needs a key when a knowledge base has more than one")
+        return self
+
 
 def knowledge_bases(config: AppConfig, entries: Mapping[str, KnowledgeBaseEntry]) -> list[KnowledgeBaseSpec]:
     """Specs for every entry, deployed or not.
@@ -96,18 +106,19 @@ def _to_spec(config: AppConfig, key: str, entry: KnowledgeBaseEntry) -> Knowledg
     return KnowledgeBaseSpec(
         key=key,
         description=entry.description,
-        data_sources=[_to_data_source(config, source) for source in entry.data_sources],
+        data_sources=[_to_data_source(config, source, default_key=key) for source in entry.data_sources],
         metadata_keys=(*COMMON_METADATA_KEYS, *entry.extra_metadata_keys),
     )
 
 
-def _to_data_source(config: AppConfig, source: Source) -> DataSourceSpec:
+def _to_data_source(config: AppConfig, source: Source, *, default_key: str) -> DataSourceSpec:
     if isinstance(source.bucket, Bucket):
         bucket_name, owner_account = config.names(source.bucket), None
     else:
         bucket_name = source.bucket
         owner_account = None if source.owner == config.environment else source.owner.value
     return DataSourceSpec(
+        key=source.key or default_key,
         bucket_name=bucket_name,
         prefix=source.prefix,
         bucket_owner_account=owner_account,

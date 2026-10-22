@@ -18,6 +18,11 @@ named through `config.names(...)` and lives in the account being deployed to.
 A source is cross-account whenever its owner isn't the account being deployed
 to, so no account IDs are written here.
 
+A data source is named after its `key`, not its position. A knowledge base with
+one source needs no key (it uses the knowledge base's key). With several, give
+each source a key and keep it once deployed: renaming one replaces the data
+source.
+
 The models are in `stacks/knowledge_base_entries.py`, which also turns this
 table into the specs the stack builds.
 """
