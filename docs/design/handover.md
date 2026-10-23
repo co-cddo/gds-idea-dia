@@ -38,8 +38,12 @@ relying on it):
   `DocumentType.DBR_REPORT` are merged. The reusable KB construct
   (`stacks/constructs/knowledge_base.py`) is built, and nothing uses it until the
   KB stack PR.
-- **Next:** Milestone B (sources), starting with PR 6 (source protocols and the
-  common metadata model). It needs a design conversation first.
+- **Sources are declared once** (this PR), in `src/dia/sources/definitions.py`, for
+  both pipelines. See "Sources" below. The Bedrock knowledge base stack (#77) is to
+  read them instead of keeping its own table.
+- **Next:** the pipeline's metadata step and its sidecar files, a minimal ledger,
+  and the first run of the latest GATS cases through the pipeline. The build plan in
+  section 7 of the spec is being rewritten around that order.
 - Only the foundations are built so far (naming, the extras split, the task
   image, preflight and the task stack). The rest of `src/dia` is work in
   progress that nobody uses, and may be deleted as the PR that replaces each part
@@ -226,6 +230,38 @@ cycles. (The throwaway scripts were in a temp directory and are gone.)
   `idea-app`; the only one edited by hand is `ci_pr_cdk_app.yml`, for the reasons
   above.
 
+## Sources
+
+There are two pipes, and they are separate: **graph** (our extraction into Neptune
+and OpenSearch) and **knowledge base** (Bedrock reads the documents). Every dataset
+is declared once in `SOURCES` (`src/dia/sources/definitions.py`), with a `graph`
+flag and/or a `knowledge_base` block. The CDK, preflight and the pipeline all read
+it. Keys are snake_case, and KB names derive from them.
+
+- **A location** (`dia.sources.models`) is either one of **our** buckets, given as a
+  `Bucket` member (it exists in dev and prod, named by `Names`, and we may write to
+  it), or an `ExternalBucket` that another team owns, with every name written out:
+  the prod bucket, plus either a dev bucket or `dev_via_cross_account=True` (dev
+  reads the prod bucket through the cross-account role). Names are never derived or
+  guessed. `resolve(location, environment)` gives the bucket to read.
+- GATS is the only external source. The others are in `Bucket.SR25_BIDS`,
+  `SR21_BIDS`, `NAO_REPORTS`, `REPORTS` and `DBR_REPORTS`. The first four are new,
+  empty buckets: the documents still have to be copied in from the old buckets
+  (issue #64), and other readers of those old buckets are unchanged.
+- **Agreed, not built yet:** metadata is its own step, separate from both pipes. It
+  writes a Bedrock-format `<document>.metadata.json` sidecar next to every document,
+  in every source (also in external buckets such as GATS, which prod writes to). The
+  KB ingests the documents and sidecars as they are. The graph's text stage reads the
+  sidecar and adds its fields to the extracted output, and skips and logs a document
+  that has none. Dev can't write to a prod bucket it reads through the role, so
+  GATS sidecars are written by a prod run, and a dev run warns. The field names
+  match the keys the KBs already use (`COMMON_METADATA_KEYS` plus a source's own).
+- When a graph source is in one of our own buckets, check that the task role's read
+  grant (`stacks/pipeline_task.py`) doesn't clash with the write grant the sidecar
+  step will need on the same bucket.
+- `sources/known.py`, `DataSource` and the old `extract-text` flow are still there,
+  and are removed when the new text stage replaces them.
+
 ## Remote running (PR 5)
 
 `dia pipeline preflight --remote` launches the command as a task, prints the task
@@ -344,8 +380,13 @@ Still unverified:
   whether dev can read GATS through the cross-account role.
 - Confirm the cross-account role can read the SR25 bucket and the GATS metadata
   bucket (the task role only reads the GATS documents bucket for now).
-- Confirm the prod locations for GATS metadata and SR25 documents. The current
-  names in `sources/known.py` and `metadata/registry.py` end in `-dev`.
+- Confirm the prod location of the GATS **metadata**. The prod GATS documents bucket
+  is confirmed (the prod account owns it and the cross-account role can read it),
+  but the old code reads the metadata export from a `-dev` bucket whose copy is not
+  current. SR25 and the other KB buckets are now our own buckets (see "Sources").
+- Move the remaining knowledge bases out of the old graph repo, which is to be
+  deleted (issue #64). The sources are declared and their buckets exist; the
+  documents still have to be copied in.
 - Look at real GATS documents before PR 8 (the GATS metadata strategy). There
   are reportedly business cases with more than one source schema.
 - Agree the agent change (current versions only) with the agent owner.
