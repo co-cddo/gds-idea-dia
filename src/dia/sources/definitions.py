@@ -76,7 +76,7 @@ SOURCES: dict[str, SourceDefinition] = {
         description="Technology and other reports and presentations",
         document_type=DocumentType.TECHNOLOGY_REPORT,
         location=Location(bucket=Bucket.REPORTS, prefix="technology/"),
-        knowledge_base=KnowledgeBaseSettings(parsing_model=HAIKU_4_5),
+        knowledge_base=KnowledgeBaseSettings(),
     ),
     "dbr_readouts_letter": SourceDefinition(
         description="Letters sent after Digital Business Review sessions, used to brief the next DBR",

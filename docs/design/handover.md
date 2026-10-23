@@ -256,6 +256,9 @@ it. Keys are snake_case, and KB names derive from them.
   that has none. Dev can't write to a prod bucket it reads through the role, so
   GATS sidecars are written by a prod run, and a dev run warns. The field names
   match the keys the KBs already use (`COMMON_METADATA_KEYS` plus a source's own).
+- When a graph source is in one of our own buckets, check that the task role's read
+  grant (`stacks/pipeline_task.py`) doesn't clash with the write grant the sidecar
+  step will need on the same bucket.
 - `sources/known.py`, `DataSource` and the old `extract-text` flow are still there,
   and are removed when the new text stage replaces them.
 
@@ -377,9 +380,13 @@ Still unverified:
   whether dev can read GATS through the cross-account role.
 - Confirm the cross-account role can read the SR25 bucket and the GATS metadata
   bucket (the task role only reads the GATS documents bucket for now).
-- Confirm the prod locations for the GATS metadata (the old code reads the `-dev`
-  bucket's copy, which is not current). SR25 and the other KB buckets are now our
-  own buckets (see "Sources").
+- Confirm the prod location of the GATS **metadata**. The prod GATS documents bucket
+  is confirmed (the prod account owns it and the cross-account role can read it),
+  but the old code reads the metadata export from a `-dev` bucket whose copy is not
+  current. SR25 and the other KB buckets are now our own buckets (see "Sources").
+- Move the remaining knowledge bases out of the old graph repo, which is to be
+  deleted (issue #64). The sources are declared and their buckets exist; the
+  documents still have to be copied in.
 - Look at real GATS documents before PR 8 (the GATS metadata strategy). There
   are reportedly business cases with more than one source schema.
 - Agree the agent change (current versions only) with the agent owner.
