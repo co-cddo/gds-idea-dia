@@ -1,418 +1,407 @@
 # Handover
 
-Working notes for whoever picks this work up next, human or agent. This file
-goes stale quickly: **update it at the end of every PR**, and keep the
-"Current position" section accurate above all.
+This is the working handover for the DIA pipeline, written when David Gillespie
+handed the work over to Aakash. It is for whoever picks the work up next, human or
+agent. It goes stale quickly: **update it at the end of every PR**, and keep section
+1 accurate above all.
 
-The agreed design is in [`pipeline-spec.md`](pipeline-spec.md). This file
-covers where we are, how we work, and facts that are not obvious from the code.
+The agreed design is in [`pipeline-spec.md`](pipeline-spec.md), and its section 7 is
+the build plan. This file covers where things stand, what to do next, and the
+facts that are not obvious from the code.
 
-## Current position
+## 1. Where things stand
 
-State when this was written (check `gh pr list` and `git log origin/dev` before
-relying on it):
+State when this was written, with `dev` at #78. Check `gh pr list` and
+`git log origin/dev` before relying on it.
 
-- Merged: the spec (#61), the spec update, handover and naming module (#62), the
-  Docker image with the extras split (#63), `dia pipeline preflight` and the
-  runtime config model (#65), the pipeline task stack (#66), and the fix that
-  lets the task image import `dia` without Node, plus an image smoke test in CI
-  (#69).
-- The task stack is deployed to dev. Running `dia pipeline preflight` as a task
-  there (started by hand) showed that the image, outbound access, the runtime
-  config read, the ledger table, the buckets and the cross-account role all work
-  from inside the VPC. The Neptune check failed because the dev Neptune cluster
-  was **stopped**, not because of the network. See "Unverified assumptions" for
-  what that run did and did not settle.
-- PR 5 (#70): `dia pipeline preflight --remote` and `dia pipeline tasks`
-  (`src/dia/remote.py`). See "Remote running" below. Run for real in dev, where
-  `dia pipeline preflight --remote` passes all 6 checks including Neptune.
-- PR 5a (#71): preflight says why the Neptune connect failed (timeout, refused,
-  name not resolved). A timeout message mentions that a stopped cluster looks
-  like this.
-- Merged (#72): `DocumentType` values aligned with the agent (`sr_bids_2025`),
-  plus the document types the Bedrock knowledge bases need. This reversed the
-  earlier spec decision that SR bids are `sr_bids`.
-- Open (Bedrock knowledge bases, a separate track from the pipeline build plan,
-  planned in [`../knowledge-bases-plan.md`](../knowledge-bases-plan.md)): the DBR
-  bucket (`Bucket.DBR_REPORTS`, prefixes `readouts/` and `reports/`) and
-  `DocumentType.DBR_REPORT` are merged. The reusable KB construct
-  (`stacks/constructs/knowledge_base.py`) is built, and nothing uses it until the
-  KB stack PR.
-- **Sources are declared once** (this PR), in `src/dia/sources/definitions.py`, for
-  both pipelines. See "Sources" below. The Bedrock knowledge base stack (#77) is to
-  read them instead of keeping its own table.
-- **Next:** the pipeline's metadata step and its sidecar files, a minimal ledger,
-  and the first run of the latest GATS cases through the pipeline. The build plan in
-  section 7 of the spec is being rewritten around that order.
-- Only the foundations are built so far (naming, the extras split, the task
-  image, preflight and the task stack). The rest of `src/dia` is work in
-  progress that nobody uses, and may be deleted as the PR that replaces each part
-  lands.
+**Built, and run for real in dev**
 
-## How we work
+- **Remote running.** `dia pipeline preflight --remote` starts a task on the shared
+  ECS cluster, follows its logs, and exits with the task's exit code. `dia pipeline
+  tasks` (with `--mine`), `tasks logs <id> [--follow]` and `tasks stop <id>` work
+  against real ECS. All six preflight checks pass in a task, including Neptune.
+- **The task stack, image and runtime config.** The Fargate task definition, its
+  roles, the log group, the task image (`task/Dockerfile`, `pipeline` extra only) and
+  the SSM runtime config parameter are deployed. CI builds the image and deploys on
+  every merge to `dev`. A CI job imports every task module inside the built image.
+- **Naming.** One module, `dia.naming`, builds every deployed name from the phase.
 
-**With the user (David, a repo owner and org admin)**
+**Built, but not run against real AWS**
 
-- Short messages, one decision at a time. Start from requirements in plain
-  language and keep implementation detail until it is needed. Use the question
-  tool for choices, with a recommended option first.
-- Plan first, then build. For code, **stage the change and open VS Code
-  (`code -r . <files>`) so he can review before you commit.** Small docs-only
-  commits can go straight in.
-- Do not commit, push or open PRs unless asked. When asked for a PR, open it as a
-  draft, tag `@aakash-cddo`, and say what was and was not tested.
-- He can do the admin steps you cannot (org secrets, GitHub App installs, prod
-  AWS commands). Give him the exact commands and say what the output will tell
-  you.
-- Say what is unverified rather than guessing. Correct yourself when you find you
-  were wrong.
+- **Shared source declarations (#78).** Every dataset is declared once in
+  `src/dia/sources/definitions.py`, whichever pipeline uses it. Preflight and the
+  task stack read them, and the four new knowledge base buckets exist in CDK.
+  Preflight's source check is now called `source gats_business_cases` and reads the
+  declarations. Run `uv run dia pipeline preflight` once to confirm it works against
+  real AWS; nobody has yet.
 
-**In the repo**
+**Agreed, not built**
 
-- **Small, reviewable PRs.** One thing per PR, with tests. Aakash reviews each.
-- **Each PR removes the old code it replaces,** rather than one large deletion
-  at the end.
-- **Scope is GATS business cases first.** Other sources come after.
-- **AI review:** add the `ai-review` label to a PR to get an advisory review
-  from `gds-idea-ai-reviewer[bot]` (non-blocking; no label means no run and no
-  cost). It does not re-run on a push; remove and re-add the label. Its job
-  shows green even when it was skipped (for example when the App is not
-  installed on the repo), so read the job log. It reviews the commit that was
-  current when the label was added. Reply to its findings on the PR by item
-  number: what was fixed, and what was left and why. It needs the `ai-review`
-  job in `.github/workflows/ci_pr_cdk_app.yml`, the org secrets
-  `GDS_IDEA_AI_REVIEWER_APP_ID` (shared with this repo, because it is public)
-  and `GDS_IDEA_AI_REVIEWER_APP_PRIVATE_KEY`, and the `gds-idea-ai-reviewer`
-  GitHub App installed on the repo.
-- **`ci_pr_cdk_app.yml` is managed by `idea-app` but edited by hand,** and
-  should stay that way. The template sets `run-version-check: true`, which fails
-  here because the version comes from git tags (hatch-vcs) and there is no
-  `version =` line in `pyproject.toml`. We also differ from the template in
-  other ways: the trigger includes `reopened`, and the CI jobs skip on any
-  `labeled` event (the template skips only for the `ai-review` label, so adding
-  any other label, such as a release bump label, re-runs all of CI). The trigger
-  also has no `branches:` filter, so a PR stacked on another branch still gets
-  build, lint, tests and the AI review. The CDK diff is skipped for those PRs,
-  because the catalogue's `ci_cdk_diff.yml` only supports `dev` and `prod` as
-  targets and fails on anything else. If you run `idea-app update`, do not use
-  `--force` on that file.
+- **Two pipes, kept separate.** *Graph*: our extraction into Neptune and OpenSearch.
+  *Knowledge base* (KB): Bedrock reads the documents. They complement each other.
+- **Metadata is its own step**, separate from both pipes. For every document in
+  every source it writes a `<document>.metadata.json` sidecar next to the document,
+  in Bedrock's format (`{"metadataAttributes": {...}}`), including in buckets we
+  don't own, such as GATS. A typed model holds the field names, which match the keys
+  the KBs already use. The KB reads the sidecar as it is. The graph's text stage reads
+  it and adds the fields to the extracted text, and **skips and logs a document that
+  has no sidecar**.
+- **Who writes sidecars where.** A bucket of ours: either phase writes its own. A
+  bucket we only consume, such as GATS: only prod writes, because dev reads it
+  through the read-only cross-account role. A dev run of the metadata step warns that
+  it cannot write there. So the GATS sidecars need a prod run first.
+- **A minimal ledger from the start.** Proposed shape: a new table
+  `dia-pipeline-ledger-{phase}`, partition key `source#stage`, sort key
+  `document_key#version`, recording done or failed per document with the reason, the
+  output location and the code version. Add the in-progress lock, stale settings,
+  batch job state and graph version when a stage first needs them. The old
+  `dia-ledger-{phase}` table stays until the code using it is deleted.
+- **The trial run.** Take the **latest 10 GATS business cases** from scratch through
+  every stage into the dev graph, and ask the agent about them. Each stage is a new
+  `dia pipeline <stage>` command that runs locally and with `--remote`. What
+  "latest" means is not decided (see section 2).
 
-**Tooling constraints (permission rules in `~/.config/opencode/opencode.json`)**
+**Not started:** the metadata step, the ledger, and every stage after text.
 
-- `rm -rf` is denied (even on temp files: use `rm` on single files and fresh
-  directory names). `gh pr create` is only allowed as `--draft`. `git push`,
-  `gh pr *` and `cdk deploy` ask for approval. `cdk destroy` and
-  `gh pr merge` are denied.
-- Plan mode can be switched on again at any time. In it, read and plan only.
-- The skills in `~/.local/share/idea-oc/skills` are managed by `idea-oc`. I fixed
-  the invalid YAML in `cdk-review` and `python-cleanliness` locally (issue
-  co-cddo/gds-idea-ai-reviewer#39); a sync may overwrite that.
+**Old code still in the repo.** The rest of `src/dia` is the first build: `extract-text`
+and its runner, `sources/known.py`, `DataSource`, the `metadata` package, the old
+ledger and its CLI, writers, filters, and the agent. Only the old text stage ever ran
+(see `docs/extract-text.md`). It is disposable: each PR removes what it replaces.
 
-**How to prove a CDK change renames nothing**
+## 2. What to do next
 
-Build every stack for dev and prod with a fake VPC (`ec2.Vpc.from_vpc_attributes`,
-as `tests/test_pipeline_task_stack.py` does), dump `Template.from_stack(...)
-.to_json()` before and after the change, and compare the files byte for byte.
-Stacks that should be unchanged must be identical. The same script, wired the way
-`app.py` wires the stacks and ending in `app.synth()`, also catches dependency
-cycles. (The throwaway scripts were in a temp directory and are gone.)
+Follow section 7 of the spec. In short, the order is:
 
-## Key facts
+1. **Metadata model and sidecar format.** Shared code, no AWS, lots of unit tests.
+   Both the metadata step and the text stage depend on it.
+2. **The GATS metadata step.** The first thing that reads real GATS data.
+3. **The minimal ledger.**
+4. **S3 reader and the text stage**, which delete `known.py`, `DataSource`,
+   `extract-text` and the old metadata package.
+5. **Chunk, propositions, topics, validate, embed, load**, then check the result with
+   the agent.
 
-- Pipeline tasks run on the **shared GDS IDEA ECS cluster**, using the
-  `ecs_arn` from `DeploymentConfig` (SSM `/gds-idea-ecs`). Step Functions is
-  deferred.
-- **Local runs write only locally** (`./output/`). `--remote` is the only way to
-  change real state.
-- **Source locations:** each source has one real location. Prod reads it
-  directly. Dev reads it through the cross-account role
-  `assume_role_for_development_account` (`cross_account_role_arn` in
-  `gds_idea_cdk_constructs`), unless the source names a dev override bucket.
+Then harden the ledger and CLI, and scale up to all of GATS and the other sources.
+
+**Decisions to make first**
+
+- **What "latest" means** for the trial run. The GATS export has 198 columns. The
+  candidate date columns are `CO_CaseSubmitDate`, `CO_FullCaseDecisionDate` and
+  `CO_AssuranceRatingDate`, and `CO_CaseStatus` could limit it to decided cases.
+  Look at the real values before choosing. `scripts/check_source_access.py` is a
+  read-only starting point.
+- **Whether `--limit` counts cases or documents.** A GATS case lists several files in
+  `CO_CS_Files`, so 10 cases may be 20 to 40 documents.
+- **Which GATS export is current.** The dev bucket's newest export is from 20 May 2026,
+  but documents are still arriving (newest 20 Oct 2026). The prod bucket has its own
+  `spend-controls-raw-data/` folder that nobody has looked inside. It is probably the
+  live one.
+- **How the ledger table is laid out**, using the proposal above.
+
+**What we know about the GATS data** (from `scripts/check_source_access.py`, October 2026)
+
+- Documents: `s3://c-af-get-approval-spend-service-business-cases/files/`, in the prod
+  account, 26,187 objects. By type: 10,778 `.json`, 7,477 `.docx`, 4,190 `.pdf`,
+  1,731 `.pptx`, 1,688 `.xlsx`, and a few `.png`, `.doc` and `.eml`. The `.json` files
+  are old sidecars written by the previous repo's script, and will be replaced.
+  Our extractors only read PDF and Word, so other types must be recorded as
+  unsupported, not failed.
+- The cross-account role can read this bucket. A dev session can read it directly too,
+  so its bucket policy allows the dev account.
+- Metadata today: a copy of the export and the historic CSVs are in
+  `c-af-get-approval-spend-service-business-cases-dev`, a bucket in the **dev**
+  account. A dev session reads it directly, and the cross-account role is denied.
+  Its `spend-controls-raw-data/` has three `DataExport_*.csv` files and
+  `department_files/` has `historic_cases_metadata.csv`.
+- Export columns that matter: `CO_SpendID` (the case ID), `CO_CS_Files` (the case's
+  files), `CO_OrganisationSubmitter` (department or ALB), and the dates above.
+  Departments go through `department_mapping.py`. There are reportedly cases with more
+  than one source schema; look at real documents before writing the strategy.
+
+## 3. Open PRs, branches and issues
+
+**#77, the knowledge base stack (Aakash's draft).** It conflicts with `dev` and keeps
+its own table of sources. Move it onto the shared declarations:
+
+1. Rebase onto `dev`.
+2. Delete `Source`, `KnowledgeBaseEntry`, `KNOWLEDGE_BASES` and `DOCUMENT_TYPES`.
+3. Build each `KnowledgeBaseSpec` from the `SOURCES` entries that have a
+   `knowledge_base` block: bucket and prefix from `resolve(source.location,
+   config.environment)`, `metadata_keys` from `source.metadata_keys`, parsing model
+   and `deployed` from the block.
+4. Set `bucket_owner_account` to the production account when `resolve` says the
+   location is cross-account (dev reading the GATS bucket). For a KB the role reads
+   the bucket directly, so the prod bucket's policy must allow the KB role.
+5. Keep the stable data source names already on the branch.
+
+The four sources that were dev-account buckets (SR25, SR21, NAO, the DIA documents)
+now point at new, **empty** buckets of ours. Their KBs aren't deployed, so nothing
+breaks, but the documents must be copied in before they are (#64).
+
+**#53, the chunking draft.** About 3,500 lines, untouched since September. The design
+is on the `graph-chunking` branch: `docs/adr/0001-lower-level-graphrag-toolkit-usage.md`
+and `docs/plans/graph-extraction-stage.md`. The ADR says to drive the toolkit's batch
+extractors directly and persist chunks. The plan lists open questions, mainly where
+batch job state lives. Use it as the reference when you reach the chunk stage; the
+code is better rewritten small than merged as it is. Whether to split it up or close
+it is your call. The `graph-extraction-runner` branch is abandoned.
+
+**Issues**
+
+- #64: move the KB source buckets we own into this repo, and copy the documents in.
+- #67: set a maximum run time for pipeline tasks. Tasks only stop when the container
+  exits or someone stops them.
+- #68: let stages use different task sizes. Extraction is mostly batching and is fine
+  on a small task; the build step runs several batch workers and needs more CPU.
+- #48 to #52: chunking and semantic splitting (cost, chunk size, Cohere embeddings).
+
+**Local branches.** Most are merged or abandoned history from the first build. Delete
+what you don't need.
+
+## 4. Open actions (not code)
+
+- **`gds-idea-dia` cannot deploy to prod yet.** In `gds-idea-cdk-access`, add
+  `"gds-idea-dia",` (no `@<repo-id>` suffix, matching its dev entry) to the list in
+  `repositories_access_prod.tf`. That file controls who can assume `cdk-prod-deploy`;
+  without it a merge to the `prod` branch fails at the AWS login. Prod changes need a
+  reviewer from `@co-cddo/gds-idea-aws` or `@co-cddo/gds-idea-senior-ds`. The GATS
+  sidecars can only be written from prod, so this is needed before the metadata step
+  is useful.
+- **Confirm the prod location of the GATS metadata.** The prod GATS documents bucket
+  is confirmed. Only the dev copy of the export has been read.
+- **The agent must query current versions only.** Graph loads are versioned, and the
+  agent doesn't yet filter to the current one. Coordinate with whoever owns the agent.
+  Also move the agent onto `RuntimeConfig` in place of its hand-filled Secrets Manager
+  endpoints, which can drift (raised on #65).
+- **Agree with the data owners that we add sidecar files** to the GATS bucket.
+- **Questions on testing and ownership** in spec section 6: how stages are tested, and
+  who may run `--remote` in prod.
+- **The load stage needs** an `aoss` permission on the task role (the OpenSearch data
+  access policy names the account root as principal), Bedrock access for the Bedrock
+  stages, and an OpenSearch check in preflight.
+- **The S3 reader needs** refreshable cross-account credentials and a narrowed session
+  policy (see the cross-account role under "Key facts").
+- **A post-deploy smoke test** that runs `dia pipeline preflight --remote` in dev and
+  fails on a non-zero exit. The command supports it. The dev deploy role would need
+  `ecs:RunTask` and `iam:PassRole`, and it needs its own `workflow_run` workflow,
+  because `ci_cd_cdk_app.yml` belongs to `idea-app`.
+- Run `idea-app update --dry-run` (adopted at 0.5.4; 0.6.0 is installed) and decide
+  whether to update.
+- Names still outside `dia.naming`: the agent's secret names (hardcoded to `-dev` in
+  `agent/config.py`), the stack names in `scripts/neptune-tunnel.sh`, and the `phase`
+  default in `clients/graph_rag_config.py`.
+- Generic stack names such as `StorageStack` don't meet the CDK review standard. They
+  are left alone, because renaming makes CloudFormation replace the resources.
+
+## 5. How the repo works
+
+- **Small, reviewable PRs.** One thing per PR, with tests, opened as a draft. Each PR
+  removes the old code it replaces, rather than one large deletion at the end.
+- **Scope is GATS business cases first.** Other sources follow with the same approach.
+- **AI review.** Add the `ai-review` label for an advisory review from
+  `gds-idea-ai-reviewer[bot]`. It is non-blocking, and no label means no run and no
+  cost. It does not re-run on a push, so remove and re-add the label. Its job shows
+  green even when skipped (for example when the App isn't installed), so read the job
+  log. It reviews the commit current when the label was added. Reply to its findings
+  by item number: what was fixed, and what was left and why. It needs the `ai-review`
+  job in `ci_pr_cdk_app.yml`, the org secrets `GDS_IDEA_AI_REVIEWER_APP_ID` and
+  `GDS_IDEA_AI_REVIEWER_APP_PRIVATE_KEY`, and the `gds-idea-ai-reviewer` GitHub App
+  installed on the repo.
+- **`ci_pr_cdk_app.yml` is managed by `idea-app` but edited by hand,** and should stay
+  that way. The template sets `run-version-check: true`, which fails here because the
+  version comes from git tags (hatch-vcs) and `pyproject.toml` has no `version =`
+  line. We also differ from the template in other ways: the trigger includes
+  `reopened`, and the jobs skip on any `labeled` event (the template skips only for
+  the `ai-review` label, so any other label re-runs all of CI). There is no `branches:`
+  filter, so a PR stacked on another branch still gets build, lint, tests and the AI
+  review. The CDK diff is skipped for those, because the catalogue's `ci_cdk_diff.yml`
+  only supports `dev` and `prod` as targets. If you run `idea-app update`, don't use
+  `--force` on that file. The other workflows are `idea-app`'s, except
+  `ci_task_image_smoke_test.yml`, which is ours.
+- **CI deploys on merge:** the `dev` branch to the dev account, `prod` to prod.
+- **The CDK diff comment warns `TaskDefinition ... WILL_REPLACE`** whenever a PR
+  touches `src/`, `task/` or `pyproject.toml`. The image hash is part of the task
+  definition, so each change registers a new revision. That is expected. Old revisions
+  stay in ECS and nothing is deleted.
+- **To prove a CDK change renames nothing,** build every stack for dev and prod with
+  a fake VPC (`ec2.Vpc.from_vpc_attributes`, as `tests/test_pipeline_task_stack.py`
+  does), dump `Template.from_stack(...).to_json()` before and after, and compare the
+  files byte for byte. Stacks that should be unchanged must be identical. A script
+  wired the way `app.py` wires the stacks, ending in `app.synth()`, also catches
+  dependency cycles.
+- **Task image.** It has no Node, no CDK and only the `pipeline` extra, so a module
+  that needs anything else works on a laptop and fails when a task starts. Add a
+  module to `TASK_MODULES` in `task/smoke_test.py` when a task command starts to use
+  it; CI and `tests/test_runtime_imports.py` check the list. The image still contains
+  `aws-cdk-lib` (about 220MB) because `gds-idea-cdk-constructs` depends on it. It is
+  never loaded. Making it an optional extra upstream would remove it, but is a
+  breaking change for every app that builds stacks.
+- **CLI tests.** typer colours its errors in GitHub Actions, which splits text with
+  ANSI codes. Strip them before matching, as `tests/test_cli.py` does.
+
+## 6. Key facts
+
+**Infrastructure**
+
+- Pipeline tasks run on the **shared GDS IDEA ECS cluster**, from the `ecs_arn` in
+  `DeploymentConfig` (SSM `/gds-idea-ecs`). Step Functions is deferred.
 - **Phase** comes from the AWS account (`DeploymentEnvironment`). Dev is
   `992382722318`, prod is `588077357019`.
-- **Names:** every deployed name is built by `dia.naming.Names`, created from a
-  `DeploymentEnvironment` (`Names(env)`). `names("ledger")` gives
+- **Names:** `dia.naming.Names` builds every deployed name. `names("ledger")` gives
   `dia-ledger-dev`, and `names(Bucket.TEXT_EXTRACTED)` gives
-  `gds-idea-dia-text-extracted-dev`. In CDK use `config.names`. In the CLI use
-  `dia.cli_helpers.current_names()`, which looks up the account.
-- **Preflight checks a named list of buckets:** `check_buckets` calls
-  `head_bucket`, as the task role, on `dia.preflight.PREFLIGHT_BUCKETS`. The
-  list is for the Neptune extraction steps and names the pipeline buckets
-  explicitly, so knowledge base buckets such as the DBR bucket are not on it and
-  the task role has no access to them. A new pipeline `Bucket` must be added to
-  the list, and needs at least a read grant to the task role in
-  `stacks/pipeline_task.py` (a test checks this). S3 Vectors buckets don't
-  belong in the enum.
-- **Dependencies are split into extras:** the core is only what the CLI and
-  naming need. `pipeline` is the document pipeline, `agent` is the agent and its
-  report output, and `cdk` is for CDK. CI uses `uv sync --all-extras`.
-- **Task image:** `task/Dockerfile` installs only the `pipeline` extra and runs
-  `dia` as its entrypoint (see the README for how to build it). It is about
-  1.44GB, and roughly 420MB of that is `aws-cdk-lib`, pulled in because
-  `gds-idea-cdk-constructs` imports it at module level. The upstream issue is
-  co-cddo/gds-idea-cdk-constructs-new#62. The image's build context is listed in
-  the root `.dockerignore`, which both `docker build` and CDK read (a test checks
-  what the stack actually stages).
-- **Pipeline task stack:** one Fargate task definition, 2 vCPU and 8GB (to tune
-  once real stages show what they need; it can also be overridden per run), with
-  the image built for x86_64 and `dia` as the entrypoint. The task role is
-  `dia-pipeline-task-{phase}` and carries the account's
-  `DenyUserPermissionsPolicy` boundary (it allows everything except creating
-  IAM users and access keys, so it removes nothing). It can use the ledger, our
-  buckets, Neptune (read, write and delete via query, and engine status) and the
-  runtime config parameter. It does **not** have Bedrock or OpenSearch access
-  yet: later stages add what they need (the OpenSearch access policy names the
-  account root as principal, so the load stage will need to add an `aoss`
-  permission to the task role). The tasks' security group is in
-  `NetworkingStack`, and `NeptuneStack` allows it in on 8182. Logs go to
-  `/dia-task-{phase}` for 90 days (kept in prod, deleted with the stack in dev).
-  The stack takes the shared `DeploymentConfig` (cluster, VPC id and the
-  cross-account role) and looks the VPC up itself unless a test gives one. ARNs
-  are written out literally with the `aws` partition, like the rest of the repo.
-- **Cross-account role** `assume_role_for_development_account` (production
-  account): it trusts the whole dev account with no conditions, and has
-  `ReadOnlyAccess` plus Lake Formation, Bedrock knowledge base, Athena and S3
-  Tables policies. So the dev task role only needs `sts:AssumeRole` on it, which
-  the stack grants, and nothing needs adding to the role's trust policy.
-  `ReadOnlyAccess` means an assumed session can read all of production, not just
-  GATS. That is the existing pattern, but PR 7 should narrow it (see the build
-  plan). A task's credentials are role credentials, so assuming the role from a
-  task is role chaining and its sessions last at most an hour; PR 7 needs
-  refreshable credentials. Preflight only needs a moment, so it is not affected.
-- **Commands:** pipeline commands live under `dia pipeline` and the agent under
-  `dia agent`. `extract-text` and `ledger` are still at the top level and move
-  under `pipeline` when they are rewritten (PRs 11 to 14). `dia agent status`
-  is effectively the agent's own preflight, and could be renamed to
-  `dia agent preflight` for symmetry (a job for the agent's owner).
+  `gds-idea-dia-text-extracted-dev`. A plain string that matches a bucket is rejected,
+  so a bucket can't silently get the resource pattern. In CDK use `config.names`. In
+  the CLI use `dia.cli_helpers.current_names()`.
+- **Dependencies are split into extras:** the core is what the CLI and naming need.
+  `pipeline` is the document pipeline, `agent` is the agent and its report output,
+  and `cdk` is for CDK. CI uses `uv sync --all-extras`.
+- **Pipeline task stack** (`stacks/pipeline_task.py`): one Fargate task definition,
+  2 vCPU and 8GB, built for x86_64 with `dia` as the entrypoint. The task role is
+  `dia-pipeline-task-{phase}` with the account's `DenyUserPermissionsPolicy` boundary
+  (it removes nothing). It can use the ledger, our pipeline buckets, Neptune (read,
+  write and delete via query, and engine status), the runtime config parameter, and
+  read the buckets of the graph sources. It has **no Bedrock or OpenSearch access
+  yet**. Logs go to `/dia-task-{phase}` for 90 days (kept in prod, deleted with the
+  stack in dev). Tasks use the shared VPC's private subnets, which have outbound
+  access, with no public IP. Their security group is in `NetworkingStack`, and
+  `NeptuneStack` allows it in on 8182.
+- **Buckets of ours** are the `Bucket` enum. The storage stack creates all of them in
+  both phases. The pipeline ones are text-extracted, graph-raw, graph-validated,
+  batch and agent-reports. The KB ones are dbr-reports, sr25-bids, sr21-bids,
+  nao-reports and reports. **Preflight checks a named list**
+  (`dia.preflight.PREFLIGHT_BUCKETS`), so KB buckets are not on it and the task role
+  has no access to them. A new pipeline bucket must be added to the list and needs a
+  read grant in `stacks/pipeline_task.py` (a test checks this). S3 Vectors buckets
+  don't belong in the enum.
 - **Runtime config:** CDK writes the Neptune endpoint and port, the OpenSearch
-  endpoint, cluster, task definition, subnets, security group, log group and (in
-  dev) the cross-account role as one JSON parameter,
-  `dia-runtime-config-{phase}`. It is read through
-  `dia.runtime_config.RuntimeConfig.load`, which fails fast. The task definition
-  sets `DIA_RUNTIME_CONFIG` to the parameter name, and locally the name is built
-  from `Names`. To add a value, add the field to `RuntimeConfig` and to the
-  stack. Unknown fields are rejected, so the two cannot drift apart. The agent
-  still reads its endpoints from Secrets Manager, which can drift from the real
-  resources (the secrets are filled by hand); moving the agent onto the runtime
-  config is planned for later and is a job for the agent's owner. The OpenSearch
-  endpoint has any leading `https://` removed when it is loaded, because the
-  collection's endpoint value has not been checked on a deployed collection and
-  may include the scheme: check the value in the parameter after the first
-  deploy.
-- **Preflight:** `dia pipeline preflight` is read-only. It checks Neptune only
-  inside an ECS task (it detects one through `ECS_CONTAINER_METADATA_URI_V4`),
-  because only tasks reach the VPC. Its source check is limited to GATS and
-  builds the cross-account client itself, using the role from the runtime
-  config (so in dev that check is skipped if the config can't be read). PR 7
-  should take that over, and PR 9 should make it read the new source
-  definitions.
-- **Stages:** text, chunk, propositions, topics, validate, embed, load. Purge
-  and prune are separate steps, and prune is deferred.
-- **Graph updates are versioned.** The agent does not yet query "current
-  versions only" and must be changed (coordinate with whoever owns the agent).
-- **Unmerged chunking work** is on the `graph-chunking` branch (`ChunkingRunner`,
-  `ChunkStore`, ADR 0001 and the Stage 2b plan in `docs/plans/`). It is about
-  3,500 lines, so it needs splitting into several PRs. The old
-  `graph-extraction-runner` branch is abandoned.
-- **Reference code for validate:** the old repo
-  `gds-idea-assurance-knowledge-graphs` (`src/topic_reconciliation.py`,
-  `src/post_processing.py`). Its reconciliation works per file.
-- `retrieval_modes.py` in the agent filters on `document_type`, but nothing in
-  the pipeline writes it yet. `DocumentType` values match the agent's filters
-  (SR bids are `sr_bids_2025`), and a test checks they agree. Each type's
-  `id_field` (the identifying entity for graph extraction) is: Spend ID for
-  business cases, Bid Name for SR bids, Contract ID for Contract Finder, Report
-  Name for NAO and technology reports, Department Name for efficiency reports,
-  Readout Date for DBR letters, and Department Name for DIA-generated DBR
-  reports.
-- CI deploys on merge: `dev` branch to the dev account, `prod` branch to prod
-  (prod cannot deploy yet: see the open actions). The CI workflows are managed by
-  `idea-app`; the only one edited by hand is `ci_pr_cdk_app.yml`, for the reasons
-  above.
+  endpoint, the cluster, task definition, subnets, security group, log group and (in
+  dev) the cross-account role as one JSON parameter, `dia-runtime-config-{phase}`.
+  `dia.runtime_config.RuntimeConfig.load` reads it and fails fast. The task sets
+  `DIA_RUNTIME_CONFIG` to its name; locally the name is built from `Names`. To add a
+  value, add the field to `RuntimeConfig` and to the stack; unknown fields are
+  rejected, so the two can't drift. The OpenSearch endpoint arrives as
+  `https://<id>.aoss.eu-west-2.on.aws`, and the model strips the scheme.
 
-## Sources
+**Cross-account role** `assume_role_for_development_account` (production account)
 
-There are two pipes, and they are separate: **graph** (our extraction into Neptune
-and OpenSearch) and **knowledge base** (Bedrock reads the documents). Every dataset
-is declared once in `SOURCES` (`src/dia/sources/definitions.py`), with a `graph`
-flag and/or a `knowledge_base` block. The CDK, preflight and the pipeline all read
-it. Keys are snake_case, and KB names derive from them.
+- It trusts the whole dev account with no conditions, and has `ReadOnlyAccess` plus
+  Lake Formation, Bedrock knowledge base, Athena and S3 Tables policies. The dev task
+  role only needs `sts:AssumeRole` on it, which the stack grants.
+- It can read all of production, not just GATS. The S3 reader should narrow a session
+  to the source's bucket and prefix with a session policy on `AssumeRole`.
+- A task's credentials are role credentials, so assuming the role is role chaining
+  and sessions last **at most an hour**. A long run in dev needs refreshable
+  credentials. Preflight needs only a moment, so isn't affected.
+- It is **read-only**, and it **cannot read buckets in the dev account** (denied by
+  the bucket's policy). Use it only for buckets with no dev equivalent.
 
-- **A location** (`dia.sources.models`) is either one of **our** buckets, given as a
-  `Bucket` member (it exists in dev and prod, named by `Names`, and we may write to
-  it), or an `ExternalBucket` that another team owns, with every name written out:
-  the prod bucket, plus either a dev bucket or `dev_via_cross_account=True` (dev
-  reads the prod bucket through the cross-account role). Names are never derived or
-  guessed. `resolve(location, environment)` gives the bucket to read.
-- GATS is the only external source. The others are in `Bucket.SR25_BIDS`,
-  `SR21_BIDS`, `NAO_REPORTS`, `REPORTS` and `DBR_REPORTS`. The first four are new,
-  empty buckets: the documents still have to be copied in from the old buckets
-  (issue #64), and other readers of those old buckets are unchanged.
-- **Agreed, not built yet:** metadata is its own step, separate from both pipes. It
-  writes a Bedrock-format `<document>.metadata.json` sidecar next to every document,
-  in every source (also in external buckets such as GATS, which prod writes to). The
-  KB ingests the documents and sidecars as they are. The graph's text stage reads the
-  sidecar and adds its fields to the extracted output, and skips and logs a document
-  that has none. Dev can't write to a prod bucket it reads through the role, so
-  GATS sidecars are written by a prod run, and a dev run warns. The field names
-  match the keys the KBs already use (`COMMON_METADATA_KEYS` plus a source's own).
-- When a graph source is in one of our own buckets, check that the task role's read
-  grant (`stacks/pipeline_task.py`) doesn't clash with the write grant the sidecar
-  step will need on the same bucket.
-- `sources/known.py`, `DataSource` and the old `extract-text` flow are still there,
-  and are removed when the new text stage replaces them.
+**Sources** (`dia.sources.models`, `dia.sources.definitions`)
 
-## Remote running (PR 5)
+- `SOURCES` is the one table. Keys are snake_case and KB names derive from them. Each
+  entry has a location, a document type, extra metadata keys, a `graph` flag and/or a
+  `knowledge_base` block (`parsing_model`, `deployed`).
+- A **location** is a `Bucket` member (ours: exists in dev and prod, we may write to
+  it) or an `ExternalBucket` (another team's): the prod bucket plus exactly one of a
+  dev bucket or `dev_via_cross_account=True`. Names are never derived or guessed.
+  `resolve(location, environment)` gives the bucket, prefix, whether to read it
+  through the role, and whether it is ours.
+- GATS is the only external source. Only the two DBR KBs are `deployed=True`.
+- `DocumentType` values match what the agent filters on (SR bids are `sr_bids_2025`
+  and `sr_bids_2021`), and a test checks they agree. Each type's `id_field` is the
+  identifying entity for graph extraction: Spend ID for business cases, Bid Name for
+  SR bids, Contract ID for Contract Finder, Report Name for NAO and technology
+  reports, Department Name for efficiency reports and DBR reports, and Readout Date
+  for DBR letters. The KB-only types use placeholders; splitting `DocumentType` into
+  plain values plus graph config is the cleaner fix, as its own PR.
 
-`dia pipeline preflight --remote` launches the command as a task, prints the task
-ID, follows the logs and exits with the container's exit code. `--no-wait` returns
-after launching. Ctrl-C stops following but leaves the task running. It needs no
-confirmation, because preflight only reads (spec section 3.3: confirmation is for
-commands that change state).
+**Remote running** (`src/dia/remote.py`; `cli.py` only wires it up)
 
-- `dia pipeline tasks [--mine]` lists running and recently stopped tasks;
-  `dia pipeline tasks logs <id> [--follow]` and `dia pipeline tasks stop <id>` do
-  what they say. `stop` exists because nothing else stops a hung task (#67).
-- All the AWS calls are in `src/dia/remote.py`; `cli.py` only wires them up. The
-  later stage commands should reuse `_run_remote` in `cli.py` (launch, follow,
-  exit code) and add their own confirmation and `--limit` rules.
-- Tasks are launched with `run_task` on Fargate, with the subnets and security
-  group from the runtime config and `assignPublicIp=DISABLED` (checked: the
-  private subnets have outbound access). The command override goes on the
-  container named `Pipeline`, whose entrypoint is `dia`.
-- **`startedBy`** is `dia-cli/<name>`, so tasks on the shared cluster can be told
-  apart. The name is the caller's role name up to its first hyphen
-  (`david.gillespie-poweraccess` gives `david-gillespie`), or the whole role name
-  if that part has no dot. ECS allows letters, numbers, `-`, `/` and `_`, up to
-  128 characters. It has no timestamp: ECS records the time, and a per-run value
-  would stop `--mine` working, because `list_tasks` can only filter by exact value.
-- The cluster is shared with the web apps, so tasks are always listed by the
-  task definition family `dia-pipeline-task-{phase}`. ECS forgets stopped tasks
-  after about an hour; older runs are only in CloudWatch.
-- Log streams are `pipeline/Pipeline/<task-id>` in `/dia-task-{phase}` (checked).
-- **Who may launch:** the developer's role needs `ecs:RunTask`, `iam:PassRole` on
-  `dia-pipeline-task-{phase}` and `dia-pipeline-task-execution-{phase}`,
-  `ecs:DescribeTasks`/`ListTasks`/`StopTask`, `logs:GetLogEvents` and
-  `ssm:GetParameter` on the runtime config. None of that is managed in this repo.
-  A dev poweraccess role could already do all of it. Prod is not checked.
-- **The CDK diff comment on a PR warns `TaskDefinition ... WILL_REPLACE`** whenever
-  the PR touches `src/`, `task/` or `pyproject.toml`: the image hash is part of the
-  task definition, so each change registers a new revision. That is expected. Old
-  revisions stay in ECS and nothing is deleted.
-- Not built yet: per-run CPU and memory (#68) and a maximum run time (#67). Both
-  would be extra `run_task` arguments or a timeout in the entrypoint; `launch`
-  takes only a command today.
-- Not built yet: a post-deploy smoke test that runs `dia pipeline preflight
-  --remote` in dev and fails on a non-zero exit. The command now supports it; the
-  open question is that the dev deploy role would need `ecs:RunTask` and
-  `iam:PassRole`, and a separate `workflow_run` workflow would be needed because
-  `ci_cd_cdk_app.yml` belongs to `idea-app`.
+- Later stage commands should reuse `_run_remote` in `cli.py` (launch, follow, exit
+  code) and add their own confirmation and `--limit` rules. The confirmations in spec
+  section 3.3 aren't built: the only remote command is read-only.
+- Tasks run on Fargate with the subnets and security group from the runtime config.
+  The command override goes on the container named `Pipeline`, whose entrypoint is
+  `dia`. Log streams are `pipeline/Pipeline/<task-id>` in `/dia-task-{phase}`.
+- `startedBy` is `dia-cli/<name>`, from the caller's role name up to its first hyphen
+  (`david.gillespie-poweraccess` gives `dia-cli/david-gillespie`), or the whole role
+  name if that part has no dot. It has no timestamp, because `list_tasks` can only
+  filter by exact value and a per-run value would break `--mine`.
+- The cluster is shared with web apps, so tasks are always listed by the task
+  definition family `dia-pipeline-task-{phase}`. ECS forgets stopped tasks after about
+  an hour; older runs are only in CloudWatch. A task ECS has been asked to stop shows
+  as `STOPPING` (our label, not an ECS status).
+- To launch tasks a developer's role needs `ecs:RunTask`, `iam:PassRole` on the task
+  and execution roles, `ecs:DescribeTasks`/`ListTasks`/`StopTask`, `logs:GetLogEvents`
+  and `ssm:GetParameter` on the runtime config. None of that is managed here. A dev
+  poweraccess role has all of it; prod is unchecked.
+- A stopped Neptune cluster looks like a connect timeout, and AWS starts it again
+  after 7 days. Preflight says so.
 
-## Task image
+**Other**
 
-- The image has no Node, no CDK and only the `pipeline` extra. The first task
-  crashed on `from gds_idea_cdk_constructs import DeploymentEnvironment`, because
-  the library imported `aws_cdk` (which starts Node through jsii) at the top of
-  the package. Fixed in the library (1.1.1) and guarded here.
-- `task/smoke_test.py` imports every module in `TASK_MODULES` inside the built
-  image, and `.github/workflows/ci_task_image_smoke_test.yml` runs it on PRs that
-  touch the image. `tests/test_runtime_imports.py` does the same without Docker,
-  from the same list. **Add a module to `TASK_MODULES` when a task command starts
-  to use it.** The workflow is our own file, not managed by `idea-app`.
-- The image is about 344MB compressed and still contains `aws-cdk-lib` (about
-  220MB), because the library depends on it. It is never loaded now. Making the
-  CDK an optional extra in the library would remove it, but is a breaking change
-  for every app that builds stacks.
+- **Local runs write only locally** (`./output/`). `--remote` is the only way to
+  change real state.
+- **Commands.** Pipeline commands live under `dia pipeline`, the agent under `dia
+  agent`. `extract-text` and `ledger` are still at the top level and move under
+  `pipeline` when rewritten. `dia agent status` is effectively the agent's own
+  preflight.
+- **Stages:** text, chunk, propositions, topics, validate, embed, load. Purge and prune
+  are separate, and prune is deferred. Stages that call Bedrock always use batch jobs,
+  padded to Bedrock's 100-record minimum.
+- **Reference code for validate:** the old repo `gds-idea-assurance-knowledge-graphs`
+  (`src/topic_reconciliation.py`, `src/post_processing.py`). Its reconciliation works
+  per file.
+- `retrieval_modes.py` in the agent filters on `document_type`, but nothing in the
+  pipeline writes it yet.
 
-## Unverified assumptions
+## 7. Verified and unverified
 
-Settled by the first real task runs in dev:
-- The OpenSearch collection endpoint does include `https://` (and uses the
-  `<id>.aoss.eu-west-2.on.aws` form). The model strips the scheme, so the scheme
-  stripping is needed. Nothing checks the domain.
-- The private subnets have outbound access (image pull, logs, SSM, STS, S3).
-- The task role can read the runtime config, the ledger table and the buckets.
-- The cross-account role can be assumed from a task, and lists the GATS business
-  cases location. The bucket is in the production account.
+**Verified by real runs in dev**
+
+- The image builds and pulls, tasks start, logs are written, and the private subnets
+  have outbound access.
+- The task role reads the runtime config, the ledger table and the buckets.
+- A task assumes the cross-account role and lists the GATS documents location.
+- A task reaches Neptune on 8182, and `GetEngineStatus` works.
 - CI builds the x86_64 image and deploys the stack on a merge to `dev`.
-- A task reaches Neptune on 8182, and IAM auth with `GetEngineStatus` works
-  (`dia pipeline preflight --remote` passes all 6 checks in dev). The first
-  attempt failed only because the dev cluster was stopped. A stopped cluster looks
-  like a connect timeout, and AWS starts it again after 7 days.
+- Every `dia pipeline tasks` command, and `--remote --no-wait`.
 
-Still unverified:
+**Unverified**
+
+- `source gats_business_cases` in preflight, after #78 (see section 1).
 - The Neptune read, write and delete action names in `stacks/pipeline_task.py`
   (`ReadDataViaQuery`, `WriteDataViaQuery`, `DeleteDataViaQuery`). Only
-  `GetEngineStatus` has been exercised.
-- Whether the account requires the `DenyUserPermissionsPolicy` boundary on new
-  roles. It is harmless (`Allow *` with a deny on IAM user and access key
-  actions), and removing it means deleting the `permissions_boundary()` calls.
-- That role chaining caps the cross-account session at an hour. Preflight only
-  needs a moment, so this has not been exercised; PR 7 needs refreshable
-  credentials.
-- Whether the cross-account role can read the SR25 locations and the GATS
-  metadata (only the business cases location has been listed).
+  `GetEngineStatus` has run.
+- Whether the account requires the `DenyUserPermissionsPolicy` boundary on new roles.
+  It is harmless; removing it means deleting the `permissions_boundary()` calls.
+- That role chaining caps the cross-account session at an hour (documented, not seen).
+- Whether the cross-account role can read the prod `spend-controls-raw-data/` folder.
+  The extended check that would show it was designed but never run.
 
-## Upstream issues raised
+## 8. Upstream issues raised
 
-- co-cddo/gds-idea-cdk-constructs-new#62: `DeploymentEnvironment` imports
-  `aws_cdk` at module level, which puts about 420MB of `aws-cdk-lib` in the task
-  image. The import is now lazy (constructs-new#64, released as 1.1.1), which fixes
-  the crash without Node but not the size.
-- co-cddo/gds-idea-ai-reviewer#39: the `cdk-review` and `python-cleanliness`
-  skills have invalid YAML frontmatter and are silently skipped.
-- co-cddo/gds-idea-ai-reviewer#40: narrow the reviewer's token and the MCP tools
-  it gives the model.
-- co-cddo/gds-idea-app-kit#63: the `ci_pr_cdk_app.yml` template drops
-  `reopened`, re-runs CI on any label, and probably fails the version check for
-  hatch-vcs projects.
+- co-cddo/gds-idea-cdk-constructs-new#62: the library imported `aws_cdk` at module
+  level, which needs Node and put about 420MB in the image. The import is now lazy
+  (#64 there, released as 1.1.1), which fixes the crash but not the size.
+- co-cddo/gds-idea-ai-reviewer#39: the `cdk-review` and `python-cleanliness` skills have
+  invalid YAML frontmatter and are silently skipped.
+- co-cddo/gds-idea-ai-reviewer#40: narrow the reviewer's token and the MCP tools it
+  gives the model.
+- co-cddo/gds-idea-app-kit#63: the `ci_pr_cdk_app.yml` template drops `reopened`,
+  re-runs CI on any label, and probably fails the version check for hatch-vcs
+  projects.
 
-## Open actions
-
-- **`gds-idea-dia` cannot deploy to prod yet.** It is in
-  `gds-idea-cdk-access/repositories_access_dev.tf` but not in
-  `repositories_access_prod.tf`, which controls who can assume `cdk-prod-deploy`.
-  Merging to the `prod` branch would fail at the AWS login step. The fix is a
-  one-line PR to that repo.
-- Confirm where the GATS bucket lives. If it is in the production account, a
-  prod task reads it with its own role; otherwise its owner has to allow our prod
-  task role in the bucket policy. Running `dia pipeline preflight` in dev shows
-  whether dev can read GATS through the cross-account role.
-- Confirm the cross-account role can read the SR25 bucket and the GATS metadata
-  bucket (the task role only reads the GATS documents bucket for now).
-- Confirm the prod location of the GATS **metadata**. The prod GATS documents bucket
-  is confirmed (the prod account owns it and the cross-account role can read it),
-  but the old code reads the metadata export from a `-dev` bucket whose copy is not
-  current. SR25 and the other KB buckets are now our own buckets (see "Sources").
-- Move the remaining knowledge bases out of the old graph repo, which is to be
-  deleted (issue #64). The sources are declared and their buckets exist; the
-  documents still have to be copied in.
-- Look at real GATS documents before PR 8 (the GATS metadata strategy). There
-  are reportedly business cases with more than one source schema.
-- Agree the agent change (current versions only) with the agent owner.
-- Run `idea-app update --dry-run` (the project was adopted at 0.5.4, and
-  0.6.0 is installed) and decide whether to update.
-- Known deviations from the CDK review standards, left alone because renaming
-  would make CloudFormation replace resources: generic stack names such as
-  `StorageStack`.
-- Still outside `dia.naming`: the agent's secret names (hardcoded to `-dev` in
-  `agent/config.py`), the stack names in `scripts/neptune-tunnel.sh`, and the
-  `phase` default in `clients/graph_rag_config.py`.
-- Open questions on testing and on permissions and ownership (spec section 6).
-- Move the agent onto `RuntimeConfig` instead of the hand-filled Secrets Manager
-  secrets (Aakash raised the drift on #65). A job for the agent's owner.
-- The load stage needs: an `aoss` permission on the task role (the OpenSearch
-  data access policy names the account root as principal), Bedrock access for the
-  Bedrock stages, and an OpenSearch check in preflight.
-- The S3 reader (PR 7) needs refreshable cross-account credentials and a
-  narrowed session policy (see the build plan).
-
-## Useful commands
+## 9. Useful commands
 
 ```bash
 uv sync --all-extras
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
+
+uv run dia pipeline preflight                 # local checks (needs AWS credentials)
+uv run dia pipeline preflight --remote        # the same, as a task in the cloud
+uv run dia pipeline tasks --mine              # your recent tasks
+uv run python scripts/check_source_access.py  # what each session can read, per source
 ```
 
 Live AWS tests, and the Neptune tunnel, are described in the README.
