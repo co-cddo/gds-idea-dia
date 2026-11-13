@@ -14,6 +14,7 @@ from gds_idea_cdk_constructs import DeploymentConfig, DeploymentEnvironment
 from config import AppConfig
 from dia.preflight import PREFLIGHT_BUCKETS
 from dia.runtime_config import RuntimeConfig
+from dia.sources.models import ResolvedLocation
 from stacks.neptune import NeptuneStack
 from stacks.opensearch import OpenSearchStack
 from stacks.pipeline_task import PipelineTaskStack
@@ -33,7 +34,13 @@ class Built:
     config: AppConfig
 
 
-def _build(environment: DeploymentEnvironment, outdir: Path, *, lookup_vpc: bool = False) -> Built:
+def _build(
+    environment: DeploymentEnvironment,
+    outdir: Path,
+    *,
+    lookup_vpc: bool = False,
+    source_locations: list[ResolvedLocation] | None = None,
+) -> Built:
     """Build the task stack with the stacks it depends on, in dev or prod."""
     config = AppConfig(environment=environment)
     app = cdk.App(outdir=str(outdir))
@@ -73,7 +80,8 @@ def _build(environment: DeploymentEnvironment, outdir: Path, *, lookup_vpc: bool
         "PipelineTask",
         config=config,
         deployment_config=deployment_config,
-        source_buckets=[SOURCE_BUCKET],
+        source_locations=source_locations
+        or [ResolvedLocation(SOURCE_BUCKET, "files/", cross_account=environment == DEV, ours=False)],
         task_security_group=task_sg,
         storage=storage,
         neptune=neptune,
@@ -270,6 +278,27 @@ def test_in_prod_the_task_role_reads_source_buckets_directly_and_assumes_no_role
     assert _statement_with_sid(prod.template, "AssumeSourceDataReadRole") is None
     assert not any("sts:AssumeRole" in _actions(s) for s in _statements(prod.template))
     assert SOURCE_BUCKET in json.dumps(_statements(prod.template))
+
+
+def test_in_dev_a_source_in_a_bucket_that_is_not_cross_account_is_read_directly_alongside_the_role(tmp_path):
+    locations = [
+        ResolvedLocation(SOURCE_BUCKET, "files/", cross_account=True, ours=False),
+        ResolvedLocation("a-dev-bucket-for-tests", "", cross_account=False, ours=False),
+    ]
+
+    built = _build(DEV, tmp_path / "mixed", source_locations=locations)
+
+    assert _statement_with_sid(built.template, "AssumeSourceDataReadRole") is not None
+    statements = json.dumps(_statements(built.template))
+    assert "a-dev-bucket-for-tests" in statements
+    assert SOURCE_BUCKET not in statements
+
+
+def test_a_source_read_through_the_role_needs_an_environment_that_has_one(tmp_path):
+    locations = [ResolvedLocation(SOURCE_BUCKET, "files/", cross_account=True, ours=False)]
+
+    with pytest.raises(ValueError, match="cross-account role"):
+        _build(PROD, tmp_path / "bad", source_locations=locations)
 
 
 def test_in_prod_the_task_role_cannot_write_to_source_buckets(prod):

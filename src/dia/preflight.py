@@ -30,11 +30,8 @@ from gds_idea_cdk_constructs import DeploymentEnvironment
 
 from dia.naming import REGION, Bucket, Names
 from dia.runtime_config import RuntimeConfig, RuntimeConfigError
-from dia.sources.known import get_source
-from dia.types import DataSource
-
-# Sources whose input location is checked. GATS business cases is the first source.
-PREFLIGHT_SOURCES = ("gats-business-cases",)
+from dia.sources.definitions import graph_sources
+from dia.sources.models import ResolvedLocation, resolve
 
 # Buckets the buckets check heads: the ones the pipeline uses.
 PREFLIGHT_BUCKETS: tuple[Bucket, ...] = (
@@ -182,26 +179,32 @@ def source_s3_client(role_arn: str | None, sts_client):
     )
 
 
-def check_source_access(source: DataSource, role_arn: str | None, sts_client) -> CheckResult:
-    """Can one object be listed from the source's real location?
+def check_source_access(name: str, location: ResolvedLocation, role_arn: str | None, sts_client) -> CheckResult:
+    """Can one object be listed from a source's real location?
 
     Args:
-        source: The source to check.
-        role_arn: The cross-account role to read through, or None to read directly.
+        name: The source's key.
+        location: Where the source is read from in this environment.
+        role_arn: The cross-account role from the runtime config, or None.
         sts_client: An STS client, used to assume the role.
     """
-    name = f"source {source.name}"
-    location = f"s3://{source.bucket}/{source.prefix}"
-    via = f" via {role_arn}" if role_arn else ""
+    check = f"source {name}"
+    path = f"s3://{location.bucket}/{location.prefix}"
+
+    if location.cross_account and role_arn is None:
+        return _fail(check, f"{path} is read through the cross-account role, but the runtime config has none")
+
+    via_role = role_arn if location.cross_account else None
+    via = f" via {via_role}" if via_role else ""
 
     try:
-        s3 = source_s3_client(role_arn, sts_client)
-        response = s3.list_objects_v2(Bucket=source.bucket, Prefix=source.prefix, MaxKeys=1)
+        s3 = source_s3_client(via_role, sts_client)
+        response = s3.list_objects_v2(Bucket=location.bucket, Prefix=location.prefix, MaxKeys=1)
     except (ClientError, BotoCoreError) as e:
-        return _fail(name, f"could not list {location}{via}: {e}")
+        return _fail(check, f"could not list {path}{via}: {e}")
 
     found = "has objects" if response.get("KeyCount", 0) else "is empty"
-    return _ok(name, f"{location} {found}{via}")
+    return _ok(check, f"{path} {found}{via}")
 
 
 def _tcp_connect(host: str, port: int) -> str | None:
@@ -293,17 +296,21 @@ def run_preflight() -> list[CheckResult]:
 
 
 def _check_sources(environment: DeploymentEnvironment, config: RuntimeConfig | None, sts_client) -> list[CheckResult]:
-    """Check access to each source. Dev needs the runtime config to know which role to use."""
-    if config is None and environment != DeploymentEnvironment.PRODUCTION:
-        return [_skip(f"source {name}", "needs the runtime config") for name in PREFLIGHT_SOURCES]
-
-    role_arn = config.cross_account_role_arn if config else None
-    return [check_source_access(get_source(name), role_arn, sts_client) for name in PREFLIGHT_SOURCES]
+    """Check access to each graph source. One read through the cross-account role needs the runtime config."""
+    results = []
+    for name, source in graph_sources().items():
+        location = resolve(source.location, environment)
+        if location.cross_account and config is None:
+            results.append(_skip(f"source {name}", "needs the runtime config"))
+            continue
+        role_arn = config.cross_account_role_arn if config else None
+        results.append(check_source_access(name, location, role_arn, sts_client))
+    return results
 
 
 def _skipped_after_identity(in_task: bool) -> list[CheckResult]:
     reason = "needs a known environment"
-    names = ["runtime config", "ledger table", "buckets", *(f"source {s}" for s in PREFLIGHT_SOURCES)]
+    names = ["runtime config", "ledger table", "buckets", *(f"source {s}" for s in graph_sources())]
     if in_task:
         names.append("neptune")
     return [_skip(name, reason) for name in names]

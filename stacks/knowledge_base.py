@@ -2,20 +2,73 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 import aws_cdk as cdk
 from aws_cdk import aws_s3vectors as s3vectors
 from constructs import Construct
+from gds_idea_cdk_constructs import DeploymentEnvironment
 
 from config import AppConfig
-from stacks.constructs.knowledge_base import KnowledgeBase, KnowledgeBaseSpec
+from dia.sources.models import SourceDefinition, resolve
+from stacks.constructs.knowledge_base import (
+    DataSourceSpec,
+    KnowledgeBase,
+    KnowledgeBaseSpec,
+)
 from stacks.shared.iam import permissions_boundary
 
 
 def knowledge_base_name(config: AppConfig, key: str) -> str:
     """Physical name of a knowledge base, e.g. `dia-kb-dbr-reports-dev` for key `dbr_reports`."""
     return config.names(f"kb-{key.replace('_', '-')}")
+
+
+def knowledge_base_specs(
+    config: AppConfig,
+    sources: Mapping[str, SourceDefinition],
+    *,
+    deployed_only: bool = True,
+) -> list[KnowledgeBaseSpec]:
+    """Knowledge base specs for the sources that have a knowledge base.
+
+    Each source becomes one knowledge base with one data source, both keyed by the
+    source's key. A source in the production account that dev reads through the
+    cross-account role is given `bucket_owner_account`, so the knowledge base role
+    reads it directly and the bucket's policy must allow that role.
+
+    Args:
+        config: The deployment's configuration; selects which buckets are read.
+        sources: The declared sources, normally `dia.sources.definitions.SOURCES`.
+        deployed_only: Leave out sources whose knowledge base isn't `deployed`.
+
+    Returns:
+        One spec per matching source, in declaration order.
+    """
+    specs = []
+    for key, source in sources.items():
+        settings = source.knowledge_base
+        if settings is None or (deployed_only and not settings.deployed):
+            continue
+        location = resolve(source.location, config.environment)
+        owner = DeploymentEnvironment.PRODUCTION.value if location.cross_account else None
+        specs.append(
+            KnowledgeBaseSpec(
+                key=key,
+                description=source.description,
+                data_sources=[
+                    DataSourceSpec(
+                        key=key,
+                        bucket_name=location.bucket,
+                        prefix=location.prefix,
+                        bucket_owner_account=owner,
+                        parsing_model=settings.parsing_model,
+                    )
+                ],
+                metadata_keys=source.metadata_keys,
+            )
+        )
+    return specs
 
 
 class KnowledgeBaseStack(cdk.Stack):

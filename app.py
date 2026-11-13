@@ -9,11 +9,10 @@ from gds_idea_cdk_constructs.config import DeploymentConfig
 
 from config import AppConfig
 from dia.naming import PROJECT
-from dia.sources.known import get_source
-from knowledge_bases import KNOWLEDGE_BASES
+from dia.sources.definitions import SOURCES, graph_sources
+from dia.sources.models import resolve
 from stacks.bastion import BastionStack
-from stacks.knowledge_base import KnowledgeBaseStack
-from stacks.knowledge_base_entries import deployed_knowledge_bases
+from stacks.knowledge_base import KnowledgeBaseStack, knowledge_base_specs
 from stacks.neptune import NeptuneStack
 from stacks.networking import NetworkingStack
 from stacks.opensearch import OpenSearchStack
@@ -79,14 +78,14 @@ neptune_stack = NeptuneStack(
 opensearch_stack = OpenSearchStack(app, config.names("opensearch"), config=config, env=cdk_env)
 
 # Pipeline tasks: the image, task definition, roles and runtime config.
-# In dev, source data in the production account is read through the shared
-# cross-account role (None in prod, where the source buckets are read directly).
+# In dev, a source in the production account is read through the shared cross-account
+# role (None in prod, where the source buckets are read directly).
 pipeline_task_stack = PipelineTaskStack(
     app,
     config.names("pipeline-task"),
     config=config,
     deployment_config=deployment_config,
-    source_buckets=[get_source("gats-business-cases").bucket],
+    source_locations=[resolve(source.location, config.environment) for source in graph_sources().values()],
     task_security_group=networking_stack.task_security_group,
     storage=storage_stack,
     neptune=neptune_stack,
@@ -98,13 +97,13 @@ pipeline_task_stack.add_dependency(networking_stack)
 pipeline_task_stack.add_dependency(neptune_stack)
 pipeline_task_stack.add_dependency(opensearch_stack)
 
-# Bedrock knowledge bases. Only entries in knowledge_bases.KNOWLEDGE_BASES with
-# deployed=True are created. The DBR knowledge bases read the DBR bucket in the storage stack.
+# Bedrock knowledge bases. Only sources whose knowledge base is `deployed` are created.
+# The DBR knowledge bases read the DBR bucket in the storage stack.
 knowledge_base_stack = KnowledgeBaseStack(
     app,
     config.names("knowledge-bases"),
     config=config,
-    specs=deployed_knowledge_bases(config, KNOWLEDGE_BASES),
+    specs=knowledge_base_specs(config, SOURCES),
     env=cdk_env,
 )
 knowledge_base_stack.add_dependency(storage_stack)

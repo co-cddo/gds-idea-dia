@@ -1,4 +1,4 @@
-"""Tests for KnowledgeBaseStack, built from the deployed declarations."""
+"""Tests for KnowledgeBaseStack and the specs built from the declared sources."""
 
 import json
 import re
@@ -9,9 +9,8 @@ from aws_cdk import assertions
 from gds_idea_cdk_constructs import DeploymentEnvironment, IdeaTags
 
 from config import AppConfig
-from knowledge_bases import KNOWLEDGE_BASES
-from stacks.knowledge_base import KnowledgeBaseStack, knowledge_base_name
-from stacks.knowledge_base_entries import deployed_knowledge_bases
+from dia.sources.definitions import SOURCES
+from stacks.knowledge_base import KnowledgeBaseStack, knowledge_base_name, knowledge_base_specs
 
 DEV = DeploymentEnvironment.DEVELOPMENT
 PROD = DeploymentEnvironment.PRODUCTION
@@ -25,7 +24,7 @@ def _template(environment: DeploymentEnvironment, *, tagged: bool = False) -> as
         app,
         "KnowledgeBases",
         config=config,
-        specs=deployed_knowledge_bases(config, KNOWLEDGE_BASES),
+        specs=knowledge_base_specs(config, SOURCES),
         env=cdk.Environment(account=config.account_number, region=config.region),
     )
     if tagged:
@@ -133,3 +132,60 @@ def test_no_account_ids_other_than_the_deploying_account(dev):
     body = json.dumps(dev.to_json())
     accounts = set(re.findall(r"\b\d{12}\b", body))
     assert accounts <= {DEV.value}
+
+
+# --- specs built from the declared sources ---
+
+DEV_ACCOUNT_BUCKET_SOURCES = {"sr25_bids", "sr21_bids", "nao_reports", "efficiency_reports", "other_reports"}
+
+
+def _specs_by_key(environment: DeploymentEnvironment) -> dict:
+    specs = knowledge_base_specs(AppConfig(environment=environment), SOURCES, deployed_only=False)
+    return {spec.key: spec for spec in specs}
+
+
+@pytest.mark.parametrize("environment", ENVIRONMENTS)
+def test_deployed_specs_are_the_two_dbr_knowledge_bases(environment):
+    specs = knowledge_base_specs(AppConfig(environment=environment), SOURCES)
+    assert [spec.key for spec in specs] == ["dbr_readouts_letter", "dbr_reports"]
+
+
+@pytest.mark.parametrize("environment", ENVIRONMENTS)
+def test_every_source_with_a_knowledge_base_gets_a_spec(environment):
+    expected = {key for key, source in SOURCES.items() if source.knowledge_base is not None}
+    assert set(_specs_by_key(environment)) == expected
+
+
+@pytest.mark.parametrize("environment", ENVIRONMENTS)
+def test_each_spec_has_one_data_source_keyed_like_the_knowledge_base(environment):
+    for spec in _specs_by_key(environment).values():
+        (data_source,) = spec.data_sources
+        assert data_source.key == spec.key
+
+
+def test_spec_metadata_keys_come_from_the_source():
+    specs = _specs_by_key(DEV)
+    assert specs["dbr_reports"].metadata_keys == SOURCES["dbr_reports"].metadata_keys
+    assert "is_latest" in specs["dbr_reports"].metadata_keys
+
+
+def test_gats_is_read_cross_account_from_dev_only():
+    (dev_source,) = _specs_by_key(DEV)["gats_business_cases"].data_sources
+    (prod_source,) = _specs_by_key(PROD)["gats_business_cases"].data_sources
+    assert dev_source.bucket_owner_account == PROD.value
+    assert prod_source.bucket_owner_account is None
+    assert dev_source.bucket_name == prod_source.bucket_name
+
+
+@pytest.mark.parametrize("environment", ENVIRONMENTS)
+@pytest.mark.parametrize("key", sorted(DEV_ACCOUNT_BUCKET_SOURCES))
+def test_our_own_buckets_are_never_cross_account(environment, key):
+    (data_source,) = _specs_by_key(environment)[key].data_sources
+    assert data_source.bucket_owner_account is None
+    assert data_source.bucket_name.endswith(f"-{environment.short_name}")
+
+
+@pytest.mark.parametrize("key", ["nao_reports", "efficiency_reports"])
+def test_report_knowledge_bases_parse_with_a_foundation_model(key):
+    (data_source,) = _specs_by_key(DEV)[key].data_sources
+    assert data_source.parsing_model is not None
