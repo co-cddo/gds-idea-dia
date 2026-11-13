@@ -36,8 +36,10 @@ State when this was written, with `dev` at #78. Check `gh pr list` and
   real AWS; nobody has yet.
 - **The sidecar model (`dia.sources.sidecar`).** `Sidecar` holds the metadata fields
   (only `document_type` is required; `is_latest` is a boolean and everything else is
-  text. `date` is a common key every source may carry, in whatever precision is known:
-  `2025`, `202606` or `20260901`; there is no `year` key).
+  text, except `date`). `date` is a common key every source may carry. It is a real
+  date in Python and a `YYYYMMDD` number in the file, so Bedrock can filter ranges;
+  `parse_date` turns `2025`, `202606` or `20260901` into a date, using the first month
+  and day when they are missing. There is no `year` or `assurance_date` key.
   `sidecar_key`, `to_json` and `from_json` write and read Bedrock's simple
   `{"metadataAttributes": {...}}` format, and `check` compares a sidecar with the keys
   its source declares. Pure code, with tests; no AWS. Not yet used by anything, so it

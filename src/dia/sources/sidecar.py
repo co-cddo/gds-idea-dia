@@ -5,27 +5,33 @@ A sidecar is a small JSON file in Bedrock's format, stored beside its document:
     files/case-123.pdf
     files/case-123.pdf.metadata.json
 
-    {"metadataAttributes": {"document_type": "business_case", "date": "2025"}}
+    {"metadataAttributes": {"document_type": "business_case", "date": 20250101}}
 
 The knowledge bases read it as it is (the values are stored for filtering and are not
 embedded), and the graph's text stage reads it to add the same fields to the extracted
 text. Both go through this module, so they cannot disagree about the format.
 
-`Sidecar` holds the fields. `check` compares a sidecar with the keys its source
+`Sidecar` holds the fields. `date` is a real date in Python and is written as a number
+`YYYYMMDD`, because Bedrock has no date type and filters ranges on numbers. `parse_date`
+turns a partial date into a full one. `check` compares a sidecar with the keys its source
 declares in `dia.sources.definitions`.
 """
 
 from __future__ import annotations
 
+import datetime as dt
 import json
+import re
+from typing import Any
 
-from pydantic import BaseModel, StrictBool, StrictStr, ValidationError
+from pydantic import BaseModel, Field, StrictBool, StrictStr, ValidationError, field_serializer, field_validator
 
 from dia.document_types import DocumentType
 from dia.sources.models import SourceDefinition
 
 SIDECAR_SUFFIX = ".metadata.json"
 _WRAPPER_KEY = "metadataAttributes"
+_PARTIAL_DATE = re.compile(r"(\d{4})(?:-?(\d{2})(?:-?(\d{2}))?)?")
 
 
 class SidecarError(ValueError):
@@ -46,8 +52,8 @@ class Sidecar(BaseModel, frozen=True, extra="forbid"):
         spend_id: The spend control case ID (GATS and SR bids).
         project_name: The project the document belongs to.
         file_reference: The document's ID in the ledger of source files.
-        date: The document's own date, as text in whatever precision is known: `2025` when only
-            the year is known, `202606` for a month, `20260901` for a day.
+        date: The document's own date. Written as a number `YYYYMMDD`. When only the year or the
+            month is known, use `parse_date`: it fills in the first month and the first day.
         is_latest: Whether it is the newest DBR document for its department.
     """
 
@@ -58,8 +64,49 @@ class Sidecar(BaseModel, frozen=True, extra="forbid"):
     spend_id: StrictStr | None = None
     project_name: StrictStr | None = None
     file_reference: StrictStr | None = None
-    date: StrictStr | None = None
+    date: dt.date | None = Field(default=None, strict=True)
     is_latest: StrictBool | None = None
+
+    @field_validator("date", mode="before")
+    @classmethod
+    def _date_from_number(cls, value: Any) -> Any:
+        """Read the `YYYYMMDD` number a sidecar file holds. Anything else is left to the date check."""
+        if isinstance(value, bool) or not isinstance(value, int):
+            return value
+        text = str(value)
+        if len(text) != 8:
+            raise ValueError(f"{value} is not a YYYYMMDD date")
+        try:
+            return dt.date(int(text[:4]), int(text[4:6]), int(text[6:]))
+        except ValueError as error:
+            raise ValueError(f"{value} is not a real date") from error
+
+    @field_serializer("date", when_used="json")
+    def _date_as_number(self, value: dt.date | None) -> int | None:
+        """Write the date as the number `YYYYMMDD`."""
+        return None if value is None else value.year * 10000 + value.month * 100 + value.day
+
+
+def parse_date(text: str) -> dt.date:
+    """Turn a date with only some parts into a full date, using the first of what is missing.
+
+    Args:
+        text: `YYYY`, `YYYYMM` or `YYYYMMDD`, with or without `-` between the parts.
+
+    Returns:
+        The date. `2025` gives 1 January 2025, `2026-06` gives 1 June 2026.
+
+    Raises:
+        SidecarError: If the text is not in one of those forms, or is not a real date.
+    """
+    match = _PARTIAL_DATE.fullmatch(text.strip())
+    if match is None:
+        raise SidecarError(f"{text!r} is not a date like 2025, 202606 or 20260901")
+    year, month, day = (int(part) if part else 1 for part in match.groups())
+    try:
+        return dt.date(year, month, day)
+    except ValueError as error:
+        raise SidecarError(f"{text!r} is not a real date") from error
 
 
 def sidecar_key(document_key: str) -> str:
