@@ -46,7 +46,6 @@ class Sidecar(BaseModel, frozen=True, extra="forbid"):
         spend_id: The spend control case ID (GATS and SR bids).
         project_name: The project the document belongs to.
         file_reference: The document's ID in the ledger of source files.
-        assurance_date: The GATS assurance date, kept as text.
         date: The document's own date, as text in whatever precision is known: `2025` when only
             the year is known, `202606` for a month, `20260901` for a day.
         is_latest: Whether it is the newest DBR document for its department.
@@ -59,7 +58,6 @@ class Sidecar(BaseModel, frozen=True, extra="forbid"):
     spend_id: StrictStr | None = None
     project_name: StrictStr | None = None
     file_reference: StrictStr | None = None
-    assurance_date: StrictStr | None = None
     date: StrictStr | None = None
     is_latest: StrictBool | None = None
 

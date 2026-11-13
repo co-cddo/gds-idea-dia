@@ -74,7 +74,7 @@ declaration.
 | KB | Keys |
 |---|---|
 | all | `department_name`, `alb`, `document_type`, `report_type`, `date` |
-| `gats_business_cases` | + `spend_id`, `project_name`, `assurance_date`, `file_reference` |
+| `gats_business_cases` | + `spend_id`, `project_name`, `file_reference` |
 | `sr25_bids` | + `spend_id`, `project_name`, `file_reference` |
 | `sr21_bids` | + `project_name` |
 | `dbr_readouts_letter` | + `is_latest` |
@@ -104,7 +104,7 @@ to match this plan, and the sidecars regenerated:
 - `year` is replaced by `date`, written as text.
 - `date` and `report_type` are only written where a source's metadata CSV has
   those columns. SR21 and GATS get neither.
-- `assurance_date` isn't written.
+- `assurance_date` isn't written, and is not a key: the GATS date goes in `date`.
 - No sidecars exist yet for efficiency reports, DBR letters or DBR reports.
 - Possible bug: the tech reports source reads `files/metadata/nao_reports_metadata.csv`.
 

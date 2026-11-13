@@ -68,10 +68,9 @@ def test_there_is_no_year_field():
         Sidecar(document_type=DocumentType.BUSINESS_CASE, year=2025)  # type: ignore[call-arg]
 
 
-def test_assurance_date_is_text():
-    assert Sidecar(document_type=DocumentType.BUSINESS_CASE, assurance_date="2025-03-01").assurance_date == "2025-03-01"
+def test_there_is_no_assurance_date_field():
     with pytest.raises(ValueError):
-        Sidecar(document_type=DocumentType.BUSINESS_CASE, assurance_date=20250301)  # type: ignore[arg-type]
+        Sidecar(document_type=DocumentType.BUSINESS_CASE, assurance_date="2025-03-01")  # type: ignore[call-arg]
 
 
 def test_is_latest_must_be_a_real_boolean():
@@ -99,10 +98,9 @@ def test_round_trip_gives_the_same_sidecar():
         document_type=DocumentType.BUSINESS_CASE,
         department_name="Department for Education",
         alb="Ofqual",
-        date="2025",
+        date="2025-03-01",
         spend_id="COSC-03416",
         project_name="School Data Platform",
-        assurance_date="2025-03-01",
     )
     assert from_json(to_json(sidecar)) == sidecar
 
@@ -164,7 +162,7 @@ def test_check_accepts_a_sidecar_that_fits_its_source():
         document_type=DocumentType.BUSINESS_CASE,
         department_name="DfE",
         spend_id="COSC-03416",
-        assurance_date="2025-03-01",
+        date="20250301",
     )
     check(sidecar, SOURCES["gats_business_cases"])
 

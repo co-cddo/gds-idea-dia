@@ -42,7 +42,7 @@ SOURCES: dict[str, SourceDefinition] = {
             ),
             prefix="files/",
         ),
-        extra_metadata_keys=("spend_id", "project_name", "assurance_date", "file_reference"),
+        extra_metadata_keys=("spend_id", "project_name", "file_reference"),
         graph=True,
         knowledge_base=KnowledgeBaseSettings(),
     ),
