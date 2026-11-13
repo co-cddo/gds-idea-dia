@@ -82,14 +82,14 @@ SOURCES: dict[str, SourceDefinition] = {
         description="Letters sent after Digital Business Review sessions, used to brief the next DBR",
         document_type=DocumentType.DBR_READOUT,
         location=Location(bucket=Bucket.DBR_REPORTS, prefix="readouts/"),
-        extra_metadata_keys=("readout_date", "is_latest"),
+        extra_metadata_keys=("is_latest",),
         knowledge_base=KnowledgeBaseSettings(deployed=True),
     ),
     "dbr_reports": SourceDefinition(
         description="DIA-generated Digital Business Review reports",
         document_type=DocumentType.DBR_REPORT,
         location=Location(bucket=Bucket.DBR_REPORTS, prefix="reports/"),
-        extra_metadata_keys=("report_date", "is_latest"),
+        extra_metadata_keys=("is_latest",),
         knowledge_base=KnowledgeBaseSettings(deployed=True),
     ),
 }

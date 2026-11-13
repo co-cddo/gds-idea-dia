@@ -34,6 +34,16 @@ State when this was written, with `dev` at #78. Check `gh pr list` and
   Preflight's source check is now called `source gats_business_cases` and reads the
   declarations. Run `uv run dia pipeline preflight` once to confirm it works against
   real AWS; nobody has yet.
+- **The sidecar model (`dia.sources.sidecar`).** `Sidecar` holds the metadata fields
+  (only `document_type` is required; `year` and `date` (`YYYYMMDD`, a
+  common key every source may carry) are numbers, `is_latest` is a boolean, the rest including `assurance_date` are text).
+  `sidecar_key`, `to_json` and `from_json` write and read Bedrock's simple
+  `{"metadataAttributes": {...}}` format, and `check` compares a sidecar with the keys
+  its source declares. Pure code, with tests; no AWS. Not yet used by anything, so it
+  is not in `TASK_MODULES`: add it when a task command imports it. A test fails if a
+  source declares a key that `Sidecar` lacks, or the reverse. I did not find
+  Bedrock's size limit for a metadata file in the docs, so nothing checks it: look it
+  up before writing sidecars for real.
 
 **Agreed, not built**
 
@@ -42,8 +52,8 @@ State when this was written, with `dev` at #78. Check `gh pr list` and
 - **Metadata is its own step**, separate from both pipes. For every document in
   every source it writes a `<document>.metadata.json` sidecar next to the document,
   in Bedrock's format (`{"metadataAttributes": {...}}`), including in buckets we
-  don't own, such as GATS. A typed model holds the field names, which match the keys
-  the KBs already use. The KB reads the sidecar as it is. The graph's text stage reads
+  don't own, such as GATS. The typed model (`Sidecar`, built) holds the field names,
+  which match the keys the KBs already use. The KB reads the sidecar as it is. The graph's text stage reads
   it and adds the fields to the extracted text, and **skips and logs a document that
   has no sidecar**.
 - **Who writes sidecars where.** A bucket of ours: either phase writes its own. A
@@ -61,7 +71,7 @@ State when this was written, with `dev` at #78. Check `gh pr list` and
   `dia pipeline <stage>` command that runs locally and with `--remote`. What
   "latest" means is not decided (see section 2).
 
-**Not started:** the metadata step, the ledger, and every stage after text.
+**Not started:** the metadata step (its model is built), the ledger, and every stage after text.
 
 **Old code still in the repo.** The rest of `src/dia` is the first build: `extract-text`
 and its runner, `sources/known.py`, `DataSource`, the `metadata` package, the old
@@ -72,8 +82,7 @@ ledger and its CLI, writers, filters, and the agent. Only the old text stage eve
 
 Follow section 7 of the spec. In short, the order is:
 
-1. **Metadata model and sidecar format.** Shared code, no AWS, lots of unit tests.
-   Both the metadata step and the text stage depend on it.
+1. **Metadata model and sidecar format.** Done (`dia.sources.sidecar`).
 2. **The GATS metadata step.** The first thing that reads real GATS data.
 3. **The minimal ledger.**
 4. **S3 reader and the text stage**, which delete `known.py`, `DataSource`,

@@ -27,7 +27,7 @@ from dia.document_types import DocumentType
 from dia.naming import Bucket, Names
 
 # Metadata keys every document may carry in its sidecar. A source adds its own on top.
-COMMON_METADATA_KEYS: tuple[str, ...] = ("department_name", "alb", "document_type", "report_type", "year")
+COMMON_METADATA_KEYS: tuple[str, ...] = ("department_name", "alb", "document_type", "report_type", "year", "date")
 
 
 class ExternalBucket(BaseModel, frozen=True):

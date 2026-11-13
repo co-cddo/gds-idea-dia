@@ -73,17 +73,18 @@ declaration.
 
 | KB | Keys |
 |---|---|
-| all | `department_name`, `alb`, `document_type`, `report_type`, `year` |
+| all | `department_name`, `alb`, `document_type`, `report_type`, `year`, `date` |
 | `gats_business_cases` | + `spend_id`, `project_name`, `assurance_date`, `file_reference` |
 | `sr25_bids` | + `spend_id`, `project_name`, `file_reference` |
 | `sr21_bids` | + `project_name` |
-| `dbr_readouts_letter` | + `readout_date`, `is_latest` |
-| `dbr_reports` | + `report_date`, `is_latest` |
+| `dbr_readouts_letter` | + `is_latest` |
+| `dbr_reports` | + `is_latest` |
 
 - The keys are what a document *may* carry. Not every file will have every key
   (for example, `alb` only applies when the submitter is an ALB).
-- `year`, `readout_date` and `report_date` are numbers (`2026`, `20260901`,
-  `202606`), so range filters work.
+- `year` and `date` are numbers (`2026`, `20260901`), so range filters work. `date` is
+  the document's own date as `YYYYMMDD`; a document dated only by month gets the first
+  of the month.
 - `document_type` values match what the agent filters on: SR bids are
   `sr_bids_2025` and `sr_bids_2021`, following
   `src/dia/agent/mcp/retrieval_modes.py`.
@@ -114,7 +115,7 @@ agent's `sr_bids_2025`). The declarations use the enum, not string literals.
 
 `20260901 Letter to HMRC - Digital Business Review 010926` gives:
 
-- `readout_date` = `20260901` (leading 8 digits)
+- `date` = `20260901` (leading 8 digits)
 - `department_name` = text between `Letter to ` and ` - `, normalised via
   `src/dia/department_mapping.py`
 - `is_latest` = `true` for the newest letter per department, otherwise `false`
@@ -128,7 +129,7 @@ agent's `sr_bids_2025`). The declarations use the enum, not string literals.
   underscores turned into spaces (`home_office` → `home office`), then
   normalised via `src/dia/department_mapping.py` (case-insensitive, since
   filenames are lowercase)
-- `report_date` = `202606` (the trailing `MMYYYY`, stored as `YYYYMM`)
+- `date` = `20260601` (the trailing `MMYYYY`, stored as `YYYYMMDD` with day `01`)
 - `is_latest` = `true` for the newest report per department, otherwise `false`
 - `document_type` = `dbr_report`
 

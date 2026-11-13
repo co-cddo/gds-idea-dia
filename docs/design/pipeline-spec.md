@@ -332,11 +332,13 @@ steps below.
 - [x] 6. Shared source declarations for both pipelines (`dia.sources.definitions`),
   the four new KB source buckets, and preflight and the task stack reading them
   (#78). This replaces the planned source protocols and the GATS source definition.
-- [ ] 7. **Metadata model and sidecar format.** One typed model holds the field names
+- [x] 7. **Metadata model and sidecar format** (`dia.sources.sidecar`). One typed model holds the field names
   (`COMMON_METADATA_KEYS` plus a source's own, matching the keys the KBs use). It
   writes and reads Bedrock's `{"metadataAttributes": {...}}` format, and checks keys
   against the source's declaration. Shared code with no AWS. Both the metadata step
-  and the text stage depend on it.
+  and the text stage depend on it. Only `document_type` is required; `year` and
+  `date` (`YYYYMMDD`, a common key) are numbers, `is_latest` is a boolean and everything
+  else, including `assurance_date`, is text.
 - [ ] 8. **GATS metadata step** (`dia pipeline metadata`). Reads the GATS export,
   maps its columns into the model, and writes a sidecar next to each document. Settle
   first what "latest" means, whether `--limit` counts cases or documents, and which
