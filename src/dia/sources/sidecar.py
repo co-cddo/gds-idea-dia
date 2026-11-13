@@ -5,7 +5,7 @@ A sidecar is a small JSON file in Bedrock's format, stored beside its document:
     files/case-123.pdf
     files/case-123.pdf.metadata.json
 
-    {"metadataAttributes": {"document_type": "business_case", "year": 2025}}
+    {"metadataAttributes": {"document_type": "business_case", "date": "2025"}}
 
 The knowledge bases read it as it is (the values are stored for filtering and are not
 embedded), and the graph's text stage reads it to add the same fields to the extracted
@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 
-from pydantic import BaseModel, StrictBool, StrictInt, StrictStr, ValidationError
+from pydantic import BaseModel, StrictBool, StrictStr, ValidationError
 
 from dia.document_types import DocumentType
 from dia.sources.models import SourceDefinition
@@ -43,13 +43,12 @@ class Sidecar(BaseModel, frozen=True, extra="forbid"):
         department_name: The department the document belongs to.
         alb: The arm's-length body, where there is one.
         report_type: The kind of report, for sources that have several.
-        year: The year the document relates to, as a number so ranges can be filtered.
         spend_id: The spend control case ID (GATS and SR bids).
         project_name: The project the document belongs to.
         file_reference: The document's ID in the ledger of source files.
         assurance_date: The GATS assurance date, kept as text.
-        date: The document's own date, as a number `YYYYMMDD` so ranges can be filtered. For a
-            document dated only by month, the first of the month.
+        date: The document's own date, as text in whatever precision is known: `2025` when only
+            the year is known, `202606` for a month, `20260901` for a day.
         is_latest: Whether it is the newest DBR document for its department.
     """
 
@@ -57,12 +56,11 @@ class Sidecar(BaseModel, frozen=True, extra="forbid"):
     department_name: StrictStr | None = None
     alb: StrictStr | None = None
     report_type: StrictStr | None = None
-    year: StrictInt | None = None
     spend_id: StrictStr | None = None
     project_name: StrictStr | None = None
     file_reference: StrictStr | None = None
     assurance_date: StrictStr | None = None
-    date: StrictInt | None = None
+    date: StrictStr | None = None
     is_latest: StrictBool | None = None
 
 

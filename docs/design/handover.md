@@ -35,8 +35,9 @@ State when this was written, with `dev` at #78. Check `gh pr list` and
   declarations. Run `uv run dia pipeline preflight` once to confirm it works against
   real AWS; nobody has yet.
 - **The sidecar model (`dia.sources.sidecar`).** `Sidecar` holds the metadata fields
-  (only `document_type` is required; `year` and `date` (`YYYYMMDD`, a
-  common key every source may carry) are numbers, `is_latest` is a boolean, the rest including `assurance_date` are text).
+  (only `document_type` is required; `is_latest` is a boolean and everything else is
+  text. `date` is a common key every source may carry, in whatever precision is known:
+  `2025`, `202606` or `20260901`; there is no `year` key).
   `sidecar_key`, `to_json` and `from_json` write and read Bedrock's simple
   `{"metadataAttributes": {...}}` format, and `check` compares a sidecar with the keys
   its source declares. Pure code, with tests; no AWS. Not yet used by anything, so it
@@ -53,8 +54,8 @@ State when this was written, with `dev` at #78. Check `gh pr list` and
   every source it writes a `<document>.metadata.json` sidecar next to the document,
   in Bedrock's format (`{"metadataAttributes": {...}}`), including in buckets we
   don't own, such as GATS. The typed model (`Sidecar`, built) holds the field names,
-  which match the keys the KBs already use. The KB reads the sidecar as it is. The graph's text stage reads
-  it and adds the fields to the extracted text, and **skips and logs a document that
+  which match the keys the KBs already use. The KB reads the sidecar as it is. The
+  graph's text stage reads it and adds the fields to the extracted text, and **skips and logs a document that
   has no sidecar**.
 - **Who writes sidecars where.** A bucket of ours: either phase writes its own. A
   bucket we only consume, such as GATS: only prod writes, because dev reads it

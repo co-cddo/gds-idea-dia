@@ -53,9 +53,19 @@ def test_unknown_field_is_rejected():
         Sidecar(document_type=DocumentType.BUSINESS_CASE, departmnet_name="DfE")  # type: ignore[call-arg]
 
 
-def test_year_must_be_a_number_not_text():
+def test_date_is_text_in_any_precision():
+    for date in ("2025", "202606", "20260901", "2025-03-01"):
+        assert Sidecar(document_type=DocumentType.BUSINESS_CASE, date=date).date == date
+
+
+def test_date_must_be_text_not_a_number():
     with pytest.raises(ValueError):
-        Sidecar(document_type=DocumentType.BUSINESS_CASE, year="2025")  # type: ignore[arg-type]
+        Sidecar(document_type=DocumentType.BUSINESS_CASE, date=2025)  # type: ignore[arg-type]
+
+
+def test_there_is_no_year_field():
+    with pytest.raises(ValueError):
+        Sidecar(document_type=DocumentType.BUSINESS_CASE, year=2025)  # type: ignore[call-arg]
 
 
 def test_assurance_date_is_text():
@@ -77,16 +87,10 @@ def test_to_json_uses_bedrocks_wrapper_and_leaves_out_unset_fields():
     assert json.loads(text) == {"metadataAttributes": {"document_type": "business_case", "department_name": "DfE"}}
 
 
-def test_to_json_keeps_numbers_and_booleans_as_numbers_and_booleans():
-    sidecar = Sidecar(
-        document_type=DocumentType.DBR_READOUT,
-        year=2026,
-        date=20260901,
-        is_latest=True,
-    )
+def test_to_json_keeps_booleans_as_booleans_and_dates_as_text():
+    sidecar = Sidecar(document_type=DocumentType.DBR_READOUT, date="20260901", is_latest=True)
     attributes = _attributes(to_json(sidecar))
-    assert attributes["year"] == 2026
-    assert attributes["date"] == 20260901
+    assert attributes["date"] == "20260901"
     assert attributes["is_latest"] is True
 
 
@@ -95,7 +99,7 @@ def test_round_trip_gives_the_same_sidecar():
         document_type=DocumentType.BUSINESS_CASE,
         department_name="Department for Education",
         alb="Ofqual",
-        year=2025,
+        date="2025",
         spend_id="COSC-03416",
         project_name="School Data Platform",
         assurance_date="2025-03-01",
@@ -134,8 +138,8 @@ def test_from_json_rejects_an_unknown_key():
         from_json(text)
 
 
-def test_from_json_rejects_a_year_written_as_text():
-    text = json.dumps({"metadataAttributes": {"document_type": "business_case", "year": "2025"}})
+def test_from_json_rejects_a_date_written_as_a_number():
+    text = json.dumps({"metadataAttributes": {"document_type": "business_case", "date": 20250301}})
     with pytest.raises(SidecarError, match="invalid metadata"):
         from_json(text)
 
@@ -147,7 +151,7 @@ def test_from_json_rejects_an_unknown_document_type():
 
 
 def test_from_json_rejects_a_missing_document_type():
-    text = json.dumps({"metadataAttributes": {"year": 2025}})
+    text = json.dumps({"metadataAttributes": {"date": "2025"}})
     with pytest.raises(SidecarError, match="invalid metadata"):
         from_json(text)
 
@@ -184,14 +188,14 @@ def test_check_lists_every_key_that_is_not_allowed():
 
 
 def test_check_allows_a_source_s_own_extra_keys():
-    sidecar = Sidecar(document_type=DocumentType.DBR_READOUT, date=20260901, is_latest=True)
+    sidecar = Sidecar(document_type=DocumentType.DBR_READOUT, date="20260901", is_latest=True)
     check(sidecar, SOURCES["dbr_readouts_letter"])
 
 
 @pytest.mark.parametrize("name", SOURCES)
 def test_every_source_accepts_a_date(name):
     source = SOURCES[name]
-    check(Sidecar(document_type=source.document_type, date=20260901), source)
+    check(Sidecar(document_type=source.document_type, date="20260901"), source)
 
 
 # --- the model and the declarations agree ---
@@ -213,8 +217,7 @@ def test_a_sidecar_with_every_allowed_key_passes_check(name):
     source = SOURCES[name]
     values = {
         "document_type": source.document_type,
-        "year": 2025,
-        "date": 20260901,
+        "date": "20260901",
         "is_latest": True,
     }
     allowed = {key: values.get(key, "x") for key in source.metadata_keys}

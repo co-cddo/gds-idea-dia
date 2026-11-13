@@ -336,9 +336,9 @@ steps below.
   (`COMMON_METADATA_KEYS` plus a source's own, matching the keys the KBs use). It
   writes and reads Bedrock's `{"metadataAttributes": {...}}` format, and checks keys
   against the source's declaration. Shared code with no AWS. Both the metadata step
-  and the text stage depend on it. Only `document_type` is required; `year` and
-  `date` (`YYYYMMDD`, a common key) are numbers, `is_latest` is a boolean and everything
-  else, including `assurance_date`, is text.
+  and the text stage depend on it. Only `document_type` is required; `is_latest` is a
+  boolean and everything else is text. `date` is a common key in whatever precision is
+  known (`2025`, `202606`, `20260901`); there is no `year` key.
 - [ ] 8. **GATS metadata step** (`dia pipeline metadata`). Reads the GATS export,
   maps its columns into the model, and writes a sidecar next to each document. Settle
   first what "latest" means, whether `--limit` counts cases or documents, and which

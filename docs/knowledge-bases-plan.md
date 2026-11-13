@@ -73,7 +73,7 @@ declaration.
 
 | KB | Keys |
 |---|---|
-| all | `department_name`, `alb`, `document_type`, `report_type`, `year`, `date` |
+| all | `department_name`, `alb`, `document_type`, `report_type`, `date` |
 | `gats_business_cases` | + `spend_id`, `project_name`, `assurance_date`, `file_reference` |
 | `sr25_bids` | + `spend_id`, `project_name`, `file_reference` |
 | `sr21_bids` | + `project_name` |
@@ -82,9 +82,10 @@ declaration.
 
 - The keys are what a document *may* carry. Not every file will have every key
   (for example, `alb` only applies when the submitter is an ALB).
-- `year` and `date` are numbers (`2026`, `20260901`), so range filters work. `date` is
-  the document's own date as `YYYYMMDD`; a document dated only by month gets the first
-  of the month.
+- `date` is text, in whatever precision the document has: `2025` when only the year is
+  known, `202606` for a month, `20260901` for a day. There is no separate `year` key.
+  Text values can be matched exactly, but Bedrock range filters ("since 2024") work on
+  numbers, so they are not available on `date`.
 - `document_type` values match what the agent filters on: SR bids are
   `sr_bids_2025` and `sr_bids_2021`, following
   `src/dia/agent/mcp/retrieval_modes.py`.
@@ -100,8 +101,8 @@ to match this plan, and the sidecars regenerated:
 - `document_type`: `sr25_bid`/`sr21_bid` become `sr_bids_2025`/`sr_bids_2021`.
   `nao_report` and `technology_report` already match `DocumentType`.
 - `department` is renamed to `department_name`, matching the graph agent's filters.
-- `year` is written as a string. It must be a number.
-- `year` and `report_type` are only written where a source's metadata CSV has
+- `year` is replaced by `date`, written as text.
+- `date` and `report_type` are only written where a source's metadata CSV has
   those columns. SR21 and GATS get neither.
 - `assurance_date` isn't written.
 - No sidecars exist yet for efficiency reports, DBR letters or DBR reports.
@@ -129,7 +130,7 @@ agent's `sr_bids_2025`). The declarations use the enum, not string literals.
   underscores turned into spaces (`home_office` → `home office`), then
   normalised via `src/dia/department_mapping.py` (case-insensitive, since
   filenames are lowercase)
-- `date` = `20260601` (the trailing `MMYYYY`, stored as `YYYYMMDD` with day `01`)
+- `date` = `202606` (the trailing `MMYYYY`, stored as `YYYYMM`)
 - `is_latest` = `true` for the newest report per department, otherwise `false`
 - `document_type` = `dbr_report`
 
