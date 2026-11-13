@@ -73,17 +73,20 @@ declaration.
 
 | KB | Keys |
 |---|---|
-| all | `department_name`, `alb`, `document_type`, `report_type`, `year` |
-| `gats_business_cases` | + `spend_id`, `project_name`, `assurance_date`, `file_reference` |
+| all | `department_name`, `alb`, `document_type`, `report_type`, `date` |
+| `gats_business_cases` | + `spend_id`, `project_name`, `file_reference` |
 | `sr25_bids` | + `spend_id`, `project_name`, `file_reference` |
 | `sr21_bids` | + `project_name` |
-| `dbr_readouts_letter` | + `readout_date`, `is_latest` |
-| `dbr_reports` | + `report_date`, `is_latest` |
+| `dbr_readouts_letter` | + `is_latest` |
+| `dbr_reports` | + `is_latest` |
 
 - The keys are what a document *may* carry. Not every file will have every key
   (for example, `alb` only applies when the submitter is an ALB).
-- `year`, `readout_date` and `report_date` are numbers (`2026`, `20260901`,
-  `202606`), so range filters work.
+- `date` is a real date, written in the sidecar as the number `YYYYMMDD` (`20260901`), so
+  range filters ("since 2024") work. When only the year or month is known, the missing
+  parts default to the first: `2025` gives `20250101`, `202606` gives `20260601`. A
+  date only known to the year therefore cannot be told apart from 1 January. There is no
+  separate `year` key.
 - `document_type` values match what the agent filters on: SR bids are
   `sr_bids_2025` and `sr_bids_2021`, following
   `src/dia/agent/mcp/retrieval_modes.py`.
@@ -99,10 +102,10 @@ to match this plan, and the sidecars regenerated:
 - `document_type`: `sr25_bid`/`sr21_bid` become `sr_bids_2025`/`sr_bids_2021`.
   `nao_report` and `technology_report` already match `DocumentType`.
 - `department` is renamed to `department_name`, matching the graph agent's filters.
-- `year` is written as a string. It must be a number.
-- `year` and `report_type` are only written where a source's metadata CSV has
+- `year` is replaced by `date`, written as a `YYYYMMDD` number.
+- `date` and `report_type` are only written where a source's metadata CSV has
   those columns. SR21 and GATS get neither.
-- `assurance_date` isn't written.
+- `assurance_date` isn't written, and is not a key: the GATS date goes in `date`.
 - No sidecars exist yet for efficiency reports, DBR letters or DBR reports.
 - Possible bug: the tech reports source reads `files/metadata/nao_reports_metadata.csv`.
 
@@ -114,7 +117,7 @@ agent's `sr_bids_2025`). The declarations use the enum, not string literals.
 
 `20260901 Letter to HMRC - Digital Business Review 010926` gives:
 
-- `readout_date` = `20260901` (leading 8 digits)
+- `date` = `20260901` (leading 8 digits)
 - `department_name` = text between `Letter to ` and ` - `, normalised via
   `src/dia/department_mapping.py`
 - `is_latest` = `true` for the newest letter per department, otherwise `false`
@@ -128,7 +131,7 @@ agent's `sr_bids_2025`). The declarations use the enum, not string literals.
   underscores turned into spaces (`home_office` → `home office`), then
   normalised via `src/dia/department_mapping.py` (case-insensitive, since
   filenames are lowercase)
-- `report_date` = `202606` (the trailing `MMYYYY`, stored as `YYYYMM`)
+- `date` = `20260601` (the trailing `MMYYYY` gives the month; the day defaults to `01`)
 - `is_latest` = `true` for the newest report per department, otherwise `false`
 - `document_type` = `dbr_report`
 
