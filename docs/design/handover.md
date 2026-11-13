@@ -28,6 +28,16 @@ State when this was written, with `dev` at #78. Check `gh pr list` and
 
 **Built, but not run against real AWS**
 
+- **Knowledge base stack (#77).** `stacks/knowledge_base.py` builds the Bedrock
+  knowledge bases from the `SOURCES` that have a `knowledge_base` block and
+  `deployed=True`: today the two DBR ones. One retained S3 Vectors bucket, and per KB
+  a retained index, a role that reads only its own prefix, the KB and its data source.
+  A dev KB that reads the GATS bucket (declared, not deployed) is cross-account, so
+  the prod bucket's policy must allow the KB role first. Deploying creates empty KBs:
+  upload the documents and sidecars, then start an ingestion job per data source. The
+  `dia-kb-arns` secret is not written from CDK; its values are set by hand, so the KB
+  IDs are stack outputs for now. Plan: `docs/knowledge-bases-plan.md`.
+
 - **Shared source declarations (#78).** Every dataset is declared once in
   `src/dia/sources/definitions.py`, whichever pipeline uses it. Preflight and the
   task stack read them, and the four new knowledge base buckets exist in CDK.
@@ -120,22 +130,8 @@ Then harden the ledger and CLI, and scale up to all of GATS and the other source
 
 ## 3. Open PRs, branches and issues
 
-**#77, the knowledge base stack (Aakash's draft).** It conflicts with `dev` and keeps
-its own table of sources. Move it onto the shared declarations:
-
-1. Rebase onto `dev`.
-2. Delete `Source`, `KnowledgeBaseEntry`, `KNOWLEDGE_BASES` and `DOCUMENT_TYPES`.
-3. Build each `KnowledgeBaseSpec` from the `SOURCES` entries that have a
-   `knowledge_base` block: bucket and prefix from `resolve(source.location,
-   config.environment)`, `metadata_keys` from `source.metadata_keys`, parsing model
-   and `deployed` from the block.
-4. Set `bucket_owner_account` to the production account when `resolve` says the
-   location is cross-account (dev reading the GATS bucket). For a KB the role reads
-   the bucket directly, so the prod bucket's policy must allow the KB role.
-5. Keep the stable data source names already on the branch.
-
-The four sources that were dev-account buckets (SR25, SR21, NAO, the DIA documents)
-now point at new, **empty** buckets of ours. Their KBs aren't deployed, so nothing
+**Empty source buckets.** The four sources that were dev-account buckets (SR25, SR21,
+NAO, the DIA documents) now point at new, **empty** buckets of ours. Their KBs aren't deployed, so nothing
 breaks, but the documents must be copied in before they are (#64).
 
 **#53, the chunking draft.** About 3,500 lines, untouched since September. The design
