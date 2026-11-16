@@ -22,16 +22,30 @@ from __future__ import annotations
 import datetime as dt
 import json
 import re
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, Field, StrictBool, StrictStr, ValidationError, field_serializer, field_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    StrictBool,
+    StringConstraints,
+    ValidationError,
+    field_serializer,
+    field_validator,
+)
 
 from dia.document_types import DocumentType
 from dia.sources.models import SourceDefinition
 
 SIDECAR_SUFFIX = ".metadata.json"
+# Bedrock: a metadata file "must not exceed the limit of 10 KB". Taken as 10,000 bytes, the stricter reading.
+MAX_SIDECAR_BYTES = 10_000
 _WRAPPER_KEY = "metadataAttributes"
-_PARTIAL_DATE = re.compile(r"(\d{4})(?:-?(\d{2})(?:-?(\d{2}))?)?")
+# The earliest date that still writes as an 8-digit YYYYMMDD number.
+_EARLIEST_DATE = dt.date(1000, 1, 1)
+
+_Text = Annotated[str, StringConstraints(strict=True, min_length=1)]
+_PARTIAL_DATE = re.compile(r"(\d{4})(?:(-?)(\d{2})(?:\2(\d{2}))?)?")
 
 
 class SidecarError(ValueError):
@@ -48,23 +62,22 @@ class Sidecar(BaseModel, frozen=True, extra="forbid"):
         document_type: What kind of document it is. Matches the agent's filters.
         department_name: The department the document belongs to.
         alb: The arm's-length body, where there is one.
-        report_type: The kind of report, for sources that have several.
+        report_type: The kind of report. Only NAO reports use it.
         spend_id: The spend control case ID (GATS and SR bids).
         project_name: The project the document belongs to.
-        file_reference: The document's ID in the ledger of source files.
-        date: The document's own date. Written as a number `YYYYMMDD`. When only the year or the
-            month is known, use `parse_date`: it fills in the first month and the first day.
+        date: The document's own date, from the year 1000 on. Written as a number `YYYYMMDD`. When
+            only the year or the month is known, use `parse_date`: it fills in the first month and
+            the first day.
         is_latest: Whether it is the newest DBR document for its department.
     """
 
     document_type: DocumentType
-    department_name: StrictStr | None = None
-    alb: StrictStr | None = None
-    report_type: StrictStr | None = None
-    spend_id: StrictStr | None = None
-    project_name: StrictStr | None = None
-    file_reference: StrictStr | None = None
-    date: dt.date | None = Field(default=None, strict=True)
+    department_name: _Text | None = None
+    alb: _Text | None = None
+    report_type: _Text | None = None
+    spend_id: _Text | None = None
+    project_name: _Text | None = None
+    date: dt.date | None = Field(default=None, strict=True, ge=_EARLIEST_DATE)
     is_latest: StrictBool | None = None
 
     @field_validator("date", mode="before")
@@ -91,7 +104,8 @@ def parse_date(text: str) -> dt.date:
     """Turn a date with only some parts into a full date, using the first of what is missing.
 
     Args:
-        text: `YYYY`, `YYYYMM` or `YYYYMMDD`, with or without `-` between the parts.
+        text: `YYYY`, `YYYYMM` or `YYYYMMDD`, or `YYYY-MM` or `YYYY-MM-DD`. The parts are
+            either all joined with `-` or none are.
 
     Returns:
         The date. `2025` gives 1 January 2025, `2026-06` gives 1 June 2026.
@@ -102,9 +116,10 @@ def parse_date(text: str) -> dt.date:
     match = _PARTIAL_DATE.fullmatch(text.strip())
     if match is None:
         raise SidecarError(f"{text!r} is not a date like 2025, 202606 or 20260901")
-    year, month, day = (int(part) if part else 1 for part in match.groups())
+    year, _separator, month, day = match.groups()
+    parts = [int(part) if part else 1 for part in (year, month, day)]
     try:
-        return dt.date(year, month, day)
+        return dt.date(*parts)
     except ValueError as error:
         raise SidecarError(f"{text!r} is not a real date") from error
 
@@ -123,9 +138,21 @@ def sidecar_key(document_key: str) -> str:
     """
     if not document_key:
         raise SidecarError("a document key cannot be empty")
-    if document_key.endswith(SIDECAR_SUFFIX):
+    if is_sidecar_key(document_key):
         raise SidecarError(f"{document_key!r} is already a sidecar key")
     return f"{document_key}{SIDECAR_SUFFIX}"
+
+
+def is_sidecar_key(key: str) -> bool:
+    """Whether an S3 key is a sidecar file, not a document.
+
+    Args:
+        key: Any key under a source's prefix.
+
+    Returns:
+        True if the key ends with `.metadata.json`.
+    """
+    return key.endswith(SIDECAR_SUFFIX)
 
 
 def to_json(sidecar: Sidecar) -> str:
@@ -136,9 +163,17 @@ def to_json(sidecar: Sidecar) -> str:
 
     Returns:
         The JSON text for the sidecar file.
+
+    Raises:
+        SidecarError: If the text is longer than `MAX_SIDECAR_BYTES`, Bedrock's limit for a
+            metadata file.
     """
     attributes = sidecar.model_dump(mode="json", exclude_none=True)
-    return json.dumps({_WRAPPER_KEY: attributes}, indent=2)
+    text = json.dumps({_WRAPPER_KEY: attributes}, indent=2)
+    size = len(text.encode("utf-8"))
+    if size > MAX_SIDECAR_BYTES:
+        raise SidecarError(f"sidecar is {size} bytes, over the {MAX_SIDECAR_BYTES} byte limit for a metadata file")
+    return text
 
 
 def from_json(text: str) -> Sidecar:

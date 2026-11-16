@@ -42,7 +42,7 @@ SOURCES: dict[str, SourceDefinition] = {
             ),
             prefix="files/",
         ),
-        extra_metadata_keys=("spend_id", "project_name", "file_reference"),
+        extra_metadata_keys=("spend_id", "project_name"),
         graph=True,
         knowledge_base=KnowledgeBaseSettings(),
     ),
@@ -50,7 +50,7 @@ SOURCES: dict[str, SourceDefinition] = {
         description="SR25 spending review bids and submissions",
         document_type=DocumentType.SR_BIDS_2025,
         location=Location(bucket=Bucket.SR25_BIDS),
-        extra_metadata_keys=("spend_id", "project_name", "file_reference"),
+        extra_metadata_keys=("spend_id", "project_name"),
         knowledge_base=KnowledgeBaseSettings(),
     ),
     "sr21_bids": SourceDefinition(

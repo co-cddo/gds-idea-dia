@@ -7,7 +7,17 @@ import pytest
 
 from dia.document_types import DocumentType
 from dia.sources.definitions import SOURCES
-from dia.sources.sidecar import Sidecar, SidecarError, check, from_json, parse_date, sidecar_key, to_json
+from dia.sources.sidecar import (
+    MAX_SIDECAR_BYTES,
+    Sidecar,
+    SidecarError,
+    check,
+    from_json,
+    is_sidecar_key,
+    parse_date,
+    sidecar_key,
+    to_json,
+)
 
 
 def _attributes(text: str) -> dict:
@@ -24,6 +34,20 @@ def test_sidecar_key_goes_next_to_the_document():
 def test_sidecar_key_keeps_spaces_and_nested_folders():
     key = "readouts/20260901 Letter to HMRC - Digital Business Review 010926.pdf"
     assert sidecar_key(key) == key + ".metadata.json"
+
+
+@pytest.mark.parametrize(
+    ("key", "expected"),
+    [
+        ("files/case-123.pdf.metadata.json", True),
+        ("case-123.metadata.json", True),
+        ("files/case-123.pdf", False),
+        ("files/metadata.json.pdf", False),
+        ("", False),
+    ],
+)
+def test_is_sidecar_key(key, expected):
+    assert is_sidecar_key(key) is expected
 
 
 def test_sidecar_key_rejects_an_empty_key():
@@ -69,6 +93,21 @@ def test_date_rejects_text_short_numbers_and_impossible_dates(value):
         Sidecar(document_type=DocumentType.BUSINESS_CASE, date=value)  # type: ignore[arg-type]
 
 
+def test_date_accepts_the_earliest_year_it_can_write():
+    assert Sidecar(document_type=DocumentType.BUSINESS_CASE, date=dt.date(1000, 1, 1)).date == dt.date(1000, 1, 1)
+
+
+def test_date_rejects_a_year_below_1000():
+    with pytest.raises(ValueError):
+        Sidecar(document_type=DocumentType.BUSINESS_CASE, date=dt.date(999, 12, 31))
+
+
+@pytest.mark.parametrize("field", ["department_name", "alb", "report_type", "spend_id", "project_name"])
+def test_text_fields_reject_an_empty_string(field):
+    with pytest.raises(ValueError):
+        Sidecar(document_type=DocumentType.BUSINESS_CASE, **{field: ""})
+
+
 # --- parse_date ---
 
 
@@ -87,7 +126,9 @@ def test_parse_date_fills_in_the_first_of_what_is_missing(text, expected):
     assert parse_date(text) == expected
 
 
-@pytest.mark.parametrize("text", ["", "25", "20251", "2025-1", "202613", "20250230", "June 2025", "2025-03-01-01"])
+@pytest.mark.parametrize(
+    "text", ["", "25", "20251", "2025-1", "202613", "20250230", "June 2025", "2025-03-01-01", "2026-0601", "202606-01"]
+)
 def test_parse_date_rejects_other_text_and_impossible_dates(text):
     with pytest.raises(SidecarError):
         parse_date(text)
@@ -138,6 +179,28 @@ def test_round_trip_gives_the_same_sidecar():
 def test_false_is_written_not_dropped():
     sidecar = Sidecar(document_type=DocumentType.DBR_READOUT, is_latest=False)
     assert _attributes(to_json(sidecar))["is_latest"] is False
+
+
+def _bytes_with_project_name(project_name: str) -> int:
+    return len(to_json(Sidecar(document_type=DocumentType.BUSINESS_CASE, project_name=project_name)).encode("utf-8"))
+
+
+def test_to_json_accepts_a_sidecar_of_exactly_the_size_limit():
+    padding = MAX_SIDECAR_BYTES - _bytes_with_project_name("x") + 1
+    assert _bytes_with_project_name("x" * padding) == MAX_SIDECAR_BYTES
+
+
+def test_to_json_rejects_a_sidecar_over_the_size_limit():
+    padding = MAX_SIDECAR_BYTES - _bytes_with_project_name("x") + 1
+    with pytest.raises(SidecarError, match="byte limit"):
+        to_json(Sidecar(document_type=DocumentType.BUSINESS_CASE, project_name="x" * (padding + 1)))
+
+
+def test_to_json_counts_the_bytes_written_not_the_characters():
+    # Accented letters are written as 6-byte escapes (`\u00e9`), so few characters can be over the limit.
+    characters = MAX_SIDECAR_BYTES // 6
+    with pytest.raises(SidecarError, match="byte limit"):
+        to_json(Sidecar(document_type=DocumentType.BUSINESS_CASE, project_name="é" * characters))
 
 
 def test_from_json_rejects_text_that_is_not_json():
