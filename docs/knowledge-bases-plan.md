@@ -74,19 +74,33 @@ declaration.
 | KB | Keys |
 |---|---|
 | all | `department_name`, `alb`, `document_type`, `report_type`, `date` |
-| `gats_business_cases` | + `spend_id`, `project_name`, `file_reference` |
-| `sr25_bids` | + `spend_id`, `project_name`, `file_reference` |
+| `gats_business_cases` | + `spend_id`, `project_name` |
+| `sr25_bids` | + `spend_id`, `project_name` |
 | `sr21_bids` | + `project_name` |
 | `dbr_readouts_letter` | + `is_latest` |
 | `dbr_reports` | + `is_latest` |
 
 - The keys are what a document *may* carry. Not every file will have every key
-  (for example, `alb` only applies when the submitter is an ALB).
+  (for example, `alb` only applies when the submitter is an ALB, and `report_type` is
+  only used for NAO reports).
 - `date` is a real date, written in the sidecar as the number `YYYYMMDD` (`20260901`), so
   range filters ("since 2024") work. When only the year or month is known, the missing
   parts default to the first: `2025` gives `20250101`, `202606` gives `20260601`. A
   date only known to the year therefore cannot be told apart from 1 January. There is no
   separate `year` key.
+- The sidecar only accepts a real date or a `YYYYMMDD` number. Each source's metadata
+  step reads its own format with `parse_date`.
+- What `date` is for each source:
+
+  | Source | `date` is | Comes from |
+  |---|---|---|
+  | GATS business cases | The case submit date | `CO_CaseSubmitDate` |
+  | DBR letters | The readout date | The first 8 digits of the filename |
+  | DBR reports | The 1st of the report month | The `MMYYYY` at the end of the filename |
+  | SR bids | The 1st of January of the SR year | Entered by hand: SR21 is 2021, SR25 is 2025, SR27 will be 2027 |
+
+  The other GATS dates (`CO_FullCaseDecisionDate`, `CO_AssuranceRatingDate`) are not
+  stored.
 - `document_type` values match what the agent filters on: SR bids are
   `sr_bids_2025` and `sr_bids_2021`, following
   `src/dia/agent/mcp/retrieval_modes.py`.
@@ -103,9 +117,12 @@ to match this plan, and the sidecars regenerated:
   `nao_report` and `technology_report` already match `DocumentType`.
 - `department` is renamed to `department_name`, matching the graph agent's filters.
 - `year` is replaced by `date`, written as a `YYYYMMDD` number.
-- `date` and `report_type` are only written where a source's metadata CSV has
-  those columns. SR21 and GATS get neither.
+- `date` follows the table above. `report_type` is only used for NAO reports, which
+  have several kinds of report. No other source writes it.
 - `assurance_date` isn't written, and is not a key: the GATS date goes in `date`.
+- `file_reference` isn't written, and is not a key. The old sidecars had it (a number from the
+  old ledger of source files). The new ledger is keyed by `document_key#version`; add the key
+  back when a source has a value for it and the agent filters on it.
 - No sidecars exist yet for efficiency reports, DBR letters or DBR reports.
 - Possible bug: the tech reports source reads `files/metadata/nao_reports_metadata.csv`.
 
@@ -131,7 +148,9 @@ agent's `sr_bids_2025`). The declarations use the enum, not string literals.
   underscores turned into spaces (`home_office` → `home office`), then
   normalised via `src/dia/department_mapping.py` (case-insensitive, since
   filenames are lowercase)
-- `date` = `20260601` (the trailing `MMYYYY` gives the month; the day defaults to `01`)
+- `date` = `20260601` (the trailing `MMYYYY` gives the month; the day defaults to `01`).
+  `parse_date` does not read `MMYYYY`, so the filename parser turns `062026` into
+  `202606` first.
 - `is_latest` = `true` for the newest report per department, otherwise `false`
 - `document_type` = `dbr_report`
 
