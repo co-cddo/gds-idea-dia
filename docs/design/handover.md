@@ -253,6 +253,14 @@ what you don't need.
   breaking change for every app that builds stacks.
 - **CLI tests.** typer colours its errors in GitHub Actions, which splits text with
   ANSI codes. Strip them before matching, as `tests/test_cli.py` does.
+- **The `gds-idea` package index is `explicit = true`.** Only the packages named in
+  `[tool.uv.sources]` come from it. Without this, uv asked it first for everything,
+  including the build tools (`hatchling`, `hatch-vcs`) that `uv sync` fetches fresh
+  each time to build `dia` itself, because they are not in `uv.lock`. The index is
+  GitHub Pages, and its occasional 503 failed CI and the Dependabot runs. A package
+  that should come from the index needs a `[tool.uv.sources]` entry. `package =
+  false` (used by the app repos) is not an option here, because `dia` has to be
+  installed to provide the `dia` command.
 
 ## 6. Key facts
 
