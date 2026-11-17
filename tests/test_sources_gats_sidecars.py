@@ -111,6 +111,26 @@ def test_any_other_submitter_is_the_department_and_there_is_no_alb():
     assert sidecar.alb is None
 
 
+@pytest.mark.parametrize("submitter", [f"{AN_ALB} ", AN_ALB.upper(), AN_ALB.lower(), AN_ALB.replace(" ", "  ")])
+def test_an_alb_is_found_ignoring_case_and_spaces_and_written_in_its_own_spelling(submitter):
+    sidecar = documents_for_row({**OLD_ROW, "CO_OrganisationSubmitter": submitter})[0].sidecar
+    assert sidecar.department_name == PARENT_MAP[AN_ALB]
+    assert sidecar.alb == AN_ALB
+
+
+@pytest.mark.parametrize("submitter", ["home office", "HOME  OFFICE ", "Home Office"])
+def test_a_known_department_is_written_in_its_own_spelling(submitter):
+    sidecar = documents_for_row({**OLD_ROW, "CO_OrganisationSubmitter": submitter})[0].sidecar
+    assert sidecar.department_name == "Home Office"
+    assert sidecar.alb is None
+
+
+def test_an_unknown_submitter_is_kept_as_written_with_no_alb():
+    sidecar = documents_for_row({**OLD_ROW, "CO_OrganisationSubmitter": "Some New Body"})[0].sidecar
+    assert sidecar.department_name == "Some New Body"
+    assert sidecar.alb is None
+
+
 def test_a_missing_submitter_leaves_department_and_alb_out():
     sidecar = documents_for_row({**OLD_ROW, "CO_OrganisationSubmitter": ""})[0].sidecar
     assert sidecar.department_name is None

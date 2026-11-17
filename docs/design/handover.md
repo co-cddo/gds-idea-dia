@@ -55,9 +55,10 @@ State when this was written, with `dev` at #78. Check `gh pr list` and
   row lists, for both export layouts. `choose_documents` picks which to label: it
   filters by department, orders newest first by `Sidecar.date` (no date last), then
   takes the first `limit`, so `--limit` counts documents. A department matches on
-  `department_name`, ignoring case, so it includes its ALBs. A department submitter is
-  the department with no ALB; a known ALB (in `PARENT_MAP`) gives its parent as the
-  department and is the ALB. An empty or unreadable `CO_CaseSubmitDate` (including a
+  `department_name`, ignoring case, so it includes its ALBs. The submitter is matched
+  ignoring case and extra spaces. A known ALB (in `PARENT_MAP`) gives its parent as the
+  department and is the ALB. A known department is written in its canonical spelling,
+  with no ALB. Any other submitter is kept as written, with no ALB. An empty or unreadable `CO_CaseSubmitDate` (including a
   placeholder such as `0001-01-01`) leaves `date` out and keeps the documents. Pure
   code, with tests; no AWS, and nothing uses it yet. It has not been run on a real
   export, so its date and file-list parsing are untested against real values.
@@ -139,6 +140,9 @@ Then harden the ledger and CLI, and scale up to all of GATS and the other source
   The mapping reads ISO dates (`2025-03-01` or `20250301`, with or without a time) and
   splits files on commas. The command's dry run should count the documents that end up
   with no `date`.
+- **File names with a comma.** The file list is split on commas, so a name such as
+  "Business Case, v2.pdf" becomes two wrong names and the real file gets no label. Check
+  the real `CO_I_Documents` values before the command relies on the split.
 - **File names against bucket keys.** The names a case lists are assumed to match keys
   under `files/`. The command should count and skip any that do not exist.
 - **Documents with no label.** The old code also merged
