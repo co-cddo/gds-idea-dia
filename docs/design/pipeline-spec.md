@@ -142,7 +142,8 @@ cost estimate show how many records were padding.
   `<document>.metadata.json` sidecar in Bedrock's format next to every document. The
   KB reads the sidecar as it is. The graph's text stage reads it and adds its fields
   to the extracted text; a document with no sidecar is skipped and logged. One typed
-  model holds the field names, matching the keys the KBs already use. (Not built yet.)
+  model (`dia.sources.sidecar.Sidecar`) holds the field names, matching the keys the
+  KBs use.
 - A graph source is defined in Python. Each definition chooses three parts, and each
   part is a protocol:
   - a **reader**, which lists documents, gives each one a stable key and a
@@ -156,12 +157,13 @@ cost estimate show how many records were padding.
   - This is checked when the definition loads, on `sources check`, and on every
     read.
   - A comparison with the ledger warns when IDs change wholesale.
-- **Metadata:** every source shares one common metadata shape (source, document
-  type, department, ALB, title, date, ID), plus an `extra` dictionary for fields
-  specific to a source. This is our *output* shape. Source documents need not
-  follow it: each source's metadata strategy maps that source's own schema into
-  it, so sources whose files or exports have different layouts (including
-  different generations of GATS business cases) can coexist.
+- **Metadata:** every source shares the common keys (department, ALB, document type,
+  report type, date), plus keys specific to a source. Each key is a field of
+  `Sidecar`, and a source declares which it may use. There is no free-form `extra`
+  dictionary. This is our *output* shape. Source documents need not follow it: each
+  source's metadata strategy maps that source's own schema into it, so sources whose
+  files or exports have different layouts (including different generations of GATS
+  business cases) can coexist.
 - **Adding a source:**
   1. Write the definition.
   2. Run `dia sources check`.
@@ -332,11 +334,15 @@ steps below.
 - [x] 6. Shared source declarations for both pipelines (`dia.sources.definitions`),
   the four new KB source buckets, and preflight and the task stack reading them
   (#78). This replaces the planned source protocols and the GATS source definition.
-- [ ] 7. **Metadata model and sidecar format.** One typed model holds the field names
-  (`COMMON_METADATA_KEYS` plus a source's own, matching the keys the KBs use). It
-  writes and reads Bedrock's `{"metadataAttributes": {...}}` format, and checks keys
-  against the source's declaration. Shared code with no AWS. Both the metadata step
-  and the text stage depend on it.
+- [x] 7. **Metadata model and sidecar format** (`dia.sources.sidecar`). One typed
+  model holds the field names (`COMMON_METADATA_KEYS` plus a source's own, matching
+  the keys the KBs use). It writes and reads Bedrock's `{"metadataAttributes": {...}}`
+  format, and checks keys against the source's declaration. Shared code with no AWS.
+  Both the metadata step and the text stage depend on it. Only `document_type` is
+  required; `is_latest` is a boolean, `date` is a date and everything else is text.
+  `date` is a common key. It is written as a `YYYYMMDD` number. `parse_date` fills in
+  the first month and day when only a year or month is known; there is no `year` key.
+  `to_json` rejects a file over Bedrock's 10 KB limit for a metadata file.
 - [ ] 8. **GATS metadata step** (`dia pipeline metadata`). Reads the GATS export,
   maps its columns into the model, and writes a sidecar next to each document. Settle
   first what "latest" means, whether `--limit` counts cases or documents, and which
