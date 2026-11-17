@@ -22,6 +22,8 @@ LICENCE = "sha256:21cc325b3181cb748845827425d37ce04b3dc563835bbf50fafbc56a5eb68c
 [[tool.uv.index]]
 name = "gds-idea"
 url = "https://co-cddo.github.io/gds-idea-pypi/simple/"
+explicit = true
+
 [project]
 name = "dia"
 dynamic = ["version"]
