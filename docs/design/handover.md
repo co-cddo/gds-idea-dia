@@ -44,6 +44,22 @@ State when this was written, with `dev` at #78. Check `gh pr list` and
   Preflight's source check is now called `source gats_business_cases` and reads the
   declarations. Run `uv run dia pipeline preflight` once to confirm it works against
   real AWS; nobody has yet.
+- **The sidecar model (`dia.sources.sidecar`).** `Sidecar` holds the metadata fields
+  (only `document_type` is required; `is_latest` is a boolean and everything else is
+  text, except `date`). `date` is a common key every source may carry. It is a real
+  date in Python and a `YYYYMMDD` number in the file, so Bedrock can filter ranges.
+  The model is strict: it does not accept text dates. Each source's metadata step
+  parses its own date format with `parse_date`, which turns `2025`, `202606` or
+  `20260901` (or `2026-06-01`) into a date, using the first month and day when they
+  are missing. The dashes are all or nothing: `2026-0601` is rejected. A source with
+  `MMYYYY` dates, such as the DBR report filenames (`062026`), converts them to
+  `YYYYMM` first. There is no `year`, `assurance_date` or `file_reference` key.
+  `sidecar_key`, `is_sidecar_key`, `to_json` and `from_json` write and read Bedrock's
+  simple `{"metadataAttributes": {...}}` format, and `to_json` raises `SidecarError`
+  for a file over Bedrock's 10 KB limit. `check` compares a sidecar with the keys its
+  source declares. Pure code, with tests; no AWS. Not yet used by anything, so it is
+  not in `TASK_MODULES`: add it when a task command imports it. A test fails if a
+  source declares a key that `Sidecar` lacks, or the reverse.
 
 **Agreed, not built**
 
@@ -52,10 +68,10 @@ State when this was written, with `dev` at #78. Check `gh pr list` and
 - **Metadata is its own step**, separate from both pipes. For every document in
   every source it writes a `<document>.metadata.json` sidecar next to the document,
   in Bedrock's format (`{"metadataAttributes": {...}}`), including in buckets we
-  don't own, such as GATS. A typed model holds the field names, which match the keys
-  the KBs already use. The KB reads the sidecar as it is. The graph's text stage reads
-  it and adds the fields to the extracted text, and **skips and logs a document that
-  has no sidecar**.
+  don't own, such as GATS. The typed model (`Sidecar`, built) holds the field names,
+  which match the keys the KBs already use. The KB reads the sidecar as it is. The
+  graph's text stage reads it and adds the fields to the extracted text, and **skips
+  and logs a document that has no sidecar**.
 - **Who writes sidecars where.** A bucket of ours: either phase writes its own. A
   bucket we only consume, such as GATS: only prod writes, because dev reads it
   through the read-only cross-account role. A dev run of the metadata step warns that
@@ -71,7 +87,7 @@ State when this was written, with `dev` at #78. Check `gh pr list` and
   `dia pipeline <stage>` command that runs locally and with `--remote`. What
   "latest" means is not decided (see section 2).
 
-**Not started:** the metadata step, the ledger, and every stage after text.
+**Not started:** the metadata step (its model is built), the ledger, and every stage after text.
 
 **Old code still in the repo.** The rest of `src/dia` is the first build: `extract-text`
 and its runner, `sources/known.py`, `DataSource`, the `metadata` package, the old
@@ -82,8 +98,7 @@ ledger and its CLI, writers, filters, and the agent. Only the old text stage eve
 
 Follow section 7 of the spec. In short, the order is:
 
-1. **Metadata model and sidecar format.** Shared code, no AWS, lots of unit tests.
-   Both the metadata step and the text stage depend on it.
+1. **Metadata model and sidecar format.** Done (`dia.sources.sidecar`).
 2. **The GATS metadata step.** The first thing that reads real GATS data.
 3. **The minimal ledger.**
 4. **S3 reader and the text stage**, which delete `known.py`, `DataSource`,
@@ -234,6 +249,14 @@ what you don't need.
   breaking change for every app that builds stacks.
 - **CLI tests.** typer colours its errors in GitHub Actions, which splits text with
   ANSI codes. Strip them before matching, as `tests/test_cli.py` does.
+- **The `gds-idea` package index is `explicit = true`.** Only the packages named in
+  `[tool.uv.sources]` come from it. Without this, uv asked it first for everything,
+  including the build tools (`hatchling`, `hatch-vcs`) that `uv sync` fetches fresh
+  each time to build `dia` itself, because they are not in `uv.lock`. The index is
+  GitHub Pages, and its occasional 503 failed CI and the Dependabot runs. A package
+  that should come from the index needs a `[tool.uv.sources]` entry. `package =
+  false` (used by the app repos) is not an option here, because `dia` has to be
+  installed to provide the `dia` command.
 
 ## 6. Key facts
 
