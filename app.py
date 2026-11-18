@@ -9,7 +9,7 @@ from gds_idea_cdk_constructs.config import DeploymentConfig
 
 from config import AppConfig
 from dia.naming import PROJECT
-from dia.sources.definitions import SOURCES, graph_sources
+from dia.sources.definitions import deployed_knowledge_base_sources, graph_sources
 from dia.sources.models import resolve
 from stacks.bastion import BastionStack
 from stacks.knowledge_base import KnowledgeBaseStack, knowledge_base_specs
@@ -97,13 +97,14 @@ pipeline_task_stack.add_dependency(networking_stack)
 pipeline_task_stack.add_dependency(neptune_stack)
 pipeline_task_stack.add_dependency(opensearch_stack)
 
-# Bedrock knowledge bases. Only sources whose knowledge base is `deployed` are created.
+# Bedrock knowledge bases, for the sources whose knowledge base has `deployed=True`.
+# To deploy another one, set `deployed=True` in its entry in `SOURCES`.
 # The DBR knowledge bases read the DBR bucket in the storage stack.
 knowledge_base_stack = KnowledgeBaseStack(
     app,
     config.names("knowledge-bases"),
     config=config,
-    specs=knowledge_base_specs(config, SOURCES),
+    specs=knowledge_base_specs(config, deployed_knowledge_base_sources()),
     env=cdk_env,
 )
 knowledge_base_stack.add_dependency(storage_stack)

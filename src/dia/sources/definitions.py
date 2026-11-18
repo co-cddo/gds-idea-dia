@@ -98,3 +98,12 @@ SOURCES: dict[str, SourceDefinition] = {
 def graph_sources() -> dict[str, SourceDefinition]:
     """The sources that go through our extraction into the graph."""
     return {key: source for key, source in SOURCES.items() if source.graph}
+
+
+def deployed_knowledge_base_sources() -> dict[str, SourceDefinition]:
+    """The sources whose Bedrock knowledge base the knowledge base stack creates."""
+    return {
+        key: source
+        for key, source in SOURCES.items()
+        if source.knowledge_base is not None and source.knowledge_base.deployed
+    }

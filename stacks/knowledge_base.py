@@ -24,12 +24,7 @@ def knowledge_base_name(config: AppConfig, key: str) -> str:
     return config.names(f"kb-{key.replace('_', '-')}")
 
 
-def knowledge_base_specs(
-    config: AppConfig,
-    sources: Mapping[str, SourceDefinition],
-    *,
-    deployed_only: bool = True,
-) -> list[KnowledgeBaseSpec]:
+def knowledge_base_specs(config: AppConfig, sources: Mapping[str, SourceDefinition]) -> list[KnowledgeBaseSpec]:
     """Knowledge base specs for the sources that have a knowledge base.
 
     Each source becomes one knowledge base with one data source, both keyed by the
@@ -39,16 +34,17 @@ def knowledge_base_specs(
 
     Args:
         config: The deployment's configuration; selects which buckets are read.
-        sources: The declared sources, normally `dia.sources.definitions.SOURCES`.
-        deployed_only: Leave out sources whose knowledge base isn't `deployed`.
+        sources: The sources to build from. Those without a knowledge base are skipped.
+            To build only the ones that are deployed, pass
+            `dia.sources.definitions.deployed_knowledge_base_sources()`.
 
     Returns:
-        One spec per matching source, in declaration order.
+        One spec per source that has a knowledge base, in the order given.
     """
     specs = []
     for key, source in sources.items():
         settings = source.knowledge_base
-        if settings is None or (deployed_only and not settings.deployed):
+        if settings is None:
             continue
         location = resolve(source.location, config.environment)
         owner = DeploymentEnvironment.PRODUCTION.value if location.cross_account else None

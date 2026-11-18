@@ -9,7 +9,7 @@ from aws_cdk import assertions
 from gds_idea_cdk_constructs import DeploymentEnvironment, IdeaTags
 
 from config import AppConfig
-from dia.sources.definitions import SOURCES
+from dia.sources.definitions import SOURCES, deployed_knowledge_base_sources
 from stacks.knowledge_base import KnowledgeBaseStack, knowledge_base_name, knowledge_base_specs
 
 DEV = DeploymentEnvironment.DEVELOPMENT
@@ -24,7 +24,7 @@ def _template(environment: DeploymentEnvironment, *, tagged: bool = False) -> as
         app,
         "KnowledgeBases",
         config=config,
-        specs=knowledge_base_specs(config, SOURCES),
+        specs=knowledge_base_specs(config, deployed_knowledge_base_sources()),
         env=cdk.Environment(account=config.account_number, region=config.region),
     )
     if tagged:
@@ -140,13 +140,13 @@ DEV_ACCOUNT_BUCKET_SOURCES = {"sr25_bids", "sr21_bids", "nao_reports", "efficien
 
 
 def _specs_by_key(environment: DeploymentEnvironment) -> dict:
-    specs = knowledge_base_specs(AppConfig(environment=environment), SOURCES, deployed_only=False)
+    specs = knowledge_base_specs(AppConfig(environment=environment), SOURCES)
     return {spec.key: spec for spec in specs}
 
 
 @pytest.mark.parametrize("environment", ENVIRONMENTS)
 def test_deployed_specs_are_the_two_dbr_knowledge_bases(environment):
-    specs = knowledge_base_specs(AppConfig(environment=environment), SOURCES)
+    specs = knowledge_base_specs(AppConfig(environment=environment), deployed_knowledge_base_sources())
     assert [spec.key for spec in specs] == ["dbr_readouts_letter", "dbr_reports"]
 
 
