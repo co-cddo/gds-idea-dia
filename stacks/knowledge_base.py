@@ -15,6 +15,7 @@ from stacks.constructs.knowledge_base import (
     DataSourceSpec,
     KnowledgeBase,
     KnowledgeBaseSpec,
+    key_to_construct_id,
 )
 from stacks.shared.iam import permissions_boundary
 
@@ -108,7 +109,7 @@ class KnowledgeBaseStack(cdk.Stack):
 
         self.knowledge_bases: dict[str, KnowledgeBase] = {}
         for spec in specs:
-            construct_id_base = spec.key.replace("_", " ").title().replace(" ", "")
+            construct_id_base = key_to_construct_id(spec.key)
             kb = KnowledgeBase(
                 self,
                 construct_id_base,
