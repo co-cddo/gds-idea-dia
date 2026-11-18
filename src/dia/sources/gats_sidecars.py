@@ -1,7 +1,9 @@
 """Turn rows of the GATS business case export into metadata sidecars.
 
 A row is one case, and lists the documents it covers. This module gives each listed
-document a `DocumentSidecar`, and picks which documents to label. It does no S3 work.
+document a `Sidecar`, as a dict of file name to sidecar, and picks which documents to
+label. A file listed by two rows keeps the sidecar of the row merged in last. It does no
+S3 work.
 
 The export has two layouts, with different names for the file list and the case name:
 older (`CO_CS_Files`, `CO_CS_CaseName`) and newer (`CO_I_Documents`, `CO_I_Name`).
@@ -11,7 +13,6 @@ from __future__ import annotations
 
 import datetime as dt
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
 from typing import Any
 
 from dia.department_mapping import PARENT_MAP
@@ -81,16 +82,8 @@ def _department_and_alb(submitter: str | None) -> tuple[str | None, str | None]:
     return _DEPARTMENTS.get(key, submitter), None
 
 
-@dataclass(frozen=True)
-class DocumentSidecar:
-    """A document's name and its metadata. The name is not part of the metadata."""
-
-    file_name: str
-    sidecar: Sidecar
-
-
-def documents_for_row(row: Mapping[str, Any]) -> list[DocumentSidecar]:
-    """Give each document the row lists the same metadata.
+def documents_for_row(row: Mapping[str, Any]) -> dict[str, Sidecar]:
+    """Map each document the row lists, by file name, to the same metadata.
 
     A known ALB gives its parent as the department. A known department is written in its
     canonical spelling. Any other submitter is kept as written, with no ALB. A date that is
@@ -114,20 +107,20 @@ def documents_for_row(row: Mapping[str, Any]) -> list[DocumentSidecar]:
     )
     check(sidecar, source)
 
-    return [DocumentSidecar(name, sidecar) for name in _file_names(row)]
+    return dict.fromkeys(_file_names(row), sidecar)
 
 
-def _newest_first(document: DocumentSidecar) -> tuple[bool, int, str]:
-    """Sort key: newest date first, documents with no date last, then by spend ID so runs repeat."""
-    date = document.sidecar.date
-    return (date is None, -date.toordinal() if date else 0, document.sidecar.spend_id or "")
+def _newest_first(document: tuple[str, Sidecar]) -> tuple[bool, int, str]:
+    """Sort key for a `(file name, sidecar)` pair: newest date first, no date last, then spend ID so runs repeat."""
+    _, sidecar = document
+    return (sidecar.date is None, -sidecar.date.toordinal() if sidecar.date else 0, sidecar.spend_id or "")
 
 
 def choose_documents(
-    documents: Iterable[DocumentSidecar],
+    documents: Mapping[str, Sidecar],
     limit: int | None = None,
     departments: Iterable[str] | None = None,
-) -> list[DocumentSidecar]:
+) -> dict[str, Sidecar]:
     """Pick the newest documents, optionally only for some departments.
 
     Departments are applied first, then the newest-first order, then the limit. Documents
@@ -136,10 +129,14 @@ def choose_documents(
     if limit is not None and limit < 1:
         raise ValueError("limit must be at least 1")
 
-    chosen = list(documents)
+    chosen = list(documents.items())
     if departments is not None:
         wanted = {_name_key(name) for name in departments}
-        chosen = [d for d in chosen if d.sidecar.department_name and _name_key(d.sidecar.department_name) in wanted]
+        chosen = [
+            (name, sidecar)
+            for name, sidecar in chosen
+            if sidecar.department_name and _name_key(sidecar.department_name) in wanted
+        ]
 
     chosen.sort(key=_newest_first)
-    return chosen if limit is None else chosen[:limit]
+    return dict(chosen if limit is None else chosen[:limit])

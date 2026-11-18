@@ -51,8 +51,8 @@ State when this was written, with `dev` at #78. Check `gh pr list` and
   not in `TASK_MODULES`: add it when a task command imports it. A test fails if a
   source declares a key that `Sidecar` lacks, or the reverse.
 - **GATS sidecar mapping (`dia.sources.gats_sidecars`).** `documents_for_row` turns one
-  export row into a `DocumentSidecar` (file name plus `Sidecar`) for each document the
-  row lists, for both export layouts. `choose_documents` picks which to label: it
+  export row into a `{file name: Sidecar}` dict, one entry per document the row lists,
+  for both export layouts. `choose_documents` takes and returns such a dict. It picks which to label: it
   filters by department, orders newest first by `Sidecar.date` (no date last), then
   takes the first `limit`, so `--limit` counts documents. A department matches on
   `department_name`, ignoring case, so it includes its ALBs. The submitter is matched
@@ -62,8 +62,10 @@ State when this was written, with `dev` at #78. Check `gh pr list` and
   placeholder such as `0001-01-01`) leaves `date` out and keeps the documents. Pure
   code, with tests; no AWS, and nothing uses it yet. It has not been run on a real
   export, so its date and file-list parsing are untested against real values.
-  **Accepted risk:** a document listed by two rows (a resubmitted case) is labelled
-  twice, and the later write wins.
+  **Accepted risk:** a document listed by two rows (a resubmitted case) keeps the
+  sidecar of the row merged in last. 8b should merge the rows' dicts (`{**a, **b}`)
+  before calling `choose_documents`, so such a file is labelled once and counts once
+  towards `--limit`.
 
 **Agreed, not built**
 
