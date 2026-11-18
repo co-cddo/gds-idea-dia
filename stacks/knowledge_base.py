@@ -81,6 +81,16 @@ class KnowledgeBaseStack(cdk.Stack):
     Deploying creates the knowledge bases but does not ingest anything. Start an
     ingestion job for each data source afterwards.
 
+    A source's key is permanent. It sets the knowledge base's name, its index and
+    data source names, and the construct IDs. Renaming a key replaces the
+    knowledge base, its role and its data source, which changes the knowledge base
+    ID, and every document is ingested again. The old index and its vectors are
+    left behind.
+
+    The vector bucket and the indexes are retained under fixed names. Deleting
+    the stack and deploying it again fails, because the names are still taken,
+    until the retained bucket and indexes are deleted or imported.
+
     Attributes:
         knowledge_bases: The knowledge base constructs, keyed by spec key.
     """
@@ -98,6 +108,7 @@ class KnowledgeBaseStack(cdk.Stack):
         cdk.Tags.of(self).add("ResourceType", "BedrockKnowledgeBase")
         cdk.Tags.of(self).add("Service", "KnowledgeBases")
 
+        # Low-level construct: aws-cdk-lib has no higher-level one for S3 Vectors yet.
         vector_bucket = s3vectors.CfnVectorBucket(
             self,
             "VectorBucket",
