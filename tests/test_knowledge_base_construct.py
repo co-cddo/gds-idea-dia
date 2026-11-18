@@ -14,6 +14,7 @@ from stacks.constructs.knowledge_base import (
     KnowledgeBase,
     KnowledgeBaseSpec,
     NoChunking,
+    key_to_construct_id,
 )
 
 ACCOUNT = "111111111111"
@@ -418,3 +419,11 @@ def test_vector_index_removal_policy_can_be_overridden():
     )
     index = next(iter(assertions.Template.from_stack(stack).find_resources("AWS::S3Vectors::Index").values()))
     assert index["DeletionPolicy"] == "Delete"
+
+
+@pytest.mark.parametrize(
+    ("key", "construct_id"),
+    [("dbr_reports", "DbrReports"), ("dbr_readouts_letter", "DbrReadoutsLetter"), ("sr25_bids", "Sr25Bids")],
+)
+def test_key_to_construct_id_turns_snake_case_into_pascal_case(key, construct_id):
+    assert key_to_construct_id(key) == construct_id

@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from dia.document_types import DocumentType
 from dia.naming import Bucket
-from dia.sources.definitions import SOURCES, graph_sources
+from dia.sources.definitions import SOURCES, deployed_knowledge_base_sources, graph_sources
 from dia.sources.models import (
     COMMON_METADATA_KEYS,
     ExternalBucket,
@@ -156,9 +156,14 @@ def test_gats_is_read_through_the_cross_account_role_in_dev_and_directly_in_prod
 
 
 def test_only_the_dbr_knowledge_bases_are_deployed():
-    deployed = sorted(key for key, s in SOURCES.items() if s.knowledge_base and s.knowledge_base.deployed)
+    assert list(deployed_knowledge_base_sources()) == ["dbr_readouts_letter", "dbr_reports"]
 
-    assert deployed == ["dbr_readouts_letter", "dbr_reports"]
+
+def test_deployed_knowledge_base_sources_are_the_ones_marked_deployed():
+    deployed = deployed_knowledge_base_sources()
+    for key, source in SOURCES.items():
+        marked = source.knowledge_base is not None and source.knowledge_base.deployed
+        assert (key in deployed) is marked, key
 
 
 def test_every_source_except_gats_is_in_a_bucket_we_own():

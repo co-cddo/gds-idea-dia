@@ -11,7 +11,7 @@ facts that are not obvious from the code.
 
 ## 1. Where things stand
 
-State when this was written, with `dev` at #78. Check `gh pr list` and
+State when this was written, with `dev` at #81. Check `gh pr list` and
 `git log origin/dev` before relying on it.
 
 **Built, and run for real in dev**
@@ -27,6 +27,24 @@ State when this was written, with `dev` at #78. Check `gh pr list` and
 - **Naming.** One module, `dia.naming`, builds every deployed name from the phase.
 
 **Built, but not run against real AWS**
+
+- **Knowledge base stack (#77).** `stacks/knowledge_base.py` builds the Bedrock
+  knowledge bases for the sources in `deployed_knowledge_base_sources()`, which are the
+  `SOURCES` whose `knowledge_base` block has `deployed=True`: today the two DBR ones.
+  To deploy another, set `deployed=True` on its entry. One retained S3 Vectors bucket,
+  and per KB a retained index, a role that reads only its own prefix, the KB and its
+  data source. A dev KB that reads the GATS bucket (declared, not deployed) is
+  cross-account, so the prod bucket's policy must allow the KB role first. Deploying
+  creates empty KBs: upload the documents and sidecars, then start an ingestion job
+  per data source. The `dia-kb-arns` secret is not written from CDK; its values are
+  set by hand, so the KB IDs are stack outputs for now. Plan:
+  `docs/knowledge-bases-plan.md`.
+  **A source key is permanent.** It sets the KB's name, its index and data source
+  names, and the construct IDs. Renaming one replaces the KB, role and data source
+  (the KB ID changes, and every document is ingested again) and leaves the old index
+  and its vectors behind. **Deleting the stack and deploying it again fails**, because
+  the retained vector bucket and indexes still hold their fixed names: delete or
+  import them first.
 
 - **Shared source declarations (#78).** Every dataset is declared once in
   `src/dia/sources/definitions.py`, whichever pipeline uses it. Preflight and the
@@ -135,23 +153,10 @@ Then harden the ledger and CLI, and scale up to all of GATS and the other source
 
 ## 3. Open PRs, branches and issues
 
-**#77, the knowledge base stack (Aakash's draft).** It conflicts with `dev` and keeps
-its own table of sources. Move it onto the shared declarations:
-
-1. Rebase onto `dev`.
-2. Delete `Source`, `KnowledgeBaseEntry`, `KNOWLEDGE_BASES` and `DOCUMENT_TYPES`.
-3. Build each `KnowledgeBaseSpec` from the `SOURCES` entries that have a
-   `knowledge_base` block: bucket and prefix from `resolve(source.location,
-   config.environment)`, `metadata_keys` from `source.metadata_keys`, parsing model
-   and `deployed` from the block.
-4. Set `bucket_owner_account` to the production account when `resolve` says the
-   location is cross-account (dev reading the GATS bucket). For a KB the role reads
-   the bucket directly, so the prod bucket's policy must allow the KB role.
-5. Keep the stable data source names already on the branch.
-
-The four sources that were dev-account buckets (SR25, SR21, NAO, the DIA documents)
-now point at new, **empty** buckets of ours. Their KBs aren't deployed, so nothing
-breaks, but the documents must be copied in before they are (#64).
+**Empty source buckets.** The four sources that were dev-account buckets (SR25, SR21,
+NAO, the DIA documents) now point at new, **empty** buckets of ours. Their KBs aren't
+deployed, so nothing breaks, but the documents must be copied in before they are
+(#64).
 
 **#53, the chunking draft.** About 3,500 lines, untouched since September. The design
 is on the `graph-chunking` branch: `docs/adr/0001-lower-level-graphrag-toolkit-usage.md`

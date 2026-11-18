@@ -280,7 +280,7 @@ class KnowledgeBase(Construct):
         for data_source in spec.data_sources:
             bedrock.CfnDataSource(
                 self,
-                f"DataSource{data_source.key.replace('_', ' ').title().replace(' ', '')}",
+                f"DataSource{key_to_construct_id(data_source.key)}",
                 knowledge_base_id=self._knowledge_base.attr_knowledge_base_id,
                 name=f"{name}{_DATA_SOURCE_INFIX}{data_source.key.replace('_', '-')}",
                 data_source_configuration=bedrock.CfnDataSource.DataSourceConfigurationProperty(
@@ -363,6 +363,15 @@ class KnowledgeBase(Construct):
                     resources=[f"arn:aws:bedrock:*::foundation-model/{base_model_id}"],
                 )
             )
+
+
+def key_to_construct_id(key: str) -> str:
+    """CDK construct ID for a snake_case key, e.g. `dbr_reports` becomes `DbrReports`.
+
+    The ID sets the CloudFormation logical IDs of everything built from the key,
+    so changing it replaces those resources.
+    """
+    return key.replace("_", " ").title().replace(" ", "")
 
 
 def _validate_name(name: str) -> None:
