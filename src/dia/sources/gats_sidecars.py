@@ -26,51 +26,55 @@ SPEND_ID_COLUMN = "CO_SpendID"
 SUBMITTER_COLUMN = "CO_OrganisationSubmitter"
 SUBMIT_DATE_COLUMN = "CO_CaseSubmitDate"
 
-Row = Mapping[str, Any]
 
-
-def _normalise(name: str) -> str:
+def _name_key(name: str) -> str:
+    """Return `name` in a form for comparing names: no extra spaces, ignoring case."""
     return " ".join(name.split()).casefold()
 
 
-_ALBS = {_normalise(alb): (alb, parent) for alb, parent in PARENT_MAP.items()}
-_DEPARTMENTS = {_normalise(parent): parent for parent in PARENT_MAP.values()}
+_ALBS = {_name_key(alb): (alb, parent) for alb, parent in PARENT_MAP.items()}
+_DEPARTMENTS = {_name_key(parent): parent for parent in PARENT_MAP.values()}
 
 
-def _clean(value: object) -> str | None:
+def _text_or_none(value: object) -> str | None:
+    """Return the value as trimmed text, or `None` if it is missing, blank or `nan`."""
     if value is None:
         return None
     text = str(value).strip()
     return text if text and text.lower() != "nan" else None
 
 
-def _first_value(row: Row, columns: tuple[str, ...]) -> str | None:
+def _first_text(row: Mapping[str, Any], columns: tuple[str, ...]) -> str | None:
+    """Return the first of `columns` that has text in this row, or `None` if none do."""
     for column in columns:
-        value = _clean(row.get(column))
+        value = _text_or_none(row.get(column))
         if value is not None:
             return value
     return None
 
 
-def _file_names(row: Row) -> list[str]:
-    cell = _first_value(row, FILE_LIST_COLUMNS)
+def _file_names(row: Mapping[str, Any]) -> list[str]:
+    """Return the file names the row lists, in order, without blanks or repeats."""
+    cell = _first_text(row, FILE_LIST_COLUMNS)
     if cell is None:
         return []
     names = (name.strip() for name in cell.split(","))
     return list(dict.fromkeys(name for name in names if name))
 
 
-def _submit_date(row: Row) -> dt.date | None:
-    text = _clean(row.get(SUBMIT_DATE_COLUMN))
+def _submit_date(row: Mapping[str, Any]) -> dt.date | None:
+    """Return the date the case was submitted, ignoring any time. Raises `SidecarError` if unreadable."""
+    text = _text_or_none(row.get(SUBMIT_DATE_COLUMN))
     if text is None:
         return None
     return parse_date(text.replace("T", " ").split(" ")[0])
 
 
 def _department_and_alb(submitter: str | None) -> tuple[str | None, str | None]:
+    """Return `(department, alb)` for a submitter, in the spelling of `PARENT_MAP`."""
     if submitter is None:
         return None, None
-    key = _normalise(submitter)
+    key = _name_key(submitter)
     if key in _ALBS:
         alb, parent = _ALBS[key]
         return parent, alb
@@ -85,7 +89,7 @@ class DocumentSidecar:
     sidecar: Sidecar
 
 
-def documents_for_row(row: Row) -> list[DocumentSidecar]:
+def documents_for_row(row: Mapping[str, Any]) -> list[DocumentSidecar]:
     """Give each document the row lists the same metadata.
 
     A known ALB gives its parent as the department. A known department is written in its
@@ -99,18 +103,24 @@ def documents_for_row(row: Row) -> list[DocumentSidecar]:
     except SidecarError:
         submitted = None
 
-    department, alb = _department_and_alb(_clean(row.get(SUBMITTER_COLUMN)))
+    department, alb = _department_and_alb(_text_or_none(row.get(SUBMITTER_COLUMN)))
     sidecar = Sidecar(
         document_type=source.document_type,
         department_name=department,
         alb=alb,
-        spend_id=_clean(row.get(SPEND_ID_COLUMN)),
-        project_name=_first_value(row, NAME_COLUMNS),
+        spend_id=_text_or_none(row.get(SPEND_ID_COLUMN)),
+        project_name=_first_text(row, NAME_COLUMNS),
         date=submitted,
     )
     check(sidecar, source)
 
     return [DocumentSidecar(name, sidecar) for name in _file_names(row)]
+
+
+def _newest_first(document: DocumentSidecar) -> tuple[bool, int, str]:
+    """Sort key: newest date first, documents with no date last, then by spend ID so runs repeat."""
+    date = document.sidecar.date
+    return (date is None, -date.toordinal() if date else 0, document.sidecar.spend_id or "")
 
 
 def choose_documents(
@@ -128,12 +138,8 @@ def choose_documents(
 
     chosen = list(documents)
     if departments is not None:
-        wanted = {_normalise(name) for name in departments}
-        chosen = [d for d in chosen if d.sidecar.department_name and _normalise(d.sidecar.department_name) in wanted]
+        wanted = {_name_key(name) for name in departments}
+        chosen = [d for d in chosen if d.sidecar.department_name and _name_key(d.sidecar.department_name) in wanted]
 
-    def newest_first(document: DocumentSidecar) -> tuple[bool, int, str]:
-        date = document.sidecar.date
-        return (date is None, -date.toordinal() if date else 0, document.sidecar.spend_id or "")
-
-    chosen.sort(key=newest_first)
+    chosen.sort(key=_newest_first)
     return chosen if limit is None else chosen[:limit]
