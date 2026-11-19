@@ -15,6 +15,26 @@ uv run dia --version
 
 - [`dia extract-text`](docs/extract-text.md) — Stage 1: extract text from documents in a source
 - `dia pipeline preflight` — check that this process can do what the pipeline needs (see below)
+- `dia pipeline metadata` — dry run: what labelling the GATS documents from an export would do (see below)
+
+### Metadata dry run
+
+`dia pipeline metadata` reads a GATS export and lists the documents bucket, then prints
+counts: how many documents the export lists, how many it would label, and how many are
+already labelled. It is read-only and never writes. Run it with valid AWS credentials
+(in dev it reads through the cross-account role):
+
+```bash
+uv run dia pipeline metadata --export latest --limit 10     # the newest 10 documents, from the newest export in gas/
+uv run dia pipeline metadata --export <file-name>.csv       # a file in spend-controls-raw-data/
+uv run dia pipeline metadata --export latest --departments "Home Office,HMRC"
+```
+
+`--limit` counts documents, not cases, and is applied after `--departments`. The output
+names only unrecognised submitters and departments that matched nothing, and counts
+everything else. Other `.json` files in the bucket are ignored. A document already
+labelled is counted under "already have a label", and "with --overwrite" shows how many
+labels a run that replaces them would write.
 
 ### Preflight
 

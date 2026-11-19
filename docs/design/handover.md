@@ -77,13 +77,28 @@ State when this was written, with `dev` at #81. Check `gh pr list` and
   ignoring case and extra spaces. A known ALB (in `PARENT_MAP`) gives its parent as the
   department and is the ALB. A known department is written in its canonical spelling,
   with no ALB. Any other submitter is kept as written, with no ALB. An empty or unreadable `CO_CaseSubmitDate` (including a
-  placeholder such as `0001-01-01`) leaves `date` out and keeps the documents. Pure
-  code, with tests; no AWS, and nothing uses it yet. It has not been run on a real
-  export, so its date and file-list parsing are untested against real values.
+  placeholder such as `0001-01-01`) leaves `date` out and keeps the documents. It also
+  reads the export from S3: `export_key` turns `latest`, a bare file name or a key into
+  the key to read (`latest` is the newest CSV in `spend-controls-raw-data/gas/`, a bare
+  name is looked for in `spend-controls-raw-data/`), and `read_export` returns its rows,
+  reading `utf-8-sig`. `unrecognised_submitter` and `unmatched_departments` give the
+  dry run two of its counts. It has not been run on a real export, so its date and
+  file-list parsing are untested against real values.
   **Accepted risk:** a document listed by two rows (a resubmitted case) keeps the
-  sidecar of the row merged in last. 8b should merge the rows' dicts (`{**a, **b}`)
-  before calling `choose_documents`, so such a file is labelled once and counts once
-  towards `--limit`.
+  sidecar of the row merged in last, and counts once towards `--limit`.
+- **The metadata dry run (`dia pipeline metadata`, `dia.sources.sidecar_plan`).**
+  `dia pipeline metadata --export latest|<key> [--limit N] [--departments "A,B"]` reads
+  the export and lists the documents bucket once, and prints counts. It never writes: a
+  test checks that it makes only `GetObject` and `ListObjectsV2` calls. In dev it reads
+  through the cross-account role (session name `dia-metadata`). `sidecar_plan.plan` is
+  pure: it takes the rows and the bucket keys, and returns the counts and the sidecars
+  to write, split into `new` and `replacements` for 8c. A bucket key ending
+  `.metadata.json` is a label, any other `.json` file is ignored, and the rest are
+  documents. The old labels from the previous repo's script are `.metadata.json` files,
+  so they count as "already have a label", and the first full write will need
+  `--overwrite`. "documents with no date" counts everything the export lists, not only
+  what is chosen. The output names unrecognised submitters and unmatched departments,
+  and counts everything else. Not yet run against the real export or bucket.
 
 **Agreed, not built**
 
@@ -111,7 +126,7 @@ State when this was written, with `dev` at #81. Check `gh pr list` and
   `dia pipeline <stage>` command that runs locally and with `--remote`. What
   "latest" means is not decided (see section 2).
 
-**Not started:** the command that reads the export and writes sidecars, the ledger, and every stage after text.
+**Not started:** writing the sidecars (8c), the ledger, and every stage after text.
 
 **Old code still in the repo.** The rest of `src/dia` is the first build: `extract-text`
 and its runner, `sources/known.py`, `DataSource`, the `metadata` package, the old
@@ -124,8 +139,10 @@ Follow section 7 of the spec. In short, the order is:
 
 1. **Metadata model and sidecar format.** Done (`dia.sources.sidecar`).
 2. **The GATS metadata step.** The first thing that reads real GATS data. The mapping
-   from export rows to sidecars is built; the `dia pipeline metadata` command that reads
-   the export and writes to S3 is next.
+   from export rows to sidecars and the dry run (`dia pipeline metadata`) are built.
+   Next: run the dry run on the 20 May export and on `latest --limit 10`, read the
+   counts, fix what they show, then build 8c (`--write`, `--overwrite`, in parallel,
+   with a report of the keys written).
 3. **The minimal ledger.**
 4. **S3 reader and the text stage**, which delete `known.py`, `DataSource`,
    `extract-text` and the old metadata package.
@@ -158,19 +175,23 @@ Then harden the ledger and CLI, and scale up to all of GATS and the other source
 
 - **The real formats** of `CO_CaseSubmitDate` and `CO_I_Documents` have not been seen.
   The mapping reads ISO dates (`2025-03-01` or `20250301`, with or without a time) and
-  splits files on commas. The command's dry run should count the documents that end up
-  with no `date`.
+  splits files on commas. The dry run counts the documents that end up with no `date`:
+  run it and check that count.
 - **File names with a comma.** The file list is split on commas, so a name such as
-  "Business Case, v2.pdf" becomes two wrong names and the real file gets no label. Check
-  the real `CO_I_Documents` values before the command relies on the split.
+  "Business Case, v2.pdf" becomes two wrong names and the real file gets no label. The
+  dry run cannot tell this apart from a missing file: both show under "not in the
+  bucket". Check the real `CO_I_Documents` values before 8c relies on the split.
 - **File names against bucket keys.** The names a case lists are assumed to match keys
-  under `files/`. The command should count and skip any that do not exist.
+  under `files/`. The dry run counts the ones that do not ("not in the bucket"), and
+  they are skipped.
 - **Documents with no label.** The old code also merged
   `department_files/historic_cases_metadata.csv`. It is left out for now. The dry run
-  should count the documents under `files/` that would get no label, which shows
-  whether the export covers them.
-- **A department that matches nothing** should be reported by the command, so a typo is
-  not mistaken for no data.
+  counts the documents under `files/` that the export does not list ("documents the
+  export does not list"), which shows whether the export covers them.
+- **The export's location in prod.** The dry run reads the export from the prod bucket,
+  under `spend-controls-raw-data/`. Only the dev copy has been read so far, and whether
+  the cross-account role can read that folder is unverified. If it cannot, the command
+  says it could not read from the bucket.
 - **How the ledger table is laid out**, using the proposal above.
 
 **What we know about the GATS data** (from `scripts/check_source_access.py`, October 2026)
