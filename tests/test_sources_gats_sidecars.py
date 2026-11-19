@@ -2,11 +2,22 @@
 
 import datetime as dt
 
+import boto3
 import pytest
+from moto import mock_aws
 
 from dia.department_mapping import PARENT_MAP
 from dia.document_types import DocumentType
-from dia.sources.gats_sidecars import choose_documents, documents_for_row
+from dia.sources.gats_sidecars import (
+    ExportError,
+    choose_documents,
+    documents_for_row,
+    export_key,
+    latest_export_key,
+    read_export,
+    unmatched_departments,
+    unrecognised_submitter,
+)
 from dia.sources.sidecar import Sidecar
 
 OLD_ROW = {
@@ -301,3 +312,136 @@ def test_a_department_that_matches_nothing_gives_nothing():
 
 def test_an_empty_department_list_chooses_nothing():
     assert choose_documents(_documents(_document("a")), departments=[]) == {}
+
+
+# --- submitters and departments that are not recognised ---
+
+
+def test_a_known_alb_or_department_is_recognised_ignoring_case_and_spaces():
+    parent = PARENT_MAP[AN_ALB]
+    assert unrecognised_submitter({"CO_OrganisationSubmitter": AN_ALB.upper()}) is None
+    assert unrecognised_submitter({"CO_OrganisationSubmitter": f"  {parent.lower()}  "}) is None
+
+
+def test_an_unknown_submitter_is_returned_as_written():
+    assert unrecognised_submitter({"CO_OrganisationSubmitter": " Cabinet Ofice "}) == "Cabinet Ofice"
+
+
+@pytest.mark.parametrize("row", [{}, {"CO_OrganisationSubmitter": ""}, {"CO_OrganisationSubmitter": "nan"}])
+def test_a_row_with_no_submitter_is_not_unrecognised(row):
+    assert unrecognised_submitter(row) is None
+
+
+def test_unmatched_departments_lists_only_those_with_no_documents():
+    documents = _documents(_document("a", department="Home Office"))
+    assert unmatched_departments(documents, ["HOME  OFFICE", "Nowhere Office"]) == ["Nowhere Office"]
+
+
+def test_unmatched_departments_is_empty_when_all_match_or_none_asked():
+    documents = _documents(_document("a", department="Home Office"))
+    assert unmatched_departments(documents, ["Home Office"]) == []
+    assert unmatched_departments(documents, []) == []
+
+
+def test_every_department_is_unmatched_when_there_are_no_documents():
+    assert unmatched_departments({}, ["Home Office"]) == ["Home Office"]
+
+
+# --- reading the export from S3 ---
+
+BUCKET = "export-bucket"
+
+
+class _FakeS3:
+    """Lists the given `(key, last_modified)` pairs, in one page or none."""
+
+    def __init__(self, objects):
+        self._objects = objects
+
+    def get_paginator(self, name):
+        assert name == "list_objects_v2"
+        return self
+
+    def paginate(self, Bucket, Prefix):  # noqa: N803 - boto3's argument names
+        contents = [{"Key": key, "LastModified": modified} for key, modified in self._objects if key.startswith(Prefix)]
+        return [{"Contents": contents}] if contents else [{}]
+
+
+def _at(day):
+    return dt.datetime(2026, 5, day, tzinfo=dt.UTC)
+
+
+def test_the_latest_export_is_the_most_recently_modified_csv():
+    s3 = _FakeS3(
+        [
+            ("spend-controls-raw-data/gas/DataExport_b.csv", _at(1)),
+            ("spend-controls-raw-data/gas/DataExport_a.csv", _at(9)),
+        ]
+    )
+    assert latest_export_key(s3, BUCKET) == "spend-controls-raw-data/gas/DataExport_a.csv"
+
+
+def test_exports_modified_together_are_ordered_by_key():
+    s3 = _FakeS3(
+        [
+            ("spend-controls-raw-data/gas/DataExport_2026-09.csv", _at(1)),
+            ("spend-controls-raw-data/gas/DataExport_2026-10.csv", _at(1)),
+        ]
+    )
+    assert latest_export_key(s3, BUCKET) == "spend-controls-raw-data/gas/DataExport_2026-10.csv"
+
+
+def test_the_latest_export_ignores_files_that_are_not_csv_and_the_old_folder():
+    s3 = _FakeS3(
+        [
+            ("spend-controls-raw-data/gas/notes.txt", _at(20)),
+            ("spend-controls-raw-data/DataExport_old.csv", _at(25)),
+            ("spend-controls-raw-data/gas/DataExport.CSV", _at(3)),
+        ]
+    )
+    assert latest_export_key(s3, BUCKET) == "spend-controls-raw-data/gas/DataExport.CSV"
+
+
+def test_no_csv_to_choose_from_is_an_export_error():
+    with pytest.raises(ExportError, match="no CSV export"):
+        latest_export_key(_FakeS3([("spend-controls-raw-data/gas/notes.txt", _at(1))]), BUCKET)
+
+
+def test_export_key_resolves_latest_a_bare_name_and_a_full_key():
+    s3 = _FakeS3([("spend-controls-raw-data/gas/new.csv", _at(1))])
+    assert export_key(s3, BUCKET, "latest") == "spend-controls-raw-data/gas/new.csv"
+    assert export_key(s3, BUCKET, "old.csv") == "spend-controls-raw-data/old.csv"
+    assert export_key(s3, BUCKET, "other-folder/x.csv") == "other-folder/x.csv"
+
+
+@pytest.fixture
+def s3_with_export():
+    with mock_aws():
+        client = boto3.client("s3", region_name="eu-west-2")
+        client.create_bucket(Bucket=BUCKET, CreateBucketConfiguration={"LocationConstraint": "eu-west-2"})
+        yield client
+
+
+def test_read_export_returns_one_dict_per_row(s3_with_export):
+    s3_with_export.put_object(Bucket=BUCKET, Key="x.csv", Body=b"CO_SpendID,CO_CS_Files\nS1,a.pdf\nS2,b.pdf\n")
+    assert read_export(s3_with_export, BUCKET, "x.csv") == [
+        {"CO_SpendID": "S1", "CO_CS_Files": "a.pdf"},
+        {"CO_SpendID": "S2", "CO_CS_Files": "b.pdf"},
+    ]
+
+
+def test_read_export_strips_the_byte_order_mark_so_the_first_column_keeps_its_name(s3_with_export):
+    s3_with_export.put_object(Bucket=BUCKET, Key="x.csv", Body="\ufeffCO_SpendID\nS1\n".encode())
+    assert read_export(s3_with_export, BUCKET, "x.csv") == [{"CO_SpendID": "S1"}]
+
+
+def test_read_export_accepts_a_cell_over_the_csv_modules_default_limit(s3_with_export):
+    long_list = ",".join(f"file-{i}.pdf" for i in range(30_000))
+    assert len(long_list) > 131_072
+    s3_with_export.put_object(Bucket=BUCKET, Key="x.csv", Body=f'CO_CS_Files\n"{long_list}"\n'.encode())
+    assert read_export(s3_with_export, BUCKET, "x.csv")[0]["CO_CS_Files"] == long_list
+
+
+def test_reading_a_missing_export_is_an_export_error(s3_with_export):
+    with pytest.raises(ExportError, match="does not exist"):
+        read_export(s3_with_export, BUCKET, "missing.csv")
