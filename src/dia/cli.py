@@ -201,6 +201,115 @@ def preflight(
     typer.echo(f"\nAll {len(results)} checks passed or were skipped.")
 
 
+@pipeline_app.command("metadata")
+def metadata(
+    export: Annotated[
+        str,
+        typer.Option(
+            "--export",
+            help="The export CSV: `latest` for the newest in gas/, or its key (a bare file name is looked for "
+            "in spend-controls-raw-data/).",
+        ),
+    ],
+    limit: Annotated[
+        int | None, typer.Option("--limit", min=1, help="Only the newest N documents (not cases).")
+    ] = None,
+    departments: Annotated[
+        str | None,
+        typer.Option("--departments", help='Only these departments, comma-separated, ALBs included: "A,B".'),
+    ] = None,
+) -> None:
+    """Dry run: what labelling the GATS documents from an export would do.
+
+    Reads the export and lists the documents bucket, and prints counts. Read-only: it
+    never writes. In dev it reads through the cross-account role.
+    """
+    wanted = None
+    if departments is not None:
+        wanted = [name.strip() for name in departments.split(",") if name.strip()]
+        if not wanted:
+            raise typer.BadParameter("give at least one department name.", param_hint="--departments")
+
+    import boto3
+    from botocore.exceptions import BotoCoreError, ClientError
+    from gds_idea_cdk_constructs import DeploymentEnvironment
+
+    from dia.cli_helpers import detect_environment
+    from dia.naming import REGION, Names
+    from dia.preflight import source_s3_client
+    from dia.runtime_config import RuntimeConfig
+    from dia.sources.definitions import SOURCES
+    from dia.sources.gats_sidecars import SOURCE_NAME, ExportError, export_key, read_export
+    from dia.sources.models import resolve
+    from dia.sources.sidecar_plan import plan
+
+    environment = detect_environment()
+    location = resolve(SOURCES[SOURCE_NAME].location, environment)
+
+    role_arn = None
+    if location.cross_account:
+        with _exit_on_remote_error():
+            role_arn = RuntimeConfig.load(Names(environment)).cross_account_role_arn
+        if role_arn is None:
+            typer.echo("Error: the documents are read through the cross-account role, but the runtime config has none.")
+            raise typer.Exit(code=1)
+
+    where = f"s3://{location.bucket}/{location.prefix}"
+    try:
+        s3 = source_s3_client(role_arn, boto3.client("sts", region_name=REGION), session_name="dia-metadata")
+        key = export_key(s3, location.bucket, export)
+        rows = read_export(s3, location.bucket, key)
+        bucket_keys = [
+            item["Key"]
+            for page in s3.get_paginator("list_objects_v2").paginate(Bucket=location.bucket, Prefix=location.prefix)
+            for item in page.get("Contents", [])
+        ]
+    except ExportError as e:
+        typer.echo(f"Error: {e}")
+        raise typer.Exit(code=1) from None
+    except (ClientError, BotoCoreError) as e:
+        typer.echo(f"Error: could not read from s3://{location.bucket}: {e}")
+        raise typer.Exit(code=1) from None
+
+    result = plan(rows, bucket_keys, prefix=location.prefix, limit=limit, departments=wanted)
+
+    via = " (through the cross-account role)" if location.cross_account else ""
+    prod = " (production)" if environment == DeploymentEnvironment.PRODUCTION else ""
+    typer.echo(f"Export:    {key}")
+    typer.echo(f"Documents: {where}{via}{prod}\n")
+    _print_plan(result)
+
+
+def _print_plan(result) -> None:
+    """Print a `SidecarPlan` as counts. Only the submitters and departments are named."""
+    typer.echo("The export")
+    typer.echo(f"  rows read:                      {result.rows_read}")
+    typer.echo(f"  rows with no documents:         {result.rows_without_documents}")
+    typer.echo(f"  documents listed:               {result.listed}")
+    typer.echo(f"  documents with no date:         {result.listed_without_date}")
+    unrecognised = result.unrecognised_submitters
+    typer.echo(f"  unrecognised submitters:        {sum(unrecognised.values())} rows, {len(unrecognised)} names")
+    for name, count in sorted(unrecognised.items(), key=lambda item: (-item[1], item[0])):
+        typer.echo(f"    {name}: {count}")
+    typer.echo(f"  departments that matched nothing: {len(result.unmatched_departments)}")
+    for name in result.unmatched_departments:
+        typer.echo(f"    {name}")
+
+    typer.echo("\nChosen")
+    typer.echo(f"  documents chosen:               {result.chosen}")
+    typer.echo(f"  not in the bucket:              {result.chosen_not_in_bucket}")
+    typer.echo(f"  already have a label:           {result.chosen_already_labelled}")
+
+    typer.echo("\nThe bucket")
+    typer.echo(f"  documents the export does not list: {result.bucket_not_listed}")
+
+    typer.echo("\nWould write")
+    typer.echo(f"  new labels only:                {result.would_write_new}")
+    typer.echo(f"  with --overwrite:               {result.would_write_with_overwrite}")
+
+    typer.echo("\nDry run: nothing was written. Other .json files in the bucket are ignored.")
+
+
 tasks_app = typer.Typer(help="Look at the pipeline's tasks in the cloud.")
 pipeline_app.add_typer(tasks_app, name="tasks")
 
