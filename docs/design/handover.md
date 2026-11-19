@@ -68,6 +68,22 @@ State when this was written, with `dev` at #81. Check `gh pr list` and
   source declares. Pure code, with tests; no AWS. Not yet used by anything, so it is
   not in `TASK_MODULES`: add it when a task command imports it. A test fails if a
   source declares a key that `Sidecar` lacks, or the reverse.
+- **GATS sidecar mapping (`dia.sources.gats_sidecars`).** `documents_for_row` turns one
+  export row into a `{file name: Sidecar}` dict, one entry per document the row lists,
+  for both export layouts. `choose_documents` takes and returns such a dict. It picks which to label: it
+  filters by department, orders newest first by `Sidecar.date` (no date last), then
+  takes the first `limit`, so `--limit` counts documents. A department matches on
+  `department_name`, ignoring case, so it includes its ALBs. The submitter is matched
+  ignoring case and extra spaces. A known ALB (in `PARENT_MAP`) gives its parent as the
+  department and is the ALB. A known department is written in its canonical spelling,
+  with no ALB. Any other submitter is kept as written, with no ALB. An empty or unreadable `CO_CaseSubmitDate` (including a
+  placeholder such as `0001-01-01`) leaves `date` out and keeps the documents. Pure
+  code, with tests; no AWS, and nothing uses it yet. It has not been run on a real
+  export, so its date and file-list parsing are untested against real values.
+  **Accepted risk:** a document listed by two rows (a resubmitted case) keeps the
+  sidecar of the row merged in last. 8b should merge the rows' dicts (`{**a, **b}`)
+  before calling `choose_documents`, so such a file is labelled once and counts once
+  towards `--limit`.
 
 **Agreed, not built**
 
@@ -95,7 +111,7 @@ State when this was written, with `dev` at #81. Check `gh pr list` and
   `dia pipeline <stage>` command that runs locally and with `--remote`. What
   "latest" means is not decided (see section 2).
 
-**Not started:** the metadata step (its model is built), the ledger, and every stage after text.
+**Not started:** the command that reads the export and writes sidecars, the ledger, and every stage after text.
 
 **Old code still in the repo.** The rest of `src/dia` is the first build: `extract-text`
 and its runner, `sources/known.py`, `DataSource`, the `metadata` package, the old
@@ -107,7 +123,9 @@ ledger and its CLI, writers, filters, and the agent. Only the old text stage eve
 Follow section 7 of the spec. In short, the order is:
 
 1. **Metadata model and sidecar format.** Done (`dia.sources.sidecar`).
-2. **The GATS metadata step.** The first thing that reads real GATS data.
+2. **The GATS metadata step.** The first thing that reads real GATS data. The mapping
+   from export rows to sidecars is built; the `dia pipeline metadata` command that reads
+   the export and writes to S3 is next.
 3. **The minimal ledger.**
 4. **S3 reader and the text stage**, which delete `known.py`, `DataSource`,
    `extract-text` and the old metadata package.
@@ -116,19 +134,43 @@ Follow section 7 of the spec. In short, the order is:
 
 Then harden the ledger and CLI, and scale up to all of GATS and the other sources.
 
-**Decisions to make first**
+**Decided for the GATS metadata step**
 
-- **What "latest" means** for the trial run. The GATS export has 198 columns. The
-  candidate date columns are `CO_CaseSubmitDate`, `CO_FullCaseDecisionDate` and
-  `CO_AssuranceRatingDate`, and `CO_CaseStatus` could limit it to decided cases.
-  Look at the real values before choosing. `scripts/check_source_access.py` is a
-  read-only starting point.
-- **Whether `--limit` counts cases or documents.** A GATS case lists several files in
-  `CO_CS_Files`, so 10 cases may be 20 to 40 documents.
-- **Which GATS export is current.** The dev bucket's newest export is from 20 May 2026,
-  but documents are still arriving (newest 20 Oct 2026). The prod bucket has its own
-  `spend-controls-raw-data/` folder that nobody has looked inside. It is probably the
-  live one.
+- **"Latest"** is newest by `CO_CaseSubmitDate`, and that column is also the sidecar's
+  `date`.
+- **`--limit N` counts documents, not cases.** Documents are taken newest first until
+  `N` is reached, so a case can be cut part-way (`choose_documents`). It can also be
+  limited to some departments, which is applied before the limit.
+- **Two export layouts.** The older export (`spend-controls-raw-data/`, newest
+  20 May 2026) lists a case's files in `CO_CS_Files` and names it in `CO_CS_CaseName`.
+  The newer one (`spend-controls-raw-data/gas/`, 35 columns) uses `CO_I_Documents` and
+  `CO_I_Name`. The first run uses the 20 May file; later runs use the newest in `gas/`.
+  The mapping accepts both. The trial of 10 documents is taken from `gas/`.
+- **Every document a case lists gets a sidecar,** whatever its type.
+- **Overwriting:** off by default, so a repeat run does not replace an existing sidecar;
+  an `--overwrite` option replaces it.
+- **Writing:** the command is run locally with prod credentials, and writes into the
+  GATS bucket. The data owners have agreed to our adding sidecar files. This is an
+  exception to "local runs write only locally", and the command's PR should say so in
+  the spec.
+
+**Still to settle**
+
+- **The real formats** of `CO_CaseSubmitDate` and `CO_I_Documents` have not been seen.
+  The mapping reads ISO dates (`2025-03-01` or `20250301`, with or without a time) and
+  splits files on commas. The command's dry run should count the documents that end up
+  with no `date`.
+- **File names with a comma.** The file list is split on commas, so a name such as
+  "Business Case, v2.pdf" becomes two wrong names and the real file gets no label. Check
+  the real `CO_I_Documents` values before the command relies on the split.
+- **File names against bucket keys.** The names a case lists are assumed to match keys
+  under `files/`. The command should count and skip any that do not exist.
+- **Documents with no label.** The old code also merged
+  `department_files/historic_cases_metadata.csv`. It is left out for now. The dry run
+  should count the documents under `files/` that would get no label, which shows
+  whether the export covers them.
+- **A department that matches nothing** should be reported by the command, so a typo is
+  not mistaken for no data.
 - **How the ledger table is laid out**, using the proposal above.
 
 **What we know about the GATS data** (from `scripts/check_source_access.py`, October 2026)
@@ -185,15 +227,15 @@ what you don't need.
   `repositories_access_prod.tf`. That file controls who can assume `cdk-prod-deploy`;
   without it a merge to the `prod` branch fails at the AWS login. Prod changes need a
   reviewer from `@co-cddo/gds-idea-aws` or `@co-cddo/gds-idea-senior-ds`. The GATS
-  sidecars can only be written from prod, so this is needed before the metadata step
-  is useful.
+  sidecars are written by a local run with prod credentials, so this is not needed for
+  them, but it is needed before CI can deploy to prod.
 - **Confirm the prod location of the GATS metadata.** The prod GATS documents bucket
   is confirmed. Only the dev copy of the export has been read.
 - **The agent must query current versions only.** Graph loads are versioned, and the
   agent doesn't yet filter to the current one. Coordinate with whoever owns the agent.
   Also move the agent onto `RuntimeConfig` in place of its hand-filled Secrets Manager
   endpoints, which can drift (raised on #65).
-- **Agree with the data owners that we add sidecar files** to the GATS bucket.
+- **Data owners have agreed** that we add sidecar files to the GATS bucket (done).
 - **Questions on testing and ownership** in spec section 6: how stages are tested, and
   who may run `--remote` in prod.
 - **The load stage needs** an `aoss` permission on the task role (the OpenSearch data

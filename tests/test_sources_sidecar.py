@@ -134,6 +134,16 @@ def test_parse_date_rejects_other_text_and_impossible_dates(text):
         parse_date(text)
 
 
+@pytest.mark.parametrize("text", ["0001-01-01", "00010101", "0999-12-31", "0999", "0500-06"])
+def test_parse_date_rejects_dates_before_the_year_1000(text):
+    with pytest.raises(SidecarError, match="before the year 1000"):
+        parse_date(text)
+
+
+def test_parse_date_accepts_the_year_1000():
+    assert parse_date("1000-01-01") == dt.date(1000, 1, 1)
+
+
 def test_there_is_no_year_field():
     with pytest.raises(ValueError):
         Sidecar(document_type=DocumentType.BUSINESS_CASE, year=2025)  # type: ignore[call-arg]

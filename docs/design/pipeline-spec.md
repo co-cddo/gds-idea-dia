@@ -344,10 +344,14 @@ steps below.
   the first month and day when only a year or month is known; there is no `year` key.
   `to_json` rejects a file over Bedrock's 10 KB limit for a metadata file.
 - [ ] 8. **GATS metadata step** (`dia pipeline metadata`). Reads the GATS export,
-  maps its columns into the model, and writes a sidecar next to each document. Settle
-  first what "latest" means, whether `--limit` counts cases or documents, and which
-  export is current (see the handover). Dev warns that it cannot write to the prod
-  bucket; the real write is a prod run, which needs the prod deploy access change.
+  maps its columns into the model, and writes a sidecar next to each document.
+  - [x] 8a. The mapping from export rows to sidecars (`dia.sources.gats_sidecars`).
+    Handles both export layouts, takes `date` from `CO_CaseSubmitDate`, and chooses the
+    newest N documents, optionally for some departments (`--limit` counts documents).
+  - [ ] 8b. The command: dry run by default, `--write` after a confirmation, and an
+    existing sidecar is kept unless `--overwrite` is given. It is run locally with prod
+    credentials; dev warns that it cannot write to the prod bucket. This needs an
+    exception to the rule that local runs write only locally, for sidecars only.
 - [ ] 9. **Minimal ledger**: a protocol, a DynamoDB version in a new table and a
   local-file version. Records done or failed per document, with the reason, the output
   location and the code version. The in-progress lock, stale settings, batch job state

@@ -111,7 +111,9 @@ def parse_date(text: str) -> dt.date:
         The date. `2025` gives 1 January 2025, `2026-06` gives 1 June 2026.
 
     Raises:
-        SidecarError: If the text is not in one of those forms, or is not a real date.
+        SidecarError: If the text is not in one of those forms, is not a real date, or is
+            before the year 1000 (which `Sidecar` does not accept, and which exports use
+            for "no date", as in `0001-01-01`).
     """
     match = _PARTIAL_DATE.fullmatch(text.strip())
     if match is None:
@@ -119,9 +121,12 @@ def parse_date(text: str) -> dt.date:
     year, _separator, month, day = match.groups()
     parts = [int(part) if part else 1 for part in (year, month, day)]
     try:
-        return dt.date(*parts)
+        date = dt.date(*parts)
     except ValueError as error:
         raise SidecarError(f"{text!r} is not a real date") from error
+    if date < _EARLIEST_DATE:
+        raise SidecarError(f"{text!r} is before the year 1000")
+    return date
 
 
 def sidecar_key(document_key: str) -> str:
