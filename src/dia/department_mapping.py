@@ -15,6 +15,7 @@ PARENT_MAP: dict[str, str] = {
     "UK Covid-19 Inquiry": "Cabinet Office",
     "Civil Service Commission": "Cabinet Office",
     "Infected Blood Compensation Authority": "Cabinet Office",
+    "Cabinet Office Digital": "Cabinet Office",
     # --- DSIT (Science, Innovation & Tech) ---
     "Government Digital Service": "Department for Science, Innovation & Technology",
     "Central Digital and Data Office": "Department for Science, Innovation & Technology",
@@ -22,6 +23,8 @@ PARENT_MAP: dict[str, str] = {
     "UK Research and Innovation": "Department for Science, Innovation & Technology",
     "Intellectual Property Office": "Department for Science, Innovation & Technology",
     "UK Space Agency": "Department for Science, Innovation & Technology",
+    "Building Digital UK": "Department for Science, Innovation & Technology",
+    "Information Commissioner's Office": "Department for Science, Innovation & Technology",
     # --- DfT (Transport) ---
     "Driver and Vehicle Licensing Agency": "Department for Transport",
     "Driver & Vehicle Standards Agency": "Department for Transport",
@@ -32,10 +35,12 @@ PARENT_MAP: dict[str, str] = {
     "British Transport Police": "Department for Transport",
     "East West Rail": "Department for Transport",
     "Vehicle Certification Agency": "Department for Transport",
+    "Office of Rail and Road": "Department for Transport",
     # --- MoJ (Justice) & Law Officers ---
     "HM Courts & Tribunals Service": "Ministry of Justice",
     "The Crown Prosecution Service": "Attorney General's Office",
     "Serious Fraud Office": "Attorney General's Office",
+    "Government Legal Department": "Attorney General's Office",
     "Independent Office for Police Conduct": "Home Office",
     "Youth Justice Board": "Ministry of Justice",
     "Criminal Cases Review Commission": "Ministry of Justice",
@@ -43,6 +48,8 @@ PARENT_MAP: dict[str, str] = {
     "National Crime Agency": "Home Office",
     "Disclosure & Barring Service": "Home Office",
     "Security Industry Authority": "Home Office",
+    "College of Policing": "Home Office",
+    "National Protective Security Agency": "Home Office",
     # --- DHSC (Health) ---
     "NHS Business Services Authority": "Department of Health and Social Care",
     "UK Health Security Agency": "Department of Health and Social Care",
@@ -69,6 +76,7 @@ PARENT_MAP: dict[str, str] = {
     "Competition and Markets Authority": "Department of Business and Trade",
     "Financial Reporting Council": "Department of Business and Trade",
     "Insolvency Service": "Department of Business and Trade",
+    "UK Export Finance": "Department of Business and Trade",
     # --- DESNZ (Energy Security & Net Zero) ---
     "Ofgem": "Department for Energy Security and Net Zero",
     "Coal Authority": "Department for Energy Security and Net Zero",
@@ -78,10 +86,14 @@ PARENT_MAP: dict[str, str] = {
     "UK Industrial Fusion Solutions": "Department for Energy Security and Net Zero",
     "Civil Nuclear Constabulary": "Department for Energy Security and Net Zero",
     "Salix Finance": "Department for Energy Security and Net Zero",
+    "Great British Energy": "Department for Energy Security and Net Zero",
+    "Great British Energy – Nuclear": "Department for Energy Security and Net Zero",
+    "Low Carbon Contracts Company": "Department for Energy Security and Net Zero",
     # --- MHCLG (Housing/Communities) ---
     "Planning Inspectorate": "Ministry of Housing, Communities and Local Government",
     "HM Land Registry": "Ministry of Housing, Communities and Local Government",
     "Homes England": "Ministry of Housing, Communities and Local Government",
+    "Leasehold Advisory Service": "Ministry of Housing, Communities and Local Government",
     # --- DEFRA (Environment) ---
     "Ofwat": "Department for Environment, Food and Rural Affairs",
     "Animal & Plant Health Agency": "Department for Environment, Food and Rural Affairs",
@@ -89,10 +101,12 @@ PARENT_MAP: dict[str, str] = {
     "Natural England": "Department for Environment, Food and Rural Affairs",
     "Marine Management Organisation": "Department for Environment, Food and Rural Affairs",
     "Rural Payments Agency": "Department for Environment, Food and Rural Affairs",
+    "Centre for Environment, Fisheries and Aquaculture Science": "Department for Environment, Food and Rural Affairs",
     # --- DWP (Work & Pensions) ---
     "Money and Pensions Service": "Department for Work and Pensions",
     "Health and Safety Executive": "Department for Work and Pensions",
     "The Pension Regulator": "Department for Work and Pensions",
+    "The Pensions Ombudsman": "Department for Work and Pensions",
     # --- DCMS (Culture) ---
     "Gambling Commission": "Department for Culture, Media & Sport",
     "National Lottery Heritage Fund": "Department for Culture, Media & Sport",
@@ -100,18 +114,29 @@ PARENT_MAP: dict[str, str] = {
     "Sport England": "Department for Culture, Media & Sport",
     "Arts Council England": "Department for Culture, Media & Sport",
     "The National Archives": "Department for Culture, Media & Sport",
+    "The National Lottery Community Fund": "Department for Culture, Media & Sport",
+    "Imperial War Museum": "Department for Culture, Media & Sport",
     # --- MOD (Defence) ---
     "MOD Strategic Command": "Ministry of Defence",
     "Air Force": "Ministry of Defence",
     "Defence Equipment and Support": "Ministry of Defence",
     "Army": "Ministry of Defence",
+    "Navy": "Ministry of Defence",
+    "Defence Science and Technology Laboratory": "Ministry of Defence",
+    "Submarine Delivery Agency": "Ministry of Defence",
     # --- HMT (Treasury) ---
     "UK Investment Bank": "HM Treasury",
+    "UK Infrastructure Bank": "HM Treasury",
+    "National Wealth Fund": "HM Treasury",
     "National Savings and Investments": "HM Treasury",
     "The Valuation Office Agency": "HM Treasury",
     # --- DfE (Education) ---
     "Student Loans Company": "Department for Education",
     "Ofsted": "Department for Education",
+    "Oak National Academy": "Department for Education",
+    # --- FCDO (Foreign, Commonwealth & Development) ---
+    "British Council": "Foreign, Commonwealth & Development Office",
+    "National Cyber Security Centre": "Foreign, Commonwealth & Development Office",
     # --- SR21 folder abbreviations ---
     "HO": "Home Office",
     "MOD": "Ministry of Defence",

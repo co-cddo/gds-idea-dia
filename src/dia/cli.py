@@ -2,11 +2,14 @@
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 
 from dia import __version__
+
+if TYPE_CHECKING:
+    from dia.sources.sidecar_plan import SidecarPlan
 
 app = typer.Typer(
     name="dia",
@@ -239,7 +242,7 @@ def metadata(
     from dia.preflight import source_s3_client
     from dia.runtime_config import RuntimeConfig
     from dia.sources.definitions import SOURCES
-    from dia.sources.gats_sidecars import SOURCE_NAME, ExportError, export_key, read_export
+    from dia.sources.gats_sidecars import SOURCE_NAME, ExportError, export_key, list_bucket_keys, read_export
     from dia.sources.models import resolve
     from dia.sources.sidecar_plan import plan
 
@@ -259,11 +262,7 @@ def metadata(
         s3 = source_s3_client(role_arn, boto3.client("sts", region_name=REGION), session_name="dia-metadata")
         key = export_key(s3, location.bucket, export)
         rows = read_export(s3, location.bucket, key)
-        bucket_keys = [
-            item["Key"]
-            for page in s3.get_paginator("list_objects_v2").paginate(Bucket=location.bucket, Prefix=location.prefix)
-            for item in page.get("Contents", [])
-        ]
+        bucket_keys = list_bucket_keys(s3, location.bucket, location.prefix)
     except ExportError as e:
         typer.echo(f"Error: {e}")
         raise typer.Exit(code=1) from None
@@ -280,36 +279,41 @@ def metadata(
     _print_plan(result)
 
 
-def _print_plan(result) -> None:
-    """Print a `SidecarPlan` as counts. Only the submitters and departments are named."""
+def _print_plan(result: "SidecarPlan") -> None:
+    """Print a `SidecarPlan` as counts. Only the submitters, dates and departments are named."""
+
+    def line(label: str, value: object) -> None:
+        typer.echo(f"  {label + ':':<37}{value}")
+
     typer.echo("The export")
-    typer.echo(f"  rows read:                      {result.rows_read}")
-    typer.echo(f"  rows with no documents:         {result.rows_without_documents}")
-    typer.echo(f"  documents listed:               {result.listed}")
-    typer.echo(f"  documents with no date:         {result.listed_without_date}")
+    line("rows read", result.rows_read)
+    line("rows ignored as test data", result.test_rows_ignored)
+    line("rows with no documents", result.rows_without_documents)
+    line("documents listed", result.listed)
+    line("documents with no date", result.listed_without_date)
     unreadable = result.unreadable_dates
-    typer.echo(f"  dates that could not be read:   {sum(unreadable.values())} rows, {len(unreadable)} values")
+    line("dates that could not be read", f"{sum(unreadable.values())} rows, {len(unreadable)} values")
     for text, count in sorted(unreadable.items(), key=lambda item: (-item[1], item[0]))[:3]:
         typer.echo(f"    {text}: {count}")
     unrecognised = result.unrecognised_submitters
-    typer.echo(f"  unrecognised submitters:        {sum(unrecognised.values())} rows, {len(unrecognised)} names")
+    line("unrecognised submitters", f"{sum(unrecognised.values())} rows, {len(unrecognised)} names")
     for name, count in sorted(unrecognised.items(), key=lambda item: (-item[1], item[0])):
         typer.echo(f"    {name}: {count}")
-    typer.echo(f"  departments that matched nothing: {len(result.unmatched_departments)}")
+    line("departments that matched nothing", len(result.unmatched_departments))
     for name in result.unmatched_departments:
         typer.echo(f"    {name}")
 
     typer.echo("\nChosen")
-    typer.echo(f"  documents chosen:               {result.chosen}")
-    typer.echo(f"  not in the bucket:              {result.chosen_not_in_bucket}")
-    typer.echo(f"  already have a label:           {result.chosen_already_labelled}")
+    line("documents chosen", result.chosen)
+    line("not in the bucket", result.chosen_not_in_bucket)
+    line("already have a label", result.chosen_already_labelled)
 
     typer.echo("\nThe bucket")
-    typer.echo(f"  documents the export does not list: {result.bucket_not_listed}")
+    line("documents the export does not list", result.bucket_not_listed)
 
     typer.echo("\nWould write")
-    typer.echo(f"  new labels only:                {result.would_write_new}")
-    typer.echo(f"  with --overwrite:               {result.would_write_with_overwrite}")
+    line("new labels only", result.would_write_new)
+    line("with --overwrite", result.would_write_with_overwrite)
 
     typer.echo("\nDry run: nothing was written. Other .json files in the bucket are ignored.")
 

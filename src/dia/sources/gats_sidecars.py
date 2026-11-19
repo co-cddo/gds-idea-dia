@@ -14,7 +14,7 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import io
-import sys
+import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
@@ -31,10 +31,15 @@ SUBMITTER_COLUMN = "CO_OrganisationSubmitter"
 DATE_COLUMNS = ("CO_SpendStartDate", "CO_DT_SpendStartDate", "CO_CaseSubmitDate")
 DATE_FORMATS = ("%d %B %Y", "%d-%b-%y")
 EARLIEST_DATE = dt.date(1990, 1, 1)
+_FILE_EXTENSION = re.compile(r"\.[A-Za-z0-9]{1,5}$")
+_TEST_SUBMITTER = re.compile(r"(?:^|[^a-z])test(?:ing)?$", re.IGNORECASE)
 
 OLD_EXPORT_PREFIX = "spend-controls-raw-data/"
 NEW_EXPORT_PREFIX = "spend-controls-raw-data/gas/"
 LATEST = "latest"
+
+# One export cell can list thousands of files. `csv` refuses a cell over 128 KB unless told otherwise.
+csv.field_size_limit(2**31 - 1)
 
 
 class ExportError(Exception):
@@ -88,13 +93,21 @@ def read_export(s3_client: Any, bucket: str, key: str) -> list[dict[str, str]]:
     except s3_client.exceptions.NoSuchKey:
         raise ExportError(f"s3://{bucket}/{key} does not exist") from None
 
-    csv.field_size_limit(sys.maxsize)
     return list(csv.DictReader(io.StringIO(body.decode("utf-8-sig"))))
 
 
+def list_bucket_keys(s3_client: Any, bucket: str, prefix: str) -> list[str]:
+    """Return every key under `prefix`, following S3's pages of at most 1000 keys."""
+    return [
+        item["Key"]
+        for page in s3_client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix)
+        for item in page.get("Contents", [])
+    ]
+
+
 def _name_key(name: str) -> str:
-    """Return `name` in a form for comparing names: no extra spaces, ignoring case, `&` as `and`."""
-    return " ".join(name.replace("&", " and ").split()).casefold()
+    """Return `name` in a form for comparing names: ignoring case, extra spaces and a leading `The`; `&` as `and`."""
+    return " ".join(name.replace("&", " and ").split()).casefold().removeprefix("the ")
 
 
 _ALBS = {_name_key(alb): (alb, parent) for alb, parent in PARENT_MAP.items()}
@@ -119,11 +132,25 @@ def _first_text(row: Mapping[str, Any], columns: tuple[str, ...]) -> str | None:
 
 
 def _file_names(row: Mapping[str, Any]) -> list[str]:
-    """Return the file names the row lists, in order, without blanks or repeats."""
+    """Return the file names the row lists, in order, without blanks or repeats.
+
+    Names are separated by commas, but a name can hold a comma too ("Business Case, v2.pdf").
+    A piece with no file extension is joined to the pieces after it, up to one that has one.
+    """
     cell = _first_text(row, FILE_LIST_COLUMNS)
     if cell is None:
         return []
-    names = (name.strip() for name in cell.split(","))
+    names: list[str] = []
+    pending = ""
+    for part in cell.split(","):
+        piece = f"{pending},{part}" if pending else part
+        if _FILE_EXTENSION.search(piece.strip()):
+            names.append(piece.strip())
+            pending = ""
+        else:
+            pending = piece
+    if pending.strip():
+        names.append(pending.strip())
     return list(dict.fromkeys(name for name in names if name))
 
 
@@ -181,6 +208,15 @@ def _department_and_alb(submitter: str | None) -> tuple[str | None, str | None]:
         alb, parent = _ALBS[key]
         return parent, alb
     return _DEPARTMENTS.get(key, submitter), None
+
+
+def is_test_row(row: Mapping[str, Any]) -> bool:
+    """Whether the row's submitter is test data: a name whose last word is `test` or `testing`.
+
+    `GATS_test`, `00_Test` and `... JUST FOR TESTING` are test rows. `Test Valley Borough Council` is not.
+    """
+    submitter = _text_or_none(row.get(SUBMITTER_COLUMN))
+    return submitter is not None and _TEST_SUBMITTER.search(submitter) is not None
 
 
 def unrecognised_submitter(row: Mapping[str, Any]) -> str | None:

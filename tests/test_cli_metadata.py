@@ -101,7 +101,7 @@ def test_it_prints_the_counts_for_an_export_by_bare_file_name(prod):
 
 def test_it_names_the_unrecognised_submitters_and_nothing_else_from_the_export(prod):
     result = _run("--export", "old.csv")
-    assert "unrecognised submitters:        1 rows, 1 names" in result.output
+    assert re.search(r"unrecognised submitters:\s+1 rows, 1 names", result.output)
     assert "Home Ofice: 1" in result.output
     for private in ("Case one", "Case two", "S1", "S2", "a.pdf", "b.docx", "ghost.pdf"):
         assert private not in result.output
@@ -299,5 +299,27 @@ def test_dates_that_cannot_be_read_are_counted_apart_from_empty_ones_with_exampl
 
     assert result.exit_code == 0, result.output
     assert _count(result.output, "documents with no date") == 3
-    assert "dates that could not be read:   2 rows, 1 values" in result.output
+    assert re.search(r"dates that could not be read:\s+2 rows, 1 values", result.output)
     assert "    soon: 2" in result.output
+
+
+def test_every_count_starts_in_the_same_column(prod):
+    result = _run("--export", "old.csv")
+
+    counts = [line for line in _plain(result.output).splitlines() if re.match(r"  [a-z].*:\s+\S", line)]
+    assert len(counts) >= 10
+    columns = {re.match(r"  [^:]+:\s*", line).end() for line in counts}
+    assert columns == {39}
+
+
+def test_rows_from_test_submitters_are_ignored_and_counted_in_the_output(prod):
+    body = OLD_EXPORT + 'S9,GATS_test,2026-05-01,"z.pdf",Test case\nS8,00_Test,,"y.pdf",Test case\n'
+    prod.put_object(Bucket=BUCKET, Key="spend-controls-raw-data/with-tests.csv", Body=body.encode())
+
+    result = _run("--export", "with-tests.csv")
+
+    assert result.exit_code == 0, result.output
+    assert _count(result.output, "rows read") == 5
+    assert _count(result.output, "rows ignored as test data") == 2
+    assert _count(result.output, "documents listed") == 4
+    assert "GATS_test" not in result.output

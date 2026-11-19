@@ -14,6 +14,7 @@ from typing import Any
 from dia.sources.gats_sidecars import (
     choose_documents,
     documents_for_row,
+    is_test_row,
     unmatched_departments,
     unreadable_date,
     unrecognised_submitter,
@@ -27,6 +28,8 @@ class SidecarPlan:
 
     Attributes:
         rows_read: Rows in the export.
+        test_rows_ignored: Rows whose submitter is test data. They are left out of every
+            other count.
         rows_without_documents: Rows that list no files.
         unrecognised_submitters: Submitter as written to the number of rows that have it,
             for submitters in neither the department nor the ALB list.
@@ -45,6 +48,7 @@ class SidecarPlan:
     """
 
     rows_read: int
+    test_rows_ignored: int
     rows_without_documents: int
     unrecognised_submitters: dict[str, int]
     unreadable_dates: dict[str, int]
@@ -98,12 +102,16 @@ def plan(
     listed: dict[str, Sidecar] = {}
     rows_read = 0
     rows_without_documents = 0
+    test_rows_ignored = 0
     unrecognised: Counter[str] = Counter()
     unreadable: Counter[str] = Counter()
 
     for row in rows:
         rows_read += 1
-        documents = documents_for_row(row)
+        if is_test_row(row):
+            test_rows_ignored += 1
+            continue
+        documents: dict[str, Sidecar] = documents_for_row(row)
         if not documents:
             rows_without_documents += 1
         elif (date_text := unreadable_date(row)) is not None:
@@ -116,7 +124,7 @@ def plan(
     labels = {key for key in keys if is_sidecar_key(key)}
     bucket_documents = {key for key in keys if _is_document_key(key)}
 
-    chosen = choose_documents(listed, limit, departments)
+    chosen: dict[str, Sidecar] = choose_documents(listed, limit, departments)
 
     chosen_not_in_bucket = 0
     chosen_already_labelled = 0
@@ -136,6 +144,7 @@ def plan(
 
     return SidecarPlan(
         rows_read=rows_read,
+        test_rows_ignored=test_rows_ignored,
         rows_without_documents=rows_without_documents,
         unrecognised_submitters=dict(unrecognised),
         unreadable_dates=dict(unreadable),

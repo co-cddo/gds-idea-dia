@@ -13,7 +13,9 @@ from dia.sources.gats_sidecars import (
     choose_documents,
     documents_for_row,
     export_key,
+    is_test_row,
     latest_export_key,
+    list_bucket_keys,
     read_export,
     unmatched_departments,
     unreadable_date,
@@ -302,17 +304,17 @@ def test_documents_come_newest_first():
 
 
 def test_limit_counts_documents_and_can_cut_a_case_part_way():
-    newer = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": "2026-01-01", "CO_CS_Files": "n1,n2,n3"})
-    older = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": "2025-01-01", "CO_CS_Files": "o1,o2,o3"})
-    assert _names(choose_documents({**older, **newer}, limit=4)) == ["n1", "n2", "n3", "o1"]
+    newer = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": "2026-01-01", "CO_CS_Files": "n1.pdf,n2.pdf,n3.pdf"})
+    older = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": "2025-01-01", "CO_CS_Files": "o1.pdf,o2.pdf,o3.pdf"})
+    assert _names(choose_documents({**older, **newer}, limit=4)) == ["n1.pdf", "n2.pdf", "n3.pdf", "o1.pdf"]
 
 
 def test_a_file_listed_by_two_rows_keeps_the_row_merged_last_and_uses_the_limit_once():
-    older = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": "2025-01-01", "CO_CS_Files": "shared.pdf, o1"})
-    newer = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": "2026-01-01", "CO_CS_Files": "shared.pdf, n1"})
+    older = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": "2025-01-01", "CO_CS_Files": "shared.pdf, o1.pdf"})
+    newer = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": "2026-01-01", "CO_CS_Files": "shared.pdf, n1.pdf"})
     merged = {**older, **newer}
     assert merged["shared.pdf"].date == dt.date(2026, 1, 1)
-    assert _names(choose_documents(merged, limit=3)) == ["shared.pdf", "n1", "o1"]
+    assert _names(choose_documents(merged, limit=3)) == ["shared.pdf", "n1.pdf", "o1.pdf"]
 
 
 def test_limit_larger_than_the_data_returns_everything():
@@ -534,3 +536,109 @@ def test_read_export_accepts_a_cell_over_the_csv_modules_default_limit(s3_with_e
 def test_reading_a_missing_export_is_an_export_error(s3_with_export):
     with pytest.raises(ExportError, match="does not exist"):
         read_export(s3_with_export, BUCKET, "missing.csv")
+
+
+class _PagedS3:
+    """Returns the given pages, and records what it was asked for."""
+
+    def __init__(self, pages):
+        self._pages = pages
+        self.asked = None
+
+    def get_paginator(self, name):
+        assert name == "list_objects_v2"
+        return self
+
+    def paginate(self, Bucket, Prefix):  # noqa: N803 - boto3's argument names
+        self.asked = (Bucket, Prefix)
+        return self._pages
+
+
+def test_list_bucket_keys_follows_every_page_in_order():
+    s3 = _PagedS3([{"Contents": [{"Key": "files/a"}, {"Key": "files/b"}]}, {"Contents": [{"Key": "files/c"}]}])
+    assert list_bucket_keys(s3, BUCKET, "files/") == ["files/a", "files/b", "files/c"]
+    assert s3.asked == (BUCKET, "files/")
+
+
+def test_list_bucket_keys_gives_an_empty_list_for_a_prefix_with_nothing_under_it():
+    assert list_bucket_keys(_PagedS3([{}]), BUCKET, "files/") == []
+
+
+# --- file names that contain a comma ---
+
+
+def _listed(cell, column="CO_CS_Files"):
+    return _names(documents_for_row({**OLD_ROW, "CO_CS_Files": None, column: cell}))
+
+
+def test_a_plain_list_of_names_is_split_at_every_comma():
+    assert _listed("case.pdf, annex.docx,notes.xlsx") == ["case.pdf", "annex.docx", "notes.xlsx"]
+
+
+def test_a_name_with_a_comma_in_it_stays_whole():
+    assert _listed("Business Case, v2.pdf, annex.docx") == ["Business Case, v2.pdf", "annex.docx"]
+
+
+def test_a_name_with_several_commas_stays_whole():
+    assert _listed("Costs, risks, and benefits.pdf,b.docx") == ["Costs, risks, and benefits.pdf", "b.docx"]
+
+
+def test_the_newer_layout_joins_names_the_same_way():
+    assert _listed("Plan, final.pptx, b.pdf", column="CO_I_Documents") == ["Plan, final.pptx", "b.pdf"]
+
+
+@pytest.mark.parametrize("extension", ["pdf", "docx", "pptx", "xlsx", "png", "csv", "eml", "doc"])
+def test_every_extension_in_the_bucket_ends_a_name(extension):
+    assert _listed(f"one.{extension}, two.{extension}") == [f"one.{extension}", f"two.{extension}"]
+
+
+def test_a_last_piece_with_no_extension_is_kept_as_its_own_name():
+    assert _listed("a.pdf, notes") == ["a.pdf", "notes"]
+
+
+def test_repeats_and_blanks_are_dropped_after_joining():
+    assert _listed("a.pdf,, a.pdf, Report, v2.pdf, Report, v2.pdf") == ["a.pdf", "Report, v2.pdf"]
+
+
+# --- a leading "The" ---
+
+
+def test_a_leading_the_does_not_stop_a_known_alb_matching_and_the_canonical_name_is_written():
+    row = {"CO_OrganisationSubmitter": "Equality and Human Rights Commission", "CO_CS_Files": "a.pdf"}
+    assert unrecognised_submitter(row) is None
+    sidecar = _first_sidecar(documents_for_row(row))
+    assert (sidecar.department_name, sidecar.alb) == ("Cabinet Office", "The Equality and Human Rights Commission")
+
+
+def test_a_leading_the_in_the_export_matches_a_name_the_map_spells_without_it():
+    row = {"CO_OrganisationSubmitter": "The Home Office", "CO_CS_Files": "a.pdf"}
+    assert unrecognised_submitter(row) is None
+    assert _first_sidecar(documents_for_row(row)).department_name == "Home Office"
+
+
+def test_the_departments_option_ignores_a_leading_the_too():
+    documents = documents_for_row({"CO_OrganisationSubmitter": "Home Office", "CO_CS_Files": "a.pdf"})
+    assert _names(choose_documents(documents, departments=["The Home Office"])) == ["a.pdf"]
+    assert unmatched_departments(documents, ["the home office"]) == []
+
+
+def test_a_name_that_only_starts_with_the_letters_the_is_not_changed():
+    assert unrecognised_submitter({"CO_OrganisationSubmitter": "Theatres Trust"}) == "Theatres Trust"
+
+
+# --- test data ---
+
+
+@pytest.mark.parametrize(
+    "submitter",
+    ["GATS_test", "00_Test", "00_Rainmaker solutions - JUST FOR TESTING", "test", "  Testing ", "GATS test"],
+)
+def test_a_submitter_whose_last_word_is_test_or_testing_is_test_data(submitter):
+    assert is_test_row({"CO_OrganisationSubmitter": submitter})
+
+
+@pytest.mark.parametrize(
+    "submitter", ["Home Office", "Test Valley Borough Council", "Contest Ltd", "Latest News", "Attest", None, "", "nan"]
+)
+def test_other_submitters_are_not_test_data(submitter):
+    assert not is_test_row({"CO_OrganisationSubmitter": submitter})

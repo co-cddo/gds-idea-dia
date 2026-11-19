@@ -173,3 +173,34 @@ def test_an_unreadable_date_on_a_row_with_no_files_is_not_counted():
 def test_documents_with_an_unreadable_date_are_still_listed_and_chosen():
     result = _plan([_row("S1", "a.pdf", date="soon")], ["files/a.pdf"])
     assert (result.listed, result.listed_without_date, result.chosen) == (1, 1, 1)
+
+
+# --- test data ---
+
+
+def test_rows_from_test_submitters_are_ignored_and_counted():
+    rows = [
+        _row("S1", "a.pdf"),
+        _row("S2", "b.pdf", submitter="GATS_test"),
+        _row("S3", "c.pdf", submitter="00_Test"),
+        _row("S4", "", submitter="GATS_test"),
+    ]
+    result = _plan(rows, ["files/a.pdf", "files/b.pdf", "files/c.pdf"])
+
+    assert (result.rows_read, result.test_rows_ignored) == (4, 3)
+    assert result.listed == 1
+    assert list(result.new) == ["files/a.pdf.metadata.json"]
+
+
+def test_ignored_test_rows_are_in_no_other_row_count():
+    rows = [_row("S1", "a.pdf", submitter="GATS_test", date="soon"), _row("S2", "", submitter="00_Test")]
+    result = _plan(rows)
+
+    assert result.rows_without_documents == 0
+    assert result.unrecognised_submitters == {}
+    assert result.unreadable_dates == {}
+
+
+def test_a_test_documents_file_counts_as_not_listed_by_the_export():
+    result = _plan([_row("S1", "a.pdf", submitter="GATS_test")], ["files/a.pdf"])
+    assert result.bucket_not_listed == 1
