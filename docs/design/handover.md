@@ -76,14 +76,22 @@ State when this was written, with `dev` at #81. Check `gh pr list` and
   `department_name`, ignoring case, so it includes its ALBs. The submitter is matched
   ignoring case and extra spaces. A known ALB (in `PARENT_MAP`) gives its parent as the
   department and is the ALB. A known department is written in its canonical spelling,
-  with no ALB. Any other submitter is kept as written, with no ALB. An empty or unreadable `CO_CaseSubmitDate` (including a
-  placeholder such as `0001-01-01`) leaves `date` out and keeps the documents. It also
+  with no ALB. Any other submitter is kept as written, with no ALB. Names are compared
+  with `&` read as `and`. The date is the first of `CO_SpendStartDate`,
+  `CO_DT_SpendStartDate` and `CO_CaseSubmitDate` that has text (only the last is in the
+  newer export). It is read as ISO, `01 April 2025` or `30-Mar-26`. A date that is empty,
+  unreadable or before 1990 (such as `0001-01-01` or `1970-01-01`) leaves `date` out and
+  keeps the documents; an unreadable value does not fall back to the next column.
+  `unreadable_date` returns the text of such a date, so the dry run can count it apart
+  from an empty one. It also
   reads the export from S3: `export_key` turns `latest`, a bare file name or a key into
   the key to read (`latest` is the newest CSV in `spend-controls-raw-data/gas/`, a bare
   name is looked for in `spend-controls-raw-data/`), and `read_export` returns its rows,
   reading `utf-8-sig`. `unrecognised_submitter` and `unmatched_departments` give the
-  dry run two of its counts. It has not been run on a real export, so its date and
-  file-list parsing are untested against real values.
+  dry run two more of its counts. Its date and file-list parsing were checked against local
+  copies of the 8 March 2026 older export and the 19 November 2026 newer export (counts
+  only: 2.8% of the older export's documents and 13% of the newer one's have no date),
+  but it has not been run against the bucket.
   **Accepted risk:** a document listed by two rows (a resubmitted case) keeps the
   sidecar of the row merged in last, and counts once towards `--limit`.
 - **The metadata dry run (`dia pipeline metadata`, `dia.sources.sidecar_plan`).**
@@ -140,7 +148,8 @@ Follow section 7 of the spec. In short, the order is:
 1. **Metadata model and sidecar format.** Done (`dia.sources.sidecar`).
 2. **The GATS metadata step.** The first thing that reads real GATS data. The mapping
    from export rows to sidecars and the dry run (`dia pipeline metadata`) are built.
-   Next: run the dry run on the 20 May export and on `latest --limit 10`, read the
+   Next: run the dry run on the 8 March 2026 export (the newest older one in prod) and on
+   `latest --limit 10`, read the
    counts, fix what they show, then build 8c (`--write`, `--overwrite`, in parallel,
    with a report of the keys written).
 3. **The minimal ledger.**
@@ -153,15 +162,20 @@ Then harden the ledger and CLI, and scale up to all of GATS and the other source
 
 **Decided for the GATS metadata step**
 
-- **"Latest"** is newest by `CO_CaseSubmitDate`, and that column is also the sidecar's
-  `date`.
+- **"Latest"** is newest by the sidecar's `date`. In the older export that is the spend
+  start date (`CO_SpendStartDate`, then `CO_DT_SpendStartDate`, then `CO_CaseSubmitDate`);
+  in the newer export it is the case submit date (`CO_CaseSubmitDate`). So `date` does
+  not mean the same thing in the two, and many documents share a date (often 1 April),
+  so `--limit N` is not strictly the N most recent: ties are broken by spend ID.
 - **`--limit N` counts documents, not cases.** Documents are taken newest first until
   `N` is reached, so a case can be cut part-way (`choose_documents`). It can also be
   limited to some departments, which is applied before the limit.
-- **Two export layouts.** The older export (`spend-controls-raw-data/`, newest
-  20 May 2026) lists a case's files in `CO_CS_Files` and names it in `CO_CS_CaseName`.
-  The newer one (`spend-controls-raw-data/gas/`, 35 columns) uses `CO_I_Documents` and
-  `CO_I_Name`. The first run uses the 20 May file; later runs use the newest in `gas/`.
+- **Two export layouts.** The older export (`spend-controls-raw-data/`, about weekly;
+  the newest in prod is `DataExport_08032026052712.csv`, 8 March 2026) lists a case's
+  files in `CO_CS_Files` and names it in `CO_CS_CaseName`. The newer one
+  (`spend-controls-raw-data/gas/`, daily, 35 columns) uses `CO_I_Documents` and
+  `CO_I_Name`. The key's date is day-month-year, so keys do not sort by date. The first
+  run uses the 8 March file; later runs use the newest in `gas/`.
   The mapping accepts both. The trial of 10 documents is taken from `gas/`.
 - **Every document a case lists gets a sidecar,** whatever its type.
 - **Overwriting:** off by default, so a repeat run does not replace an existing sidecar;
@@ -173,10 +187,14 @@ Then harden the ledger and CLI, and scale up to all of GATS and the other source
 
 **Still to settle**
 
-- **The real formats** of `CO_CaseSubmitDate` and `CO_I_Documents` have not been seen.
-  The mapping reads ISO dates (`2025-03-01` or `20250301`, with or without a time) and
-  splits files on commas. The dry run counts the documents that end up with no `date`:
-  run it and check that count.
+- **Dates of the documents.** The formats are known (see above), but 2.8% of the older
+  export's documents and 13% of the newer one's have no date. In the older export a
+  `1970` placeholder was found, and is left out. The dry run reports documents with no
+  date, and unreadable dates apart from empty ones: check both after each new export.
+  `date` for the older export is the spend start date, not a submit date; whether that
+  is what users want to filter on is worth confirming with them.
+- **The file list.** `CO_I_Documents` and `CO_CS_Files` use only commas (no `;`, `|` or
+  newlines) in the two exports checked. The mapping splits files on commas.
 - **File names with a comma.** The file list is split on commas, so a name such as
   "Business Case, v2.pdf" becomes two wrong names and the real file gets no label. The
   dry run cannot tell this apart from a missing file: both show under "not in the

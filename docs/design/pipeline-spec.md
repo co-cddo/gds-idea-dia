@@ -346,7 +346,8 @@ steps below.
 - [ ] 8. **GATS metadata step** (`dia pipeline metadata`). Reads the GATS export,
   maps its columns into the model, and writes a sidecar next to each document.
   - [x] 8a. The mapping from export rows to sidecars (`dia.sources.gats_sidecars`).
-    Handles both export layouts, takes `date` from `CO_CaseSubmitDate`, and chooses the
+    Handles both export layouts, takes `date` from the first of `CO_SpendStartDate`,
+    `CO_DT_SpendStartDate` and `CO_CaseSubmitDate` that has a value, and chooses the
     newest N documents, optionally for some departments (`--limit` counts documents).
   - [x] 8b. The dry run (`dia pipeline metadata --export latest|<key> [--limit N]
     [--departments "A,B"]`). Reads the export and lists the documents bucket, then prints

@@ -30,8 +30,11 @@ uv run dia pipeline metadata --export <file-name>.csv       # a file in spend-co
 uv run dia pipeline metadata --export latest --departments "Home Office,HMRC"
 ```
 
-`--limit` counts documents, not cases, and is applied after `--departments`. The output
-names only unrecognised submitters and departments that matched nothing, and counts
+`--limit` counts documents, not cases, and is applied after `--departments`. "Newest" is
+by the label's `date`. In the older export that is the spend start date (`CO_SpendStartDate`,
+then `CO_DT_SpendStartDate`, then `CO_CaseSubmitDate`), and in the newer export it is the case
+submit date. Documents with no readable date come last. The output names only unrecognised
+submitters, departments that matched nothing and unreadable date values, and counts
 everything else. Other `.json` files in the bucket are ignored. A document already
 labelled is counted under "already have a label", and "with --overwrite" shows how many
 labels a run that replaces them would write.
