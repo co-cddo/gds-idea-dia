@@ -77,18 +77,19 @@ State when this was written, with `dev` at #81. Check `gh pr list` and
   ignoring case and extra spaces. A known ALB (in `PARENT_MAP`) gives its parent as the
   department and is the ALB. A known department is written in its canonical spelling,
   with no ALB. Any other submitter is kept as written, with no ALB. Names are compared
-  with `&` read as `and`. The date is the first of `CO_SpendStartDate`,
+  ignoring case, extra spaces and a leading `The`, with `&` read as `and`. The date is the first of `CO_SpendStartDate`,
   `CO_DT_SpendStartDate` and `CO_CaseSubmitDate` that has text (only the last is in the
   newer export). It is read as ISO, `01 April 2025` or `30-Mar-26`. A date that is empty,
   unreadable or before 1990 (such as `0001-01-01` or `1970-01-01`) leaves `date` out and
   keeps the documents; an unreadable value does not fall back to the next column.
   `unreadable_date` returns the text of such a date, so the dry run can count it apart
-  from an empty one. It also
+  from an empty one. `is_test_row` finds rows from test submitters, and `_file_names`
+  keeps a file name with a comma whole. It also
   reads the export from S3: `export_key` turns `latest`, a bare file name or a key into
   the key to read (`latest` is the newest CSV in `spend-controls-raw-data/gas/`, a bare
   name is looked for in `spend-controls-raw-data/`), and `read_export` returns its rows,
-  reading `utf-8-sig`. `unrecognised_submitter` and `unmatched_departments` give the
-  dry run two more of its counts. Its date and file-list parsing were checked against local
+  reading `utf-8-sig`, and `list_bucket_keys` lists a prefix. `unrecognised_submitter`
+  and `unmatched_departments` give the dry run two more of its counts. Its date and file-list parsing were checked against local
   copies of the 8 March 2026 older export and the 19 November 2026 newer export (counts
   only: 2.8% of the older export's documents and 13% of the newer one's have no date),
   but it has not been run against the bucket.
@@ -105,8 +106,10 @@ State when this was written, with `dev` at #81. Check `gh pr list` and
   documents. The old labels from the previous repo's script are `.metadata.json` files,
   so they count as "already have a label", and the first full write will need
   `--overwrite`. "documents with no date" counts everything the export lists, not only
-  what is chosen. The output names unrecognised submitters and unmatched departments,
-  and counts everything else. Not yet run against the real export or bucket.
+  what is chosen. Rows from test submitters are skipped and counted. The output names
+  unrecognised submitters, unreadable dates and unmatched departments, and counts
+  everything else. It has been run in prod on the 8 March 2026 older export and on
+  `latest`; see "Still to settle" for what it found.
 
 **Agreed, not built**
 
@@ -194,22 +197,39 @@ Then harden the ledger and CLI, and scale up to all of GATS and the other source
   `date` for the older export is the spend start date, not a submit date; whether that
   is what users want to filter on is worth confirming with them.
 - **The file list.** `CO_I_Documents` and `CO_CS_Files` use only commas (no `;`, `|` or
-  newlines) in the two exports checked. The mapping splits files on commas.
-- **File names with a comma.** The file list is split on commas, so a name such as
-  "Business Case, v2.pdf" becomes two wrong names and the real file gets no label. The
-  dry run cannot tell this apart from a missing file: both show under "not in the
-  bucket". Check the real `CO_I_Documents` values before 8c relies on the split.
+  newlines) in the two exports checked. A name can contain a comma, so the mapping joins
+  a piece with no file extension to the pieces after it ("Business Case, v2.pdf"). On the
+  8 March older export this took the names not in the bucket from 163 to 11, and on the
+  19 November newer export from 40 to 0. A name with no extension, or one whose first
+  piece looks like an extension (`Version 2.1, final.pdf`), would still be split wrongly.
 - **File names against bucket keys.** The names a case lists are assumed to match keys
   under `files/`. The dry run counts the ones that do not ("not in the bucket"), and
-  they are skipped.
-- **Documents with no label.** The old code also merged
-  `department_files/historic_cases_metadata.csv`. It is left out for now. The dry run
-  counts the documents under `files/` that the export does not list ("documents the
-  export does not list"), which shows whether the export covers them.
-- **The export's location in prod.** The dry run reads the export from the prod bucket,
-  under `spend-controls-raw-data/`. Only the dev copy has been read so far, and whether
-  the cross-account role can read that folder is unverified. If it cannot, the command
-  says it could not read from the bucket.
+  they are skipped. The 11 left in the older export are not in the bucket at all.
+- **Documents with no label.** The bucket has 15,841 documents and 10,778 old labels
+  (all `.metadata.json`). The two exports checked do not overlap, and between them list
+  about 8,250 documents. About 7,700 documents are listed by neither, and 2,620 of those
+  have no label at all, so they would stay unlabelled and the text stage would skip
+  them. The old code merged `department_files/historic_cases_metadata.csv` for these,
+  but that folder is not in the prod bucket (only the dev one). Where their metadata
+  comes from is not decided.
+- **Overwriting the old labels loses information.** The old labels use `department`
+  (ours is `department_name`), have no `date`, and many (23 of 40 sampled) have a
+  `file_reference`, which `Sidecar` does not have. The bucket has never had versioning
+  enabled, so an overwrite cannot be undone. Before the first `--overwrite` (8c), back up
+  the old labels, and check that nothing reads `file_reference`.
+- **Bodies not in `PARENT_MAP`.** These are unrecognised in the two exports, and are
+  written as given: the Charity Commission, the Prime Minister's Office (10 Downing
+  Street), UK Shared Business Services, the National Infrastructure and Service
+  Transformation Authority and the London Procurement Partnership. Bodies added with
+  less certainty, which are worth checking: the Government Legal Department (Attorney
+  General's Office), UK Export Finance (Department of Business and Trade), the National
+  Cyber Security Centre (FCDO) and the National Protective Security Agency (Home Office).
+- **Test data.** Rows whose submitter ends in `test` or `testing` (`GATS_test`,
+  `00_Test`) are ignored and counted: 73 rows in the older export and 24 in the newer.
+- **The export's location in prod.** Verified: the dry run reads the export and lists the
+  bucket with prod credentials (the 8 March older export and the newest in `gas/`). Not
+  verified: reading both through the cross-account role from dev. If that is denied, the
+  command says it could not read from the bucket.
 - **How the ledger table is laid out**, using the proposal above.
 
 **What we know about the GATS data** (from `scripts/check_source_access.py`, October 2026)

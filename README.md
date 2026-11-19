@@ -19,7 +19,8 @@ uv run dia --version
 
 ### Metadata dry run
 
-`dia pipeline metadata` reads a GATS export and lists the documents bucket, then prints
+`dia pipeline metadata` reads a GATS (Get Approval to Spend, run by the Government
+Assurance Service) export and lists the documents bucket, then prints
 counts: how many documents the export lists, how many it would label, and how many are
 already labelled. It is read-only and never writes. Run it with valid AWS credentials
 (in dev it reads through the cross-account role):
@@ -33,7 +34,10 @@ uv run dia pipeline metadata --export latest --departments "Home Office,HMRC"
 `--limit` counts documents, not cases, and is applied after `--departments`. "Newest" is
 by the label's `date`. In the older export that is the spend start date (`CO_SpendStartDate`,
 then `CO_DT_SpendStartDate`, then `CO_CaseSubmitDate`), and in the newer export it is the case
-submit date. Documents with no readable date come last. The output names only unrecognised
+submit date. Documents with no readable date come last. Rows from test submitters
+(`GATS_test`, a name ending in `test` or `testing`) are ignored and counted. A file name
+with a comma in it ("Business Case, v2.pdf") is kept whole, because a piece with no file
+extension is joined to the next one. The output names only unrecognised
 submitters, departments that matched nothing and unreadable date values, and counts
 everything else. Other `.json` files in the bucket are ignored. A document already
 labelled is counted under "already have a label", and "with --overwrite" shows how many
