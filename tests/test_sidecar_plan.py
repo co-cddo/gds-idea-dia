@@ -145,3 +145,31 @@ def test_an_empty_export_and_an_empty_bucket_give_zeros():
 def test_a_limit_below_one_is_rejected():
     with pytest.raises(ValueError, match="at least 1"):
         _plan([_row("S1", "a.pdf")], limit=0)
+
+
+# --- dates that could not be read ---
+
+
+def test_unreadable_dates_are_counted_by_text_in_rows_that_list_files():
+    rows = [
+        _row("S1", "a.pdf", date="soon"),
+        _row("S2", "b.pdf", date="soon"),
+        _row("S3", "c.pdf", date="01/03/2025"),
+        _row("S4", "d.pdf", date="30-Mar-26"),
+    ]
+    assert _plan(rows).unreadable_dates == {"soon": 2, "01/03/2025": 1}
+
+
+def test_an_empty_date_is_not_unreadable_but_is_still_a_document_with_no_date():
+    result = _plan([_row("S1", "a.pdf", date="")])
+    assert result.unreadable_dates == {}
+    assert result.listed_without_date == 1
+
+
+def test_an_unreadable_date_on_a_row_with_no_files_is_not_counted():
+    assert _plan([_row("S1", "", date="soon")]).unreadable_dates == {}
+
+
+def test_documents_with_an_unreadable_date_are_still_listed_and_chosen():
+    result = _plan([_row("S1", "a.pdf", date="soon")], ["files/a.pdf"])
+    assert (result.listed, result.listed_without_date, result.chosen) == (1, 1, 1)

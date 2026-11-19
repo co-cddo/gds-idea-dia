@@ -15,6 +15,7 @@ from dia.sources.gats_sidecars import (
     choose_documents,
     documents_for_row,
     unmatched_departments,
+    unreadable_date,
     unrecognised_submitter,
 )
 from dia.sources.sidecar import Sidecar, is_sidecar_key, sidecar_key
@@ -29,9 +30,12 @@ class SidecarPlan:
         rows_without_documents: Rows that list no files.
         unrecognised_submitters: Submitter as written to the number of rows that have it,
             for submitters in neither the department nor the ALB list.
+        unreadable_dates: Date text as written to the number of rows that have it, for rows
+            that list files and have a date that could not be read. An empty date is not
+            counted: it is in `listed_without_date`.
         unmatched_departments: Requested departments that no listed document belongs to.
         listed: Different files the export lists. A file listed by two rows counts once.
-        listed_without_date: Listed files with no date.
+        listed_without_date: Listed files with no date, whether it was empty or unreadable.
         chosen: Files picked after the department filter and the limit.
         chosen_not_in_bucket: Chosen files with no object in the bucket.
         chosen_already_labelled: Chosen files in the bucket that already have a label.
@@ -43,6 +47,7 @@ class SidecarPlan:
     rows_read: int
     rows_without_documents: int
     unrecognised_submitters: dict[str, int]
+    unreadable_dates: dict[str, int]
     unmatched_departments: list[str]
     listed: int
     listed_without_date: int
@@ -94,12 +99,15 @@ def plan(
     rows_read = 0
     rows_without_documents = 0
     unrecognised: Counter[str] = Counter()
+    unreadable: Counter[str] = Counter()
 
     for row in rows:
         rows_read += 1
         documents = documents_for_row(row)
         if not documents:
             rows_without_documents += 1
+        elif (date_text := unreadable_date(row)) is not None:
+            unreadable[date_text] += 1
         if (submitter := unrecognised_submitter(row)) is not None:
             unrecognised[submitter] += 1
         listed.update(documents)
@@ -130,6 +138,7 @@ def plan(
         rows_read=rows_read,
         rows_without_documents=rows_without_documents,
         unrecognised_submitters=dict(unrecognised),
+        unreadable_dates=dict(unreadable),
         unmatched_departments=[] if departments is None else unmatched_departments(listed, departments),
         listed=len(listed),
         listed_without_date=sum(1 for sidecar in listed.values() if sidecar.date is None),

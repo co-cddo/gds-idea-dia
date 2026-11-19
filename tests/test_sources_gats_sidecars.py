@@ -16,6 +16,7 @@ from dia.sources.gats_sidecars import (
     latest_export_key,
     read_export,
     unmatched_departments,
+    unreadable_date,
     unrecognised_submitter,
 )
 from dia.sources.sidecar import Sidecar
@@ -190,9 +191,97 @@ def test_placeholder_and_malformed_dates_do_not_crash_the_row(cell):
     assert all(sidecar.date is None for sidecar in documents.values())
 
 
-def test_the_earliest_accepted_date_is_the_year_1000():
-    documents = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": "1000-01-01"})
-    assert _first_sidecar(documents).date == dt.date(1000, 1, 1)
+@pytest.mark.parametrize("cell", ["1970-01-01", "01-Jan-70", "1989-12-31", "01 January 1900"])
+def test_a_date_before_1990_is_left_out(cell):
+    documents = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": cell})
+    assert _first_sidecar(documents).date is None
+
+
+def test_the_earliest_accepted_date_is_1_january_1990():
+    documents = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": "1990-01-01"})
+    assert _first_sidecar(documents).date == dt.date(1990, 1, 1)
+
+
+# The formats seen in the real exports: `30-Mar-26` in CO_CaseSubmitDate, `01 April 2025` in the spend start columns.
+
+
+@pytest.mark.parametrize(
+    ("cell", "expected"),
+    [
+        ("30-Mar-26", dt.date(2026, 3, 30)),
+        ("02-Oct-26", dt.date(2026, 10, 2)),
+        ("13-Sep-23", dt.date(2023, 9, 13)),
+        (" 13-Sep-23 ", dt.date(2023, 9, 13)),
+    ],
+)
+def test_case_submit_dates_in_day_month_name_two_digit_year_form_are_read(cell, expected):
+    documents = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": cell})
+    assert _first_sidecar(documents).date == expected
+
+
+@pytest.mark.parametrize("column", ["CO_SpendStartDate", "CO_DT_SpendStartDate"])
+def test_spend_start_dates_in_day_month_name_year_form_are_read(column):
+    row = {key: value for key, value in OLD_ROW.items() if key != "CO_CaseSubmitDate"}
+    documents = documents_for_row({**row, column: "01 April 2025"})
+    assert _first_sidecar(documents).date == dt.date(2025, 4, 1)
+
+
+# The date comes from the first of CO_SpendStartDate, CO_DT_SpendStartDate, CO_CaseSubmitDate that has text.
+
+
+def _dated_row(**dates):
+    row = {key: value for key, value in OLD_ROW.items() if key != "CO_CaseSubmitDate"}
+    return {**row, **dates}
+
+
+def test_the_spend_start_date_is_used_before_the_other_columns():
+    row = _dated_row(
+        CO_SpendStartDate="01 April 2024", CO_DT_SpendStartDate="01 April 2025", CO_CaseSubmitDate="13-Sep-23"
+    )
+    assert _first_sidecar(documents_for_row(row)).date == dt.date(2024, 4, 1)
+
+
+def test_the_dt_spend_start_date_is_used_when_the_spend_start_date_is_empty():
+    row = _dated_row(CO_SpendStartDate="", CO_DT_SpendStartDate="01 April 2025", CO_CaseSubmitDate="13-Sep-23")
+    assert _first_sidecar(documents_for_row(row)).date == dt.date(2025, 4, 1)
+
+
+def test_the_case_submit_date_is_used_when_both_spend_start_dates_are_empty_or_missing():
+    row = _dated_row(CO_SpendStartDate="", CO_CaseSubmitDate="13-Sep-23")
+    assert _first_sidecar(documents_for_row(row)).date == dt.date(2023, 9, 13)
+
+
+def test_an_unreadable_first_date_does_not_fall_back_to_the_next_column():
+    row = _dated_row(CO_SpendStartDate="soon", CO_DT_SpendStartDate="01 April 2025")
+    assert _first_sidecar(documents_for_row(row)).date is None
+
+
+# --- dates that cannot be read ---
+
+
+@pytest.mark.parametrize("cell", ["soon", "01/03/2025", "March 2025", "1970-01-01", "2025-13-45"])
+def test_unreadable_date_returns_the_text_as_written(cell):
+    assert unreadable_date({"CO_CaseSubmitDate": f" {cell} "}) == cell
+
+
+@pytest.mark.parametrize("cell", ["", None, "nan", "30-Mar-26", "2025-03-01"])
+def test_an_empty_or_readable_date_is_not_unreadable(cell):
+    assert unreadable_date({"CO_CaseSubmitDate": cell}) is None
+
+
+def test_unreadable_date_looks_at_the_column_the_date_would_come_from():
+    assert unreadable_date({"CO_SpendStartDate": "soon", "CO_CaseSubmitDate": "30-Mar-26"}) == "soon"
+    assert unreadable_date({"CO_SpendStartDate": "", "CO_CaseSubmitDate": "30-Mar-26"}) is None
+
+
+# --- names with an ampersand ---
+
+
+def test_an_ampersand_matches_and_for_submitters_and_departments():
+    row = {"CO_OrganisationSubmitter": "HM Revenue & Customs", "CO_CS_Files": "a.pdf"}
+    assert unrecognised_submitter(row) is None
+    assert _first_sidecar(documents_for_row(row)).department_name == "HM Revenue and Customs"
+    assert choose_documents(documents_for_row(row), departments=["HM Revenue&Customs"]) != {}
 
 
 def test_a_row_with_no_spend_id_still_maps():
@@ -381,14 +470,14 @@ def test_the_latest_export_is_the_most_recently_modified_csv():
     assert latest_export_key(s3, BUCKET) == "spend-controls-raw-data/gas/DataExport_a.csv"
 
 
-def test_exports_modified_together_are_ordered_by_key():
+def test_exports_modified_together_are_ordered_by_key_so_the_choice_is_repeatable():
     s3 = _FakeS3(
         [
-            ("spend-controls-raw-data/gas/DataExport_2026-09.csv", _at(1)),
-            ("spend-controls-raw-data/gas/DataExport_2026-10.csv", _at(1)),
+            ("spend-controls-raw-data/gas/DataExport_a.csv", _at(1)),
+            ("spend-controls-raw-data/gas/DataExport_b.csv", _at(1)),
         ]
     )
-    assert latest_export_key(s3, BUCKET) == "spend-controls-raw-data/gas/DataExport_2026-10.csv"
+    assert latest_export_key(s3, BUCKET) == "spend-controls-raw-data/gas/DataExport_b.csv"
 
 
 def test_the_latest_export_ignores_files_that_are_not_csv_and_the_old_folder():

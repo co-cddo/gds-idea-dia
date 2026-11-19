@@ -287,6 +287,10 @@ def _print_plan(result) -> None:
     typer.echo(f"  rows with no documents:         {result.rows_without_documents}")
     typer.echo(f"  documents listed:               {result.listed}")
     typer.echo(f"  documents with no date:         {result.listed_without_date}")
+    unreadable = result.unreadable_dates
+    typer.echo(f"  dates that could not be read:   {sum(unreadable.values())} rows, {len(unreadable)} values")
+    for text, count in sorted(unreadable.items(), key=lambda item: (-item[1], item[0]))[:3]:
+        typer.echo(f"    {text}: {count}")
     unrecognised = result.unrecognised_submitters
     typer.echo(f"  unrecognised submitters:        {sum(unrecognised.values())} rows, {len(unrecognised)} names")
     for name, count in sorted(unrecognised.items(), key=lambda item: (-item[1], item[0])):

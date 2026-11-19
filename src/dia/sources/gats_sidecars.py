@@ -28,7 +28,9 @@ FILE_LIST_COLUMNS = ("CO_CS_Files", "CO_I_Documents")
 NAME_COLUMNS = ("CO_CS_CaseName", "CO_I_Name")
 SPEND_ID_COLUMN = "CO_SpendID"
 SUBMITTER_COLUMN = "CO_OrganisationSubmitter"
-SUBMIT_DATE_COLUMN = "CO_CaseSubmitDate"
+DATE_COLUMNS = ("CO_SpendStartDate", "CO_DT_SpendStartDate", "CO_CaseSubmitDate")
+DATE_FORMATS = ("%d %B %Y", "%d-%b-%y")
+EARLIEST_DATE = dt.date(1990, 1, 1)
 
 OLD_EXPORT_PREFIX = "spend-controls-raw-data/"
 NEW_EXPORT_PREFIX = "spend-controls-raw-data/gas/"
@@ -43,7 +45,8 @@ def latest_export_key(s3_client: Any, bucket: str) -> str:
     """Return the key of the newest CSV under `NEW_EXPORT_PREFIX`.
 
     Newest means most recently modified. Files modified at the same moment are ordered by
-    key, which starts with a date.
+    key, so the choice is repeatable. The dates in the keys are day-month-year, so this
+    order is not chronological.
 
     Raises:
         ExportError: If there is no CSV there.
@@ -90,8 +93,8 @@ def read_export(s3_client: Any, bucket: str, key: str) -> list[dict[str, str]]:
 
 
 def _name_key(name: str) -> str:
-    """Return `name` in a form for comparing names: no extra spaces, ignoring case."""
-    return " ".join(name.split()).casefold()
+    """Return `name` in a form for comparing names: no extra spaces, ignoring case, `&` as `and`."""
+    return " ".join(name.replace("&", " and ").split()).casefold()
 
 
 _ALBS = {_name_key(alb): (alb, parent) for alb, parent in PARENT_MAP.items()}
@@ -124,12 +127,49 @@ def _file_names(row: Mapping[str, Any]) -> list[str]:
     return list(dict.fromkeys(name for name in names if name))
 
 
-def _submit_date(row: Mapping[str, Any]) -> dt.date | None:
-    """Return the date the case was submitted, ignoring any time. Raises `SidecarError` if unreadable."""
-    text = _text_or_none(row.get(SUBMIT_DATE_COLUMN))
-    if text is None:
-        return None
-    return parse_date(text.replace("T", " ").split(" ")[0])
+def _read_date(text: str) -> dt.date:
+    """Read a date in one of the forms the exports use, ignoring any time.
+
+    Raises:
+        SidecarError: If it is in none of those forms, or is before `EARLIEST_DATE`.
+    """
+    try:
+        date = parse_date(text.replace("T", " ").split(" ")[0])
+    except SidecarError:
+        date = None
+        for date_format in DATE_FORMATS:
+            try:
+                date = dt.datetime.strptime(text, date_format).date()
+                break
+            except ValueError:
+                continue
+        if date is None:
+            raise SidecarError(f"{text!r} is not a date in a form the export uses") from None
+    if date < EARLIEST_DATE:
+        raise SidecarError(f"{text!r} is before {EARLIEST_DATE.year}")
+    return date
+
+
+def _case_date(row: Mapping[str, Any]) -> dt.date | None:
+    """Return the row's date from the first of `DATE_COLUMNS` that has text, or `None` if none do.
+
+    Raises:
+        SidecarError: If that text is not a readable date.
+    """
+    text = _first_text(row, DATE_COLUMNS)
+    return None if text is None else _read_date(text)
+
+
+def unreadable_date(row: Mapping[str, Any]) -> str | None:
+    """Return the row's date text as written if it has some that cannot be read, otherwise `None`.
+
+    An empty date is not unreadable.
+    """
+    try:
+        _case_date(row)
+    except SidecarError:
+        return _first_text(row, DATE_COLUMNS)
+    return None
 
 
 def _department_and_alb(submitter: str | None) -> tuple[str | None, str | None]:
@@ -158,13 +198,13 @@ def documents_for_row(row: Mapping[str, Any]) -> dict[str, Sidecar]:
     """Map each document the row lists, by file name, to the same metadata.
 
     A known ALB gives its parent as the department. A known department is written in its
-    canonical spelling. Any other submitter is kept as written, with no ALB. A date that is
-    empty or unreadable is left out.
+    canonical spelling. Any other submitter is kept as written, with no ALB. The date is the
+    first of `DATE_COLUMNS` that has text, and is left out if there is none or it is unreadable.
     """
     source = SOURCES[SOURCE_NAME]
 
     try:
-        submitted = _submit_date(row)
+        submitted = _case_date(row)
     except SidecarError:
         submitted = None
 

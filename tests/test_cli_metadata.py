@@ -262,3 +262,42 @@ def test_in_dev_an_unreadable_runtime_config_is_a_clear_error(dev):
 
     assert result.exit_code == 1
     assert "parameter not found" in result.output
+
+
+# --- dates, as the real exports write them ---
+
+REAL_FORMATS_EXPORT = (
+    "CO_SpendID,CO_OrganisationSubmitter,CO_SpendStartDate,CO_DT_SpendStartDate,CO_CaseSubmitDate,CO_CS_Files\n"
+    'S1,HM Revenue & Customs,01 April 2024,,,"a.pdf"\n'
+    'S2,Home Office,,01 April 2025,,"b.docx"\n'
+    'S3,Home Office,,,30-Mar-26,"c.pdf"\n'
+)
+BAD_DATES_EXPORT = (
+    "CO_SpendID,CO_OrganisationSubmitter,CO_CaseSubmitDate,CO_CS_Files\n"
+    'S1,Home Office,soon,"a.pdf"\n'
+    'S2,Home Office,soon,"b.docx"\n'
+    'S3,Home Office,,"c.pdf"\n'
+)
+
+
+def test_the_real_date_formats_in_all_three_columns_are_read(prod):
+    prod.put_object(Bucket=BUCKET, Key="spend-controls-raw-data/real.csv", Body=REAL_FORMATS_EXPORT.encode())
+
+    result = _run("--export", "real.csv")
+
+    assert result.exit_code == 0, result.output
+    assert _count(result.output, "documents listed") == 3
+    assert _count(result.output, "documents with no date") == 0
+    assert _count(result.output, "dates that could not be read") == 0
+    assert _count(result.output, "unrecognised submitters") == 0
+
+
+def test_dates_that_cannot_be_read_are_counted_apart_from_empty_ones_with_examples(prod):
+    prod.put_object(Bucket=BUCKET, Key="spend-controls-raw-data/bad.csv", Body=BAD_DATES_EXPORT.encode())
+
+    result = _run("--export", "bad.csv")
+
+    assert result.exit_code == 0, result.output
+    assert _count(result.output, "documents with no date") == 3
+    assert "dates that could not be read:   2 rows, 1 values" in result.output
+    assert "    soon: 2" in result.output
