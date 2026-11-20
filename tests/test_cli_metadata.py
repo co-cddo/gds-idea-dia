@@ -13,6 +13,7 @@ from typer.testing import CliRunner
 from dia.cli import app
 from dia.runtime_config import RuntimeConfig, RuntimeConfigError
 from dia.sources.definitions import SOURCES
+from dia.sources.gats_sidecars import OLD_EXPORT_KEY
 
 runner = CliRunner()
 
@@ -94,9 +95,9 @@ def test_it_prints_the_counts_for_an_export_by_bare_file_name(prod):
     assert _count(result.output, "documents chosen") == 4
     assert _count(result.output, "not in the bucket") == 1
     assert _count(result.output, "already have a label") == 1
-    assert _count(result.output, "documents the export does not list") == 2
-    assert _count(result.output, "new labels only") == 2
-    assert _count(result.output, "with --overwrite") == 3
+    assert _count(result.output, "documents the exports do not list") == 2
+    assert _count(result.output, "new labels only") == 4
+    assert _count(result.output, "with --overwrite") == 5
 
 
 def test_it_names_the_unrecognised_submitters_and_nothing_else_from_the_export(prod):
@@ -173,8 +174,27 @@ def test_departments_with_no_names_is_a_usage_error(prod):
     assert "at least one department" in _plain(result.output)
 
 
-def test_the_export_option_is_required(prod):
-    assert _run().exit_code == 2
+def test_with_no_export_the_last_older_export_and_the_newest_one_are_read(prod):
+    prod.put_object(Bucket=BUCKET, Key=OLD_EXPORT_KEY, Body=OLD_EXPORT.encode())
+
+    result = _run()
+
+    assert result.exit_code == 0, result.output
+    assert OLD_EXPORT_KEY in result.output
+    assert "spend-controls-raw-data/gas/new.csv" in result.output
+    assert _count(result.output, "rows read") == 4
+
+
+def test_giving_an_export_replaces_the_defaults(prod):
+    result = _run("--export", "old.csv")
+    assert "spend-controls-raw-data/gas/new.csv" not in result.output
+    assert _count(result.output, "rows read") == 3
+
+
+def test_a_missing_default_export_is_a_clear_error(prod):
+    result = _run()
+    assert result.exit_code == 1
+    assert "does not exist" in result.output
 
 
 def test_a_missing_export_is_a_clear_error_not_a_traceback(prod):
@@ -323,3 +343,149 @@ def test_rows_from_test_submitters_are_ignored_and_counted_in_the_output(prod):
     assert _count(result.output, "rows ignored as test data") == 2
     assert _count(result.output, "documents listed") == 4
     assert "GATS_test" not in result.output
+
+
+# --- what each document would get ---
+
+
+def test_it_prints_what_every_document_in_the_bucket_would_get(prod):
+    result = _run("--export", "old.csv")
+
+    # a, b, c are listed; ghost is not in the bucket; z and n are not listed and have no label.
+    assert _count(result.output, "label from the export") == 3
+    assert _count(result.output, "basic label") == 2
+    assert _count(result.output, "label rebuilt from its case") == 0
+    assert _count(result.output, "no label yet") == 0
+    assert _count(result.output, "left alone") == 0
+
+
+def test_a_pptx_with_no_source_waits_and_a_pdf_with_no_source_gets_a_basic_label(prod):
+    prod.put_object(Bucket=BUCKET, Key="files/slides.pptx", Body=b"x")
+
+    result = _run("--export", "old.csv")
+
+    assert _count(result.output, "no label yet") == 1
+    assert _count(result.output, "basic label") == 2
+
+
+def test_an_old_label_whose_case_is_in_the_export_is_rebuilt_from_the_case(prod):
+    prod.put_object(Bucket=BUCKET, Key="files/extra.pdf", Body=b"x")
+    prod.put_object(
+        Bucket=BUCKET,
+        Key="files/extra.pdf.metadata.json",
+        Body=b'{"metadataAttributes": {"document_type": "business_case", "spend_id": "S1"}}',
+    )
+
+    result = _run("--export", "old.csv")
+
+    assert _count(result.output, "label rebuilt from its case") == 1
+
+
+def test_a_second_run_over_labels_that_are_already_correct_would_write_nothing(prod):
+    from dia.sources.gats_sidecars import list_bucket_keys, read_export
+    from dia.sources.sidecar import to_json
+    from dia.sources.sidecar_plan import plan
+
+    rows = read_export(prod, BUCKET, "spend-controls-raw-data/old.csv")
+    keys = list_bucket_keys(prod, BUCKET, "files/")
+    first = plan(rows, keys, prefix="files/")
+    for key, sidecar in {**first.new, **first.replacements}.items():
+        prod.put_object(Bucket=BUCKET, Key=key, Body=to_json(sidecar).encode())
+
+    result = _run("--export", "old.csv")
+
+    assert _count(result.output, "new labels only") == 0
+    assert _count(result.output, "with --overwrite") == 0
+    assert _count(result.output, "already correct") >= 4
+
+
+# --- a limit and the trial ---
+
+
+def test_the_trial_labels_only_the_chosen_files_and_leaves_the_rest_alone(prod):
+    result = _run("--export", "latest", "--limit", "1")
+
+    assert result.exit_code == 0, result.output
+    assert _count(result.output, "label from the export") == 1
+    assert _count(result.output, "basic label") == 0
+    assert _count(result.output, "left alone") > 0
+    assert _count(result.output, "new labels only") == 1
+
+
+def test_a_limit_over_several_exports_says_which_dates_are_used(prod):
+    prod.put_object(Bucket=BUCKET, Key=OLD_EXPORT_KEY, Body=OLD_EXPORT.encode())
+
+    result = _run("--limit", "2")
+
+    assert "--limit takes the newest by date across all these exports" in _plain(result.output)
+    assert "use --export latest" in _plain(result.output)
+
+
+def test_a_limit_over_one_export_has_no_note(prod):
+    assert "Note:" not in _run("--export", "latest", "--limit", "2").output
+
+
+# --- a newer older export than the default ---
+
+
+def test_a_newer_older_export_than_the_default_is_a_warning_when_the_defaults_are_used(prod):
+    prod.put_object(Bucket=BUCKET, Key=OLD_EXPORT_KEY, Body=OLD_EXPORT.encode())
+    newer = ["spend-controls-raw-data/DataExport_99999999999999.csv"]
+
+    with patch("dia.sources.gats_sidecars.newer_old_exports", return_value=newer):
+        result = _run()
+
+    assert result.exit_code == 0, result.output
+    assert "Warning: spend-controls-raw-data/DataExport_99999999999999.csv is newer" in result.output
+
+
+def test_no_warning_when_the_default_is_the_newest_older_export(prod):
+    prod.put_object(Bucket=BUCKET, Key=OLD_EXPORT_KEY, Body=OLD_EXPORT.encode())
+    assert "Warning" not in _run().output
+
+
+def test_no_warning_check_is_made_when_an_export_is_given(prod):
+    with patch("dia.sources.gats_sidecars.newer_old_exports", return_value=["x.csv"]) as check:
+        result = _run("--export", "old.csv")
+    assert "Warning" not in result.output
+    check.assert_not_called()
+
+
+# --- the report ---
+
+
+def test_the_report_lists_every_document_with_what_it_gets(prod, tmp_path):
+    import csv
+
+    report = tmp_path / "out" / "metadata.csv"
+
+    result = _run("--export", "old.csv", "--report", str(report))
+
+    assert result.exit_code == 0, result.output
+    assert f"Report written to {report}" in result.output
+    rows = list(csv.DictReader(report.open(encoding="utf-8")))
+    by_document = {row["document"]: (row["outcome"], row["label"]) for row in rows}
+    assert by_document["files/a.pdf"] == ("from_export", "replaced")
+    assert by_document["files/b.docx"] == ("from_export", "new")
+    assert by_document["files/z.pdf"] == ("basic_label", "new")
+    assert by_document["files/ghost.pdf"] == ("listed_but_not_in_bucket", "none")
+    assert "files/old.json" not in by_document
+
+
+def test_the_report_names_documents_but_the_screen_does_not(prod, tmp_path):
+    report = tmp_path / "metadata.csv"
+    result = _run("--export", "old.csv", "--report", str(report))
+    assert "z.pdf" in report.read_text()
+    assert "z.pdf" not in result.output
+
+
+def test_no_report_is_written_unless_asked_for(prod, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _run("--export", "old.csv")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_progress_is_not_mixed_into_the_counts(prod):
+    result = _run("--export", "old.csv")
+    assert "Reading 1 existing labels..." in result.output
+    assert result.stdout.count("Reading") == 0
