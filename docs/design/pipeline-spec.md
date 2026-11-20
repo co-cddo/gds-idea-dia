@@ -349,15 +349,19 @@ steps below.
     Handles both export layouts, takes `date` from the first of `CO_SpendStartDate`,
     `CO_DT_SpendStartDate` and `CO_CaseSubmitDate` that has a value, and chooses the
     newest N documents, optionally for some departments (`--limit` counts documents).
-  - [x] 8b. The dry run (`dia pipeline metadata --export latest|<key> [--limit N]
-    [--departments "A,B"]`). Reads the export and lists the documents bucket, then prints
-    counts only (plus unrecognised submitters and departments that matched nothing). It
-    never writes. Run locally; in dev it reads through the cross-account role. The planning
-    is in `dia.sources.sidecar_plan`.
+  - [x] 8b. The dry run (`dia pipeline metadata [--export ...] [--limit N]
+    [--departments "A,B"] [--report FILE]`). Reads the exports (by default the last older
+    export and `latest`), lists the documents bucket and reads its existing labels, then prints
+    counts. It never writes to S3. Run locally; in dev it reads through the cross-account role.
+    Every document gets one outcome (see the README): a label from the export, a label rebuilt
+    from its case by spend ID, its old label kept or fixed, a label with only `document_type`
+    (PDF and Word only), or nothing yet. A label is only replaced if what it would get is
+    different. The planning is in `dia.sources.sidecar_plan`.
   - [ ] 8c. Writing: `--write` after a confirmation (`--yes` skips it), and an existing
-    sidecar is kept unless `--overwrite` is given. It is run locally with prod credentials;
-    dev warns that it cannot write to the prod bucket. This needs an exception to the rule
-    that local runs write only locally, for sidecars only.
+    sidecar is replaced only with `--overwrite`. Before replacing a label it saves the old one
+    on this machine. It is run locally with prod credentials; dev warns that it cannot write
+    to the prod bucket. This needs an exception to the rule that local runs write only
+    locally, for sidecars only. A trial (`--export latest --limit 10`) comes first.
 - [ ] 9. **Minimal ledger**: a protocol, a DynamoDB version in a new table and a
   local-file version. Records done or failed per document, with the reason, the output
   location and the code version. The in-progress lock, stale settings, batch job state
