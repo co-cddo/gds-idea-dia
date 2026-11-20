@@ -346,12 +346,18 @@ steps below.
 - [ ] 8. **GATS metadata step** (`dia pipeline metadata`). Reads the GATS export,
   maps its columns into the model, and writes a sidecar next to each document.
   - [x] 8a. The mapping from export rows to sidecars (`dia.sources.gats_sidecars`).
-    Handles both export layouts, takes `date` from `CO_CaseSubmitDate`, and chooses the
+    Handles both export layouts, takes `date` from the first of `CO_SpendStartDate`,
+    `CO_DT_SpendStartDate` and `CO_CaseSubmitDate` that has a value, and chooses the
     newest N documents, optionally for some departments (`--limit` counts documents).
-  - [ ] 8b. The command: dry run by default, `--write` after a confirmation, and an
-    existing sidecar is kept unless `--overwrite` is given. It is run locally with prod
-    credentials; dev warns that it cannot write to the prod bucket. This needs an
-    exception to the rule that local runs write only locally, for sidecars only.
+  - [x] 8b. The dry run (`dia pipeline metadata --export latest|<key> [--limit N]
+    [--departments "A,B"]`). Reads the export and lists the documents bucket, then prints
+    counts only (plus unrecognised submitters and departments that matched nothing). It
+    never writes. Run locally; in dev it reads through the cross-account role. The planning
+    is in `dia.sources.sidecar_plan`.
+  - [ ] 8c. Writing: `--write` after a confirmation (`--yes` skips it), and an existing
+    sidecar is kept unless `--overwrite` is given. It is run locally with prod credentials;
+    dev warns that it cannot write to the prod bucket. This needs an exception to the rule
+    that local runs write only locally, for sidecars only.
 - [ ] 9. **Minimal ledger**: a protocol, a DynamoDB version in a new table and a
   local-file version. Records done or failed per document, with the reason, the output
   location and the code version. The in-progress lock, stale settings, batch job state

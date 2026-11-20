@@ -94,7 +94,7 @@ declaration.
 
   | Source | `date` is | Comes from |
   |---|---|---|
-  | GATS business cases | The case submit date | `CO_CaseSubmitDate` |
+  | GATS business cases | The spend start date (older export) or the case submit date (newer export) | The first of `CO_SpendStartDate`, `CO_DT_SpendStartDate` and `CO_CaseSubmitDate` that has a value. The newer export only has the last |
   | DBR letters | The readout date | The first 8 digits of the filename |
   | DBR reports | The 1st of the report month | The `MMYYYY` at the end of the filename |
   | SR bids | The 1st of January of the SR year | Entered by hand: SR21 is 2021, SR25 is 2025, SR27 will be 2027 |

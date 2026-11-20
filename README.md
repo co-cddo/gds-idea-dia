@@ -15,6 +15,33 @@ uv run dia --version
 
 - [`dia extract-text`](docs/extract-text.md) — Stage 1: extract text from documents in a source
 - `dia pipeline preflight` — check that this process can do what the pipeline needs (see below)
+- `dia pipeline metadata` — dry run: what labelling the GATS documents from an export would do (see below)
+
+### Metadata dry run
+
+`dia pipeline metadata` reads a GATS (Get Approval to Spend, run by the Government
+Assurance Service) export and lists the documents bucket, then prints
+counts: how many documents the export lists, how many it would label, and how many are
+already labelled. It is read-only and never writes. Run it with valid AWS credentials
+(in dev it reads through the cross-account role):
+
+```bash
+uv run dia pipeline metadata --export latest --limit 10     # the newest 10 documents, from the newest export in gas/
+uv run dia pipeline metadata --export <file-name>.csv       # a file in spend-controls-raw-data/
+uv run dia pipeline metadata --export latest --departments "Home Office,HMRC"
+```
+
+`--limit` counts documents, not cases, and is applied after `--departments`. "Newest" is
+by the label's `date`. In the older export that is the spend start date (`CO_SpendStartDate`,
+then `CO_DT_SpendStartDate`, then `CO_CaseSubmitDate`), and in the newer export it is the case
+submit date. Documents with no readable date come last. Rows from test submitters
+(`GATS_test`, a name ending in `test` or `testing`) are ignored and counted. A file name
+with a comma in it ("Business Case, v2.pdf") is kept whole, because a piece with no file
+extension is joined to the next one. The output names only unrecognised
+submitters, departments that matched nothing and unreadable date values, and counts
+everything else. Other `.json` files in the bucket are ignored. A document already
+labelled is counted under "already have a label", and "with --overwrite" shows how many
+labels a run that replaces them would write.
 
 ### Preflight
 

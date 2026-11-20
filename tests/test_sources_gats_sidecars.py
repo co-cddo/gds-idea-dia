@@ -2,11 +2,25 @@
 
 import datetime as dt
 
+import boto3
 import pytest
+from moto import mock_aws
 
 from dia.department_mapping import PARENT_MAP
 from dia.document_types import DocumentType
-from dia.sources.gats_sidecars import choose_documents, documents_for_row
+from dia.sources.gats_sidecars import (
+    ExportError,
+    choose_documents,
+    documents_for_row,
+    export_key,
+    is_test_row,
+    latest_export_key,
+    list_bucket_keys,
+    read_export,
+    unmatched_departments,
+    unreadable_date,
+    unrecognised_submitter,
+)
 from dia.sources.sidecar import Sidecar
 
 OLD_ROW = {
@@ -179,9 +193,97 @@ def test_placeholder_and_malformed_dates_do_not_crash_the_row(cell):
     assert all(sidecar.date is None for sidecar in documents.values())
 
 
-def test_the_earliest_accepted_date_is_the_year_1000():
-    documents = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": "1000-01-01"})
-    assert _first_sidecar(documents).date == dt.date(1000, 1, 1)
+@pytest.mark.parametrize("cell", ["1970-01-01", "01-Jan-70", "1989-12-31", "01 January 1900"])
+def test_a_date_before_1990_is_left_out(cell):
+    documents = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": cell})
+    assert _first_sidecar(documents).date is None
+
+
+def test_the_earliest_accepted_date_is_1_january_1990():
+    documents = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": "1990-01-01"})
+    assert _first_sidecar(documents).date == dt.date(1990, 1, 1)
+
+
+# The formats seen in the real exports: `30-Mar-26` in CO_CaseSubmitDate, `01 April 2025` in the spend start columns.
+
+
+@pytest.mark.parametrize(
+    ("cell", "expected"),
+    [
+        ("30-Mar-26", dt.date(2026, 3, 30)),
+        ("02-Oct-26", dt.date(2026, 10, 2)),
+        ("13-Sep-23", dt.date(2023, 9, 13)),
+        (" 13-Sep-23 ", dt.date(2023, 9, 13)),
+    ],
+)
+def test_case_submit_dates_in_day_month_name_two_digit_year_form_are_read(cell, expected):
+    documents = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": cell})
+    assert _first_sidecar(documents).date == expected
+
+
+@pytest.mark.parametrize("column", ["CO_SpendStartDate", "CO_DT_SpendStartDate"])
+def test_spend_start_dates_in_day_month_name_year_form_are_read(column):
+    row = {key: value for key, value in OLD_ROW.items() if key != "CO_CaseSubmitDate"}
+    documents = documents_for_row({**row, column: "01 April 2025"})
+    assert _first_sidecar(documents).date == dt.date(2025, 4, 1)
+
+
+# The date comes from the first of CO_SpendStartDate, CO_DT_SpendStartDate, CO_CaseSubmitDate that has text.
+
+
+def _dated_row(**dates):
+    row = {key: value for key, value in OLD_ROW.items() if key != "CO_CaseSubmitDate"}
+    return {**row, **dates}
+
+
+def test_the_spend_start_date_is_used_before_the_other_columns():
+    row = _dated_row(
+        CO_SpendStartDate="01 April 2024", CO_DT_SpendStartDate="01 April 2025", CO_CaseSubmitDate="13-Sep-23"
+    )
+    assert _first_sidecar(documents_for_row(row)).date == dt.date(2024, 4, 1)
+
+
+def test_the_dt_spend_start_date_is_used_when_the_spend_start_date_is_empty():
+    row = _dated_row(CO_SpendStartDate="", CO_DT_SpendStartDate="01 April 2025", CO_CaseSubmitDate="13-Sep-23")
+    assert _first_sidecar(documents_for_row(row)).date == dt.date(2025, 4, 1)
+
+
+def test_the_case_submit_date_is_used_when_both_spend_start_dates_are_empty_or_missing():
+    row = _dated_row(CO_SpendStartDate="", CO_CaseSubmitDate="13-Sep-23")
+    assert _first_sidecar(documents_for_row(row)).date == dt.date(2023, 9, 13)
+
+
+def test_an_unreadable_first_date_does_not_fall_back_to_the_next_column():
+    row = _dated_row(CO_SpendStartDate="soon", CO_DT_SpendStartDate="01 April 2025")
+    assert _first_sidecar(documents_for_row(row)).date is None
+
+
+# --- dates that cannot be read ---
+
+
+@pytest.mark.parametrize("cell", ["soon", "01/03/2025", "March 2025", "1970-01-01", "2025-13-45"])
+def test_unreadable_date_returns_the_text_as_written(cell):
+    assert unreadable_date({"CO_CaseSubmitDate": f" {cell} "}) == cell
+
+
+@pytest.mark.parametrize("cell", ["", None, "nan", "30-Mar-26", "2025-03-01"])
+def test_an_empty_or_readable_date_is_not_unreadable(cell):
+    assert unreadable_date({"CO_CaseSubmitDate": cell}) is None
+
+
+def test_unreadable_date_looks_at_the_column_the_date_would_come_from():
+    assert unreadable_date({"CO_SpendStartDate": "soon", "CO_CaseSubmitDate": "30-Mar-26"}) == "soon"
+    assert unreadable_date({"CO_SpendStartDate": "", "CO_CaseSubmitDate": "30-Mar-26"}) is None
+
+
+# --- names with an ampersand ---
+
+
+def test_an_ampersand_matches_and_for_submitters_and_departments():
+    row = {"CO_OrganisationSubmitter": "HM Revenue & Customs", "CO_CS_Files": "a.pdf"}
+    assert unrecognised_submitter(row) is None
+    assert _first_sidecar(documents_for_row(row)).department_name == "HM Revenue and Customs"
+    assert choose_documents(documents_for_row(row), departments=["HM Revenue&Customs"]) != {}
 
 
 def test_a_row_with_no_spend_id_still_maps():
@@ -202,17 +304,17 @@ def test_documents_come_newest_first():
 
 
 def test_limit_counts_documents_and_can_cut_a_case_part_way():
-    newer = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": "2026-01-01", "CO_CS_Files": "n1,n2,n3"})
-    older = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": "2025-01-01", "CO_CS_Files": "o1,o2,o3"})
-    assert _names(choose_documents({**older, **newer}, limit=4)) == ["n1", "n2", "n3", "o1"]
+    newer = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": "2026-01-01", "CO_CS_Files": "n1.pdf,n2.pdf,n3.pdf"})
+    older = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": "2025-01-01", "CO_CS_Files": "o1.pdf,o2.pdf,o3.pdf"})
+    assert _names(choose_documents({**older, **newer}, limit=4)) == ["n1.pdf", "n2.pdf", "n3.pdf", "o1.pdf"]
 
 
 def test_a_file_listed_by_two_rows_keeps_the_row_merged_last_and_uses_the_limit_once():
-    older = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": "2025-01-01", "CO_CS_Files": "shared.pdf, o1"})
-    newer = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": "2026-01-01", "CO_CS_Files": "shared.pdf, n1"})
+    older = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": "2025-01-01", "CO_CS_Files": "shared.pdf, o1.pdf"})
+    newer = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": "2026-01-01", "CO_CS_Files": "shared.pdf, n1.pdf"})
     merged = {**older, **newer}
     assert merged["shared.pdf"].date == dt.date(2026, 1, 1)
-    assert _names(choose_documents(merged, limit=3)) == ["shared.pdf", "n1", "o1"]
+    assert _names(choose_documents(merged, limit=3)) == ["shared.pdf", "n1.pdf", "o1.pdf"]
 
 
 def test_limit_larger_than_the_data_returns_everything():
@@ -301,3 +403,242 @@ def test_a_department_that_matches_nothing_gives_nothing():
 
 def test_an_empty_department_list_chooses_nothing():
     assert choose_documents(_documents(_document("a")), departments=[]) == {}
+
+
+# --- submitters and departments that are not recognised ---
+
+
+def test_a_known_alb_or_department_is_recognised_ignoring_case_and_spaces():
+    parent = PARENT_MAP[AN_ALB]
+    assert unrecognised_submitter({"CO_OrganisationSubmitter": AN_ALB.upper()}) is None
+    assert unrecognised_submitter({"CO_OrganisationSubmitter": f"  {parent.lower()}  "}) is None
+
+
+def test_an_unknown_submitter_is_returned_as_written():
+    assert unrecognised_submitter({"CO_OrganisationSubmitter": " Cabinet Ofice "}) == "Cabinet Ofice"
+
+
+@pytest.mark.parametrize("row", [{}, {"CO_OrganisationSubmitter": ""}, {"CO_OrganisationSubmitter": "nan"}])
+def test_a_row_with_no_submitter_is_not_unrecognised(row):
+    assert unrecognised_submitter(row) is None
+
+
+def test_unmatched_departments_lists_only_those_with_no_documents():
+    documents = _documents(_document("a", department="Home Office"))
+    assert unmatched_departments(documents, ["HOME  OFFICE", "Nowhere Office"]) == ["Nowhere Office"]
+
+
+def test_unmatched_departments_is_empty_when_all_match_or_none_asked():
+    documents = _documents(_document("a", department="Home Office"))
+    assert unmatched_departments(documents, ["Home Office"]) == []
+    assert unmatched_departments(documents, []) == []
+
+
+def test_every_department_is_unmatched_when_there_are_no_documents():
+    assert unmatched_departments({}, ["Home Office"]) == ["Home Office"]
+
+
+# --- reading the export from S3 ---
+
+BUCKET = "export-bucket"
+
+
+class _FakeS3:
+    """Lists the given `(key, last_modified)` pairs, in one page or none."""
+
+    def __init__(self, objects):
+        self._objects = objects
+
+    def get_paginator(self, name):
+        assert name == "list_objects_v2"
+        return self
+
+    def paginate(self, Bucket, Prefix):  # noqa: N803 - boto3's argument names
+        contents = [{"Key": key, "LastModified": modified} for key, modified in self._objects if key.startswith(Prefix)]
+        return [{"Contents": contents}] if contents else [{}]
+
+
+def _at(day):
+    return dt.datetime(2026, 5, day, tzinfo=dt.UTC)
+
+
+def test_the_latest_export_is_the_most_recently_modified_csv():
+    s3 = _FakeS3(
+        [
+            ("spend-controls-raw-data/gas/DataExport_b.csv", _at(1)),
+            ("spend-controls-raw-data/gas/DataExport_a.csv", _at(9)),
+        ]
+    )
+    assert latest_export_key(s3, BUCKET) == "spend-controls-raw-data/gas/DataExport_a.csv"
+
+
+def test_exports_modified_together_are_ordered_by_key_so_the_choice_is_repeatable():
+    s3 = _FakeS3(
+        [
+            ("spend-controls-raw-data/gas/DataExport_a.csv", _at(1)),
+            ("spend-controls-raw-data/gas/DataExport_b.csv", _at(1)),
+        ]
+    )
+    assert latest_export_key(s3, BUCKET) == "spend-controls-raw-data/gas/DataExport_b.csv"
+
+
+def test_the_latest_export_ignores_files_that_are_not_csv_and_the_old_folder():
+    s3 = _FakeS3(
+        [
+            ("spend-controls-raw-data/gas/notes.txt", _at(20)),
+            ("spend-controls-raw-data/DataExport_old.csv", _at(25)),
+            ("spend-controls-raw-data/gas/DataExport.CSV", _at(3)),
+        ]
+    )
+    assert latest_export_key(s3, BUCKET) == "spend-controls-raw-data/gas/DataExport.CSV"
+
+
+def test_no_csv_to_choose_from_is_an_export_error():
+    with pytest.raises(ExportError, match="no CSV export"):
+        latest_export_key(_FakeS3([("spend-controls-raw-data/gas/notes.txt", _at(1))]), BUCKET)
+
+
+def test_export_key_resolves_latest_a_bare_name_and_a_full_key():
+    s3 = _FakeS3([("spend-controls-raw-data/gas/new.csv", _at(1))])
+    assert export_key(s3, BUCKET, "latest") == "spend-controls-raw-data/gas/new.csv"
+    assert export_key(s3, BUCKET, "old.csv") == "spend-controls-raw-data/old.csv"
+    assert export_key(s3, BUCKET, "other-folder/x.csv") == "other-folder/x.csv"
+
+
+@pytest.fixture
+def s3_with_export():
+    with mock_aws():
+        client = boto3.client("s3", region_name="eu-west-2")
+        client.create_bucket(Bucket=BUCKET, CreateBucketConfiguration={"LocationConstraint": "eu-west-2"})
+        yield client
+
+
+def test_read_export_returns_one_dict_per_row(s3_with_export):
+    s3_with_export.put_object(Bucket=BUCKET, Key="x.csv", Body=b"CO_SpendID,CO_CS_Files\nS1,a.pdf\nS2,b.pdf\n")
+    assert read_export(s3_with_export, BUCKET, "x.csv") == [
+        {"CO_SpendID": "S1", "CO_CS_Files": "a.pdf"},
+        {"CO_SpendID": "S2", "CO_CS_Files": "b.pdf"},
+    ]
+
+
+def test_read_export_strips_the_byte_order_mark_so_the_first_column_keeps_its_name(s3_with_export):
+    s3_with_export.put_object(Bucket=BUCKET, Key="x.csv", Body="\ufeffCO_SpendID\nS1\n".encode())
+    assert read_export(s3_with_export, BUCKET, "x.csv") == [{"CO_SpendID": "S1"}]
+
+
+def test_read_export_accepts_a_cell_over_the_csv_modules_default_limit(s3_with_export):
+    long_list = ",".join(f"file-{i}.pdf" for i in range(30_000))
+    assert len(long_list) > 131_072
+    s3_with_export.put_object(Bucket=BUCKET, Key="x.csv", Body=f'CO_CS_Files\n"{long_list}"\n'.encode())
+    assert read_export(s3_with_export, BUCKET, "x.csv")[0]["CO_CS_Files"] == long_list
+
+
+def test_reading_a_missing_export_is_an_export_error(s3_with_export):
+    with pytest.raises(ExportError, match="does not exist"):
+        read_export(s3_with_export, BUCKET, "missing.csv")
+
+
+class _PagedS3:
+    """Returns the given pages, and records what it was asked for."""
+
+    def __init__(self, pages):
+        self._pages = pages
+        self.asked = None
+
+    def get_paginator(self, name):
+        assert name == "list_objects_v2"
+        return self
+
+    def paginate(self, Bucket, Prefix):  # noqa: N803 - boto3's argument names
+        self.asked = (Bucket, Prefix)
+        return self._pages
+
+
+def test_list_bucket_keys_follows_every_page_in_order():
+    s3 = _PagedS3([{"Contents": [{"Key": "files/a"}, {"Key": "files/b"}]}, {"Contents": [{"Key": "files/c"}]}])
+    assert list_bucket_keys(s3, BUCKET, "files/") == ["files/a", "files/b", "files/c"]
+    assert s3.asked == (BUCKET, "files/")
+
+
+def test_list_bucket_keys_gives_an_empty_list_for_a_prefix_with_nothing_under_it():
+    assert list_bucket_keys(_PagedS3([{}]), BUCKET, "files/") == []
+
+
+# --- file names that contain a comma ---
+
+
+def _listed(cell, column="CO_CS_Files"):
+    return _names(documents_for_row({**OLD_ROW, "CO_CS_Files": None, column: cell}))
+
+
+def test_a_plain_list_of_names_is_split_at_every_comma():
+    assert _listed("case.pdf, annex.docx,notes.xlsx") == ["case.pdf", "annex.docx", "notes.xlsx"]
+
+
+def test_a_name_with_a_comma_in_it_stays_whole():
+    assert _listed("Business Case, v2.pdf, annex.docx") == ["Business Case, v2.pdf", "annex.docx"]
+
+
+def test_a_name_with_several_commas_stays_whole():
+    assert _listed("Costs, risks, and benefits.pdf,b.docx") == ["Costs, risks, and benefits.pdf", "b.docx"]
+
+
+def test_the_newer_layout_joins_names_the_same_way():
+    assert _listed("Plan, final.pptx, b.pdf", column="CO_I_Documents") == ["Plan, final.pptx", "b.pdf"]
+
+
+@pytest.mark.parametrize("extension", ["pdf", "docx", "pptx", "xlsx", "png", "csv", "eml", "doc"])
+def test_every_extension_in_the_bucket_ends_a_name(extension):
+    assert _listed(f"one.{extension}, two.{extension}") == [f"one.{extension}", f"two.{extension}"]
+
+
+def test_a_last_piece_with_no_extension_is_kept_as_its_own_name():
+    assert _listed("a.pdf, notes") == ["a.pdf", "notes"]
+
+
+def test_repeats_and_blanks_are_dropped_after_joining():
+    assert _listed("a.pdf,, a.pdf, Report, v2.pdf, Report, v2.pdf") == ["a.pdf", "Report, v2.pdf"]
+
+
+# --- a leading "The" ---
+
+
+def test_a_leading_the_does_not_stop_a_known_alb_matching_and_the_canonical_name_is_written():
+    row = {"CO_OrganisationSubmitter": "Equality and Human Rights Commission", "CO_CS_Files": "a.pdf"}
+    assert unrecognised_submitter(row) is None
+    sidecar = _first_sidecar(documents_for_row(row))
+    assert (sidecar.department_name, sidecar.alb) == ("Cabinet Office", "The Equality and Human Rights Commission")
+
+
+def test_a_leading_the_in_the_export_matches_a_name_the_map_spells_without_it():
+    row = {"CO_OrganisationSubmitter": "The Home Office", "CO_CS_Files": "a.pdf"}
+    assert unrecognised_submitter(row) is None
+    assert _first_sidecar(documents_for_row(row)).department_name == "Home Office"
+
+
+def test_the_departments_option_ignores_a_leading_the_too():
+    documents = documents_for_row({"CO_OrganisationSubmitter": "Home Office", "CO_CS_Files": "a.pdf"})
+    assert _names(choose_documents(documents, departments=["The Home Office"])) == ["a.pdf"]
+    assert unmatched_departments(documents, ["the home office"]) == []
+
+
+def test_a_name_that_only_starts_with_the_letters_the_is_not_changed():
+    assert unrecognised_submitter({"CO_OrganisationSubmitter": "Theatres Trust"}) == "Theatres Trust"
+
+
+# --- test data ---
+
+
+@pytest.mark.parametrize(
+    "submitter",
+    ["GATS_test", "00_Test", "00_Rainmaker solutions - JUST FOR TESTING", "test", "  Testing ", "GATS test"],
+)
+def test_a_submitter_whose_last_word_is_test_or_testing_is_test_data(submitter):
+    assert is_test_row({"CO_OrganisationSubmitter": submitter})
+
+
+@pytest.mark.parametrize(
+    "submitter", ["Home Office", "Test Valley Borough Council", "Contest Ltd", "Latest News", "Attest", None, "", "nan"]
+)
+def test_other_submitters_are_not_test_data(submitter):
+    assert not is_test_row({"CO_OrganisationSubmitter": submitter})

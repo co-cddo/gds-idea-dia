@@ -2,8 +2,8 @@
 
 A row is one case, and lists the documents it covers. This module gives each listed
 document a `Sidecar`, as a dict of file name to sidecar, and picks which documents to
-label. A file listed by two rows keeps the sidecar of the row merged in last. It does no
-S3 work.
+label. A file listed by two rows keeps the sidecar of the row merged in last. It reads the
+export from S3 and writes nothing.
 
 The export has two layouts, with different names for the file list and the case name:
 older (`CO_CS_Files`, `CO_CS_CaseName`) and newer (`CO_I_Documents`, `CO_I_Name`).
@@ -11,7 +11,10 @@ older (`CO_CS_Files`, `CO_CS_CaseName`) and newer (`CO_I_Documents`, `CO_I_Name`
 
 from __future__ import annotations
 
+import csv
 import datetime as dt
+import io
+import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
@@ -25,12 +28,86 @@ FILE_LIST_COLUMNS = ("CO_CS_Files", "CO_I_Documents")
 NAME_COLUMNS = ("CO_CS_CaseName", "CO_I_Name")
 SPEND_ID_COLUMN = "CO_SpendID"
 SUBMITTER_COLUMN = "CO_OrganisationSubmitter"
-SUBMIT_DATE_COLUMN = "CO_CaseSubmitDate"
+DATE_COLUMNS = ("CO_SpendStartDate", "CO_DT_SpendStartDate", "CO_CaseSubmitDate")
+DATE_FORMATS = ("%d %B %Y", "%d-%b-%y")
+EARLIEST_DATE = dt.date(1990, 1, 1)
+_FILE_EXTENSION = re.compile(r"\.[A-Za-z0-9]{1,5}$")
+_TEST_SUBMITTER = re.compile(r"(?:^|[^a-z])test(?:ing)?$", re.IGNORECASE)
+
+OLD_EXPORT_PREFIX = "spend-controls-raw-data/"
+NEW_EXPORT_PREFIX = "spend-controls-raw-data/gas/"
+LATEST = "latest"
+
+# One export cell can list thousands of files. `csv` refuses a cell over 128 KB unless told otherwise.
+csv.field_size_limit(2**31 - 1)
+
+
+class ExportError(Exception):
+    """The export could not be found or read."""
+
+
+def latest_export_key(s3_client: Any, bucket: str) -> str:
+    """Return the key of the newest CSV under `NEW_EXPORT_PREFIX`.
+
+    Newest means most recently modified. Files modified at the same moment are ordered by
+    key, so the choice is repeatable. The dates in the keys are day-month-year, so this
+    order is not chronological.
+
+    Raises:
+        ExportError: If there is no CSV there.
+    """
+    csvs: list[tuple[dt.datetime, str]] = []
+    for page in s3_client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=NEW_EXPORT_PREFIX):
+        csvs += [
+            (item["LastModified"], item["Key"])
+            for item in page.get("Contents", [])
+            if item["Key"].lower().endswith(".csv")
+        ]
+    if not csvs:
+        raise ExportError(f"no CSV export under s3://{bucket}/{NEW_EXPORT_PREFIX}")
+    return max(csvs)[1]
+
+
+def export_key(s3_client: Any, bucket: str, export: str) -> str:
+    """Return the full key of the export the user asked for.
+
+    `latest` gives the newest CSV under `NEW_EXPORT_PREFIX`. A bare file name (no `/`) is
+    looked for under `OLD_EXPORT_PREFIX`. Any other value is already a key.
+
+    Raises:
+        ExportError: If `latest` finds no CSV.
+    """
+    if export == LATEST:
+        return latest_export_key(s3_client, bucket)
+    return export if "/" in export else OLD_EXPORT_PREFIX + export
+
+
+def read_export(s3_client: Any, bucket: str, key: str) -> list[dict[str, str]]:
+    """Return the rows of an export CSV, one dict per case, keyed by column name.
+
+    Raises:
+        ExportError: If the file does not exist.
+    """
+    try:
+        body = s3_client.get_object(Bucket=bucket, Key=key)["Body"].read()
+    except s3_client.exceptions.NoSuchKey:
+        raise ExportError(f"s3://{bucket}/{key} does not exist") from None
+
+    return list(csv.DictReader(io.StringIO(body.decode("utf-8-sig"))))
+
+
+def list_bucket_keys(s3_client: Any, bucket: str, prefix: str) -> list[str]:
+    """Return every key under `prefix`, following S3's pages of at most 1000 keys."""
+    return [
+        item["Key"]
+        for page in s3_client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix)
+        for item in page.get("Contents", [])
+    ]
 
 
 def _name_key(name: str) -> str:
-    """Return `name` in a form for comparing names: no extra spaces, ignoring case."""
-    return " ".join(name.split()).casefold()
+    """Return `name` in a form for comparing names: ignoring case, extra spaces and a leading `The`; `&` as `and`."""
+    return " ".join(name.replace("&", " and ").split()).casefold().removeprefix("the ")
 
 
 _ALBS = {_name_key(alb): (alb, parent) for alb, parent in PARENT_MAP.items()}
@@ -55,20 +132,71 @@ def _first_text(row: Mapping[str, Any], columns: tuple[str, ...]) -> str | None:
 
 
 def _file_names(row: Mapping[str, Any]) -> list[str]:
-    """Return the file names the row lists, in order, without blanks or repeats."""
+    """Return the file names the row lists, in order, without blanks or repeats.
+
+    Names are separated by commas, but a name can hold a comma too ("Business Case, v2.pdf").
+    A piece with no file extension is joined to the pieces after it, up to one that has one.
+    """
     cell = _first_text(row, FILE_LIST_COLUMNS)
     if cell is None:
         return []
-    names = (name.strip() for name in cell.split(","))
+    names: list[str] = []
+    pending = ""
+    for part in cell.split(","):
+        piece = f"{pending},{part}" if pending else part
+        if _FILE_EXTENSION.search(piece.strip()):
+            names.append(piece.strip())
+            pending = ""
+        else:
+            pending = piece
+    if pending.strip():
+        names.append(pending.strip())
     return list(dict.fromkeys(name for name in names if name))
 
 
-def _submit_date(row: Mapping[str, Any]) -> dt.date | None:
-    """Return the date the case was submitted, ignoring any time. Raises `SidecarError` if unreadable."""
-    text = _text_or_none(row.get(SUBMIT_DATE_COLUMN))
-    if text is None:
-        return None
-    return parse_date(text.replace("T", " ").split(" ")[0])
+def _read_date(text: str) -> dt.date:
+    """Read a date in one of the forms the exports use, ignoring any time.
+
+    Raises:
+        SidecarError: If it is in none of those forms, or is before `EARLIEST_DATE`.
+    """
+    try:
+        date = parse_date(text.replace("T", " ").split(" ")[0])
+    except SidecarError:
+        date = None
+        for date_format in DATE_FORMATS:
+            try:
+                date = dt.datetime.strptime(text, date_format).date()
+                break
+            except ValueError:
+                continue
+        if date is None:
+            raise SidecarError(f"{text!r} is not a date in a form the export uses") from None
+    if date < EARLIEST_DATE:
+        raise SidecarError(f"{text!r} is before {EARLIEST_DATE.year}")
+    return date
+
+
+def _case_date(row: Mapping[str, Any]) -> dt.date | None:
+    """Return the row's date from the first of `DATE_COLUMNS` that has text, or `None` if none do.
+
+    Raises:
+        SidecarError: If that text is not a readable date.
+    """
+    text = _first_text(row, DATE_COLUMNS)
+    return None if text is None else _read_date(text)
+
+
+def unreadable_date(row: Mapping[str, Any]) -> str | None:
+    """Return the row's date text as written if it has some that cannot be read, otherwise `None`.
+
+    An empty date is not unreadable.
+    """
+    try:
+        _case_date(row)
+    except SidecarError:
+        return _first_text(row, DATE_COLUMNS)
+    return None
 
 
 def _department_and_alb(submitter: str | None) -> tuple[str | None, str | None]:
@@ -82,17 +210,37 @@ def _department_and_alb(submitter: str | None) -> tuple[str | None, str | None]:
     return _DEPARTMENTS.get(key, submitter), None
 
 
+def is_test_row(row: Mapping[str, Any]) -> bool:
+    """Whether the row's submitter is test data: a name whose last word is `test` or `testing`.
+
+    `GATS_test`, `00_Test` and `... JUST FOR TESTING` are test rows. `Test Valley Borough Council` is not.
+    """
+    submitter = _text_or_none(row.get(SUBMITTER_COLUMN))
+    return submitter is not None and _TEST_SUBMITTER.search(submitter) is not None
+
+
+def unrecognised_submitter(row: Mapping[str, Any]) -> str | None:
+    """Return the row's submitter as written if it is in neither the department nor the ALB list.
+
+    Returns `None` if the submitter is known, or if the row has none.
+    """
+    submitter = _text_or_none(row.get(SUBMITTER_COLUMN))
+    if submitter is None or _name_key(submitter) in _ALBS or _name_key(submitter) in _DEPARTMENTS:
+        return None
+    return submitter
+
+
 def documents_for_row(row: Mapping[str, Any]) -> dict[str, Sidecar]:
     """Map each document the row lists, by file name, to the same metadata.
 
     A known ALB gives its parent as the department. A known department is written in its
-    canonical spelling. Any other submitter is kept as written, with no ALB. A date that is
-    empty or unreadable is left out.
+    canonical spelling. Any other submitter is kept as written, with no ALB. The date is the
+    first of `DATE_COLUMNS` that has text, and is left out if there is none or it is unreadable.
     """
     source = SOURCES[SOURCE_NAME]
 
     try:
-        submitted = _submit_date(row)
+        submitted = _case_date(row)
     except SidecarError:
         submitted = None
 
@@ -140,3 +288,12 @@ def choose_documents(
 
     chosen.sort(key=_newest_first)
     return dict(chosen if limit is None else chosen[:limit])
+
+
+def unmatched_departments(documents: Mapping[str, Sidecar], departments: Iterable[str]) -> list[str]:
+    """Return the requested departments that no document belongs to, as they were given.
+
+    Matches the way `choose_documents` does: ignoring case and extra spaces.
+    """
+    present = {_name_key(sidecar.department_name) for sidecar in documents.values() if sidecar.department_name}
+    return [name for name in departments if _name_key(name) not in present]
