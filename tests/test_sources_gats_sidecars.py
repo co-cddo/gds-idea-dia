@@ -1,6 +1,7 @@
 """Tests for dia.sources.gats_sidecars: GATS export rows to document sidecars."""
 
 import datetime as dt
+import json
 
 import boto3
 import pytest
@@ -9,19 +10,26 @@ from moto import mock_aws
 from dia.department_mapping import PARENT_MAP
 from dia.document_types import DocumentType
 from dia.sources.gats_sidecars import (
+    DEFAULT_EXPORTS,
+    OLD_EXPORT_KEY,
     ExportError,
     choose_documents,
     documents_for_row,
     export_key,
+    fix_old_label,
     is_test_row,
     latest_export_key,
     list_bucket_keys,
+    newer_old_exports,
+    old_label_spend_id,
     read_export,
+    read_labels,
+    row_sidecar,
     unmatched_departments,
     unreadable_date,
     unrecognised_submitter,
 )
-from dia.sources.sidecar import Sidecar
+from dia.sources.sidecar import Sidecar, SidecarError
 
 OLD_ROW = {
     "CO_SpendID": "COSC-00001",
@@ -642,3 +650,169 @@ def test_a_submitter_whose_last_word_is_test_or_testing_is_test_data(submitter):
 )
 def test_other_submitters_are_not_test_data(submitter):
     assert not is_test_row({"CO_OrganisationSubmitter": submitter})
+
+
+# --- a case's metadata, whether or not it lists files ---
+
+
+def test_row_sidecar_gives_the_case_metadata_for_a_row_that_lists_no_files():
+    sidecar = row_sidecar({**OLD_ROW, "CO_CS_Files": ""})
+    assert (sidecar.spend_id, sidecar.project_name, sidecar.department_name) == (
+        "COSC-00001",
+        "School Data Platform",
+        "Department for Education",
+    )
+    assert documents_for_row({**OLD_ROW, "CO_CS_Files": ""}) == {}
+
+
+def test_every_document_of_a_row_gets_the_row_sidecar():
+    assert set(documents_for_row(OLD_ROW).values()) == {row_sidecar(OLD_ROW)}
+
+
+# --- the default exports, and a newer older export ---
+
+
+def test_the_defaults_are_the_last_older_export_and_the_newest_one():
+    assert DEFAULT_EXPORTS == (OLD_EXPORT_KEY, "latest")
+    assert OLD_EXPORT_KEY == "spend-controls-raw-data/DataExport_08032026052712.csv"
+
+
+def test_no_older_export_is_newer_than_the_pinned_one():
+    s3 = _FakeS3([(OLD_EXPORT_KEY, _at(8)), ("spend-controls-raw-data/DataExport_other.csv", _at(2))])
+    assert newer_old_exports(s3, BUCKET) == []
+
+
+def test_an_older_export_uploaded_after_the_pinned_one_is_reported():
+    s3 = _FakeS3(
+        [
+            (OLD_EXPORT_KEY, _at(8)),
+            ("spend-controls-raw-data/DataExport_later.csv", _at(20)),
+            ("spend-controls-raw-data/DataExport_earlier.csv", _at(1)),
+        ]
+    )
+    assert newer_old_exports(s3, BUCKET) == ["spend-controls-raw-data/DataExport_later.csv"]
+
+
+def test_the_newer_daily_exports_and_other_files_are_not_older_exports():
+    s3 = _FakeS3(
+        [
+            (OLD_EXPORT_KEY, _at(8)),
+            ("spend-controls-raw-data/gas/DataExport_new.csv", _at(25)),
+            ("spend-controls-raw-data/notes.txt", _at(25)),
+        ]
+    )
+    assert newer_old_exports(s3, BUCKET) == []
+
+
+def test_nothing_is_reported_when_the_pinned_export_is_not_there():
+    assert newer_old_exports(_FakeS3([("spend-controls-raw-data/DataExport_x.csv", _at(25))]), BUCKET) == []
+
+
+# --- reading labels ---
+
+
+def test_read_labels_returns_the_text_of_each_label_by_key(s3_with_export):
+    for name in ("a", "b", "c"):
+        s3_with_export.put_object(Bucket=BUCKET, Key=f"files/{name}.pdf.metadata.json", Body=f"text {name}".encode())
+
+    result = read_labels(s3_with_export, BUCKET, ["files/a.pdf.metadata.json", "files/c.pdf.metadata.json"])
+
+    assert result == {"files/a.pdf.metadata.json": "text a", "files/c.pdf.metadata.json": "text c"}
+
+
+def test_read_labels_with_no_keys_reads_nothing(s3_with_export):
+    assert read_labels(s3_with_export, BUCKET, []) == {}
+
+
+def test_read_labels_does_not_hide_a_label_it_cannot_read(s3_with_export):
+    with pytest.raises(Exception, match="NoSuchKey"):
+        read_labels(s3_with_export, BUCKET, ["files/missing.pdf.metadata.json"])
+
+
+def test_read_labels_reads_text_that_is_not_utf8_without_failing(s3_with_export):
+    s3_with_export.put_object(Bucket=BUCKET, Key="files/a.pdf.metadata.json", Body=b"caf\xe9")
+    assert "caf" in read_labels(s3_with_export, BUCKET, ["files/a.pdf.metadata.json"])["files/a.pdf.metadata.json"]
+
+
+# --- labels written by the previous repo's script ---
+
+OLD_LABEL = {
+    "alb": "Government Property Agency",
+    "department": "Cabinet Office",
+    "document_type": "business_case",
+    "file_reference": 4417,
+    "project_name": "Office Estate",
+    "spend_id": "COSC-00001",
+}
+
+
+def _label(**attributes):
+    return json.dumps({"metadataAttributes": attributes})
+
+
+def test_the_spend_id_of_an_old_label_is_read():
+    assert old_label_spend_id(_label(document_type="business_case", spend_id=" COSC-1 ")) == "COSC-1"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        "not json",
+        "[]",
+        "{}",
+        '{"metadataAttributes": []}',
+        _label(document_type="business_case"),
+        _label(spend_id=""),
+    ],
+)
+def test_a_label_with_no_readable_spend_id_has_none(text):
+    assert old_label_spend_id(text) is None
+
+
+def test_an_old_label_is_fixed_by_renaming_department_and_dropping_file_reference():
+    assert fix_old_label(_label(**OLD_LABEL)) == Sidecar(
+        document_type=DocumentType.BUSINESS_CASE,
+        department_name="Cabinet Office",
+        alb="Government Property Agency",
+        project_name="Office Estate",
+        spend_id="COSC-00001",
+    )
+
+
+def test_a_department_in_an_old_label_is_written_the_way_the_exports_are():
+    fixed = fix_old_label(_label(document_type="business_case", department="HM Revenue & Customs"))
+    assert fixed.department_name == "HM Revenue and Customs"
+    assert fixed.alb is None
+
+
+def test_an_old_label_whose_department_is_an_alb_gets_its_parent_and_the_alb():
+    fixed = fix_old_label(_label(document_type="business_case", department=AN_ALB.lower()))
+    assert (fixed.department_name, fixed.alb) == (PARENT_MAP[AN_ALB], AN_ALB)
+
+
+def test_an_old_label_with_only_a_file_reference_is_fixed_to_just_its_type_and_spend_id():
+    fixed = fix_old_label(_label(document_type="business_case", file_reference=9, spend_id="S1"))
+    assert fixed == Sidecar(document_type=DocumentType.BUSINESS_CASE, spend_id="S1")
+
+
+def test_a_department_name_already_in_the_label_is_not_overwritten_by_department():
+    fixed = fix_old_label(_label(document_type="business_case", department="Home Office", department_name="HMRC"))
+    assert fixed.department_name == "HMRC"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        _label(document_type="business_case", year=2024),
+        _label(document_type="sr_bids_2025"),
+        _label(document_type="nonsense"),
+        _label(spend_id="S1"),
+        _label(document_type="business_case", spend_id=12),
+        "not json",
+        "[]",
+    ],
+)
+def test_a_label_that_cannot_be_fixed_is_an_error(text):
+    with pytest.raises(SidecarError):
+        fix_old_label(text)
