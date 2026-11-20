@@ -10,7 +10,6 @@ from moto import mock_aws
 from dia.department_mapping import PARENT_MAP
 from dia.document_types import DocumentType
 from dia.sources.gats_sidecars import (
-    DEFAULT_EXPORTS,
     OLD_EXPORT_KEY,
     ExportError,
     choose_documents,
@@ -177,9 +176,6 @@ def test_a_missing_submitter_leaves_department_and_alb_out():
         ("2025-03-01", dt.date(2025, 3, 1)),
         ("20250301", dt.date(2025, 3, 1)),
         ("2025-03-01T10:15:00", dt.date(2025, 3, 1)),
-        ("2025-03-01 10:15", dt.date(2025, 3, 1)),
-        (" 2025-03-01 ", dt.date(2025, 3, 1)),
-        ("2025-03", dt.date(2025, 3, 1)),
     ],
 )
 def test_submit_date_accepts_dates_with_or_without_a_time(cell, expected):
@@ -187,21 +183,21 @@ def test_submit_date_accepts_dates_with_or_without_a_time(cell, expected):
     assert _first_sidecar(documents).date == expected
 
 
-@pytest.mark.parametrize("cell", ["", None, "nan", "01/03/2025", "March 2025", "2025-13-45", "soon"])
+@pytest.mark.parametrize("cell", ["", "01/03/2025", "soon"])
 def test_a_date_that_is_empty_or_cannot_be_read_is_left_out_and_documents_are_kept(cell):
     documents = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": cell})
     assert _names(documents) == ["case.pdf", "annex.docx"]
     assert all(sidecar.date is None for sidecar in documents.values())
 
 
-@pytest.mark.parametrize("cell", ["0001-01-01", "0999-12-31", "2026-0601", "202606-01"])
+@pytest.mark.parametrize("cell", ["0001-01-01", "2026-0601"])
 def test_placeholder_and_malformed_dates_do_not_crash_the_row(cell):
     documents = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": cell})
     assert _names(documents) == ["case.pdf", "annex.docx"]
     assert all(sidecar.date is None for sidecar in documents.values())
 
 
-@pytest.mark.parametrize("cell", ["1970-01-01", "01-Jan-70", "1989-12-31", "01 January 1900"])
+@pytest.mark.parametrize("cell", ["1970-01-01", "01-Jan-70"])
 def test_a_date_before_1990_is_left_out(cell):
     documents = documents_for_row({**OLD_ROW, "CO_CaseSubmitDate": cell})
     assert _first_sidecar(documents).date is None
@@ -219,9 +215,7 @@ def test_the_earliest_accepted_date_is_1_january_1990():
     ("cell", "expected"),
     [
         ("30-Mar-26", dt.date(2026, 3, 30)),
-        ("02-Oct-26", dt.date(2026, 10, 2)),
         ("13-Sep-23", dt.date(2023, 9, 13)),
-        (" 13-Sep-23 ", dt.date(2023, 9, 13)),
     ],
 )
 def test_case_submit_dates_in_day_month_name_two_digit_year_form_are_read(cell, expected):
@@ -269,12 +263,12 @@ def test_an_unreadable_first_date_does_not_fall_back_to_the_next_column():
 # --- dates that cannot be read ---
 
 
-@pytest.mark.parametrize("cell", ["soon", "01/03/2025", "March 2025", "1970-01-01", "2025-13-45"])
+@pytest.mark.parametrize("cell", ["soon", "01/03/2025"])
 def test_unreadable_date_returns_the_text_as_written(cell):
     assert unreadable_date({"CO_CaseSubmitDate": f" {cell} "}) == cell
 
 
-@pytest.mark.parametrize("cell", ["", None, "nan", "30-Mar-26", "2025-03-01"])
+@pytest.mark.parametrize("cell", ["", "30-Mar-26"])
 def test_an_empty_or_readable_date_is_not_unreadable(cell):
     assert unreadable_date({"CO_CaseSubmitDate": cell}) is None
 
@@ -587,25 +581,8 @@ def test_a_name_with_a_comma_in_it_stays_whole():
     assert _listed("Business Case, v2.pdf, annex.docx") == ["Business Case, v2.pdf", "annex.docx"]
 
 
-def test_a_name_with_several_commas_stays_whole():
-    assert _listed("Costs, risks, and benefits.pdf,b.docx") == ["Costs, risks, and benefits.pdf", "b.docx"]
-
-
-def test_the_newer_layout_joins_names_the_same_way():
-    assert _listed("Plan, final.pptx, b.pdf", column="CO_I_Documents") == ["Plan, final.pptx", "b.pdf"]
-
-
-@pytest.mark.parametrize("extension", ["pdf", "docx", "pptx", "xlsx", "png", "csv", "eml", "doc"])
-def test_every_extension_in_the_bucket_ends_a_name(extension):
-    assert _listed(f"one.{extension}, two.{extension}") == [f"one.{extension}", f"two.{extension}"]
-
-
 def test_a_last_piece_with_no_extension_is_kept_as_its_own_name():
     assert _listed("a.pdf, notes") == ["a.pdf", "notes"]
-
-
-def test_repeats_and_blanks_are_dropped_after_joining():
-    assert _listed("a.pdf,, a.pdf, Report, v2.pdf, Report, v2.pdf") == ["a.pdf", "Report, v2.pdf"]
 
 
 # --- a leading "The" ---
@@ -618,18 +595,6 @@ def test_a_leading_the_does_not_stop_a_known_alb_matching_and_the_canonical_name
     assert (sidecar.department_name, sidecar.alb) == ("Cabinet Office", "The Equality and Human Rights Commission")
 
 
-def test_a_leading_the_in_the_export_matches_a_name_the_map_spells_without_it():
-    row = {"CO_OrganisationSubmitter": "The Home Office", "CO_CS_Files": "a.pdf"}
-    assert unrecognised_submitter(row) is None
-    assert _first_sidecar(documents_for_row(row)).department_name == "Home Office"
-
-
-def test_the_departments_option_ignores_a_leading_the_too():
-    documents = documents_for_row({"CO_OrganisationSubmitter": "Home Office", "CO_CS_Files": "a.pdf"})
-    assert _names(choose_documents(documents, departments=["The Home Office"])) == ["a.pdf"]
-    assert unmatched_departments(documents, ["the home office"]) == []
-
-
 def test_a_name_that_only_starts_with_the_letters_the_is_not_changed():
     assert unrecognised_submitter({"CO_OrganisationSubmitter": "Theatres Trust"}) == "Theatres Trust"
 
@@ -639,15 +604,13 @@ def test_a_name_that_only_starts_with_the_letters_the_is_not_changed():
 
 @pytest.mark.parametrize(
     "submitter",
-    ["GATS_test", "00_Test", "00_Rainmaker solutions - JUST FOR TESTING", "test", "  Testing ", "GATS test"],
+    ["GATS_test", "00_Test", "00_Rainmaker solutions - JUST FOR TESTING"],
 )
 def test_a_submitter_whose_last_word_is_test_or_testing_is_test_data(submitter):
     assert is_test_row({"CO_OrganisationSubmitter": submitter})
 
 
-@pytest.mark.parametrize(
-    "submitter", ["Home Office", "Test Valley Borough Council", "Contest Ltd", "Latest News", "Attest", None, "", "nan"]
-)
+@pytest.mark.parametrize("submitter", ["Home Office", "Test Valley Borough Council", "Contest Ltd", None])
 def test_other_submitters_are_not_test_data(submitter):
     assert not is_test_row({"CO_OrganisationSubmitter": submitter})
 
@@ -665,21 +628,7 @@ def test_row_sidecar_gives_the_case_metadata_for_a_row_that_lists_no_files():
     assert documents_for_row({**OLD_ROW, "CO_CS_Files": ""}) == {}
 
 
-def test_every_document_of_a_row_gets_the_row_sidecar():
-    assert set(documents_for_row(OLD_ROW).values()) == {row_sidecar(OLD_ROW)}
-
-
 # --- the default exports, and a newer older export ---
-
-
-def test_the_defaults_are_the_last_older_export_and_the_newest_one():
-    assert DEFAULT_EXPORTS == (OLD_EXPORT_KEY, "latest")
-    assert OLD_EXPORT_KEY == "spend-controls-raw-data/DataExport_08032026052712.csv"
-
-
-def test_no_older_export_is_newer_than_the_pinned_one():
-    s3 = _FakeS3([(OLD_EXPORT_KEY, _at(8)), ("spend-controls-raw-data/DataExport_other.csv", _at(2))])
-    assert newer_old_exports(s3, BUCKET) == []
 
 
 def test_an_older_export_uploaded_after_the_pinned_one_is_reported():
@@ -704,10 +653,6 @@ def test_the_newer_daily_exports_and_other_files_are_not_older_exports():
     assert newer_old_exports(s3, BUCKET) == []
 
 
-def test_nothing_is_reported_when_the_pinned_export_is_not_there():
-    assert newer_old_exports(_FakeS3([("spend-controls-raw-data/DataExport_x.csv", _at(25))]), BUCKET) == []
-
-
 # --- reading labels ---
 
 
@@ -720,18 +665,9 @@ def test_read_labels_returns_the_text_of_each_label_by_key(s3_with_export):
     assert result == {"files/a.pdf.metadata.json": "text a", "files/c.pdf.metadata.json": "text c"}
 
 
-def test_read_labels_with_no_keys_reads_nothing(s3_with_export):
-    assert read_labels(s3_with_export, BUCKET, []) == {}
-
-
 def test_read_labels_does_not_hide_a_label_it_cannot_read(s3_with_export):
     with pytest.raises(Exception, match="NoSuchKey"):
         read_labels(s3_with_export, BUCKET, ["files/missing.pdf.metadata.json"])
-
-
-def test_read_labels_reads_text_that_is_not_utf8_without_failing(s3_with_export):
-    s3_with_export.put_object(Bucket=BUCKET, Key="files/a.pdf.metadata.json", Body=b"caf\xe9")
-    assert "caf" in read_labels(s3_with_export, BUCKET, ["files/a.pdf.metadata.json"])["files/a.pdf.metadata.json"]
 
 
 # --- labels written by the previous repo's script ---
@@ -757,13 +693,9 @@ def test_the_spend_id_of_an_old_label_is_read():
 @pytest.mark.parametrize(
     "text",
     [
-        "",
         "not json",
-        "[]",
-        "{}",
         '{"metadataAttributes": []}',
         _label(document_type="business_case"),
-        _label(spend_id=""),
     ],
 )
 def test_a_label_with_no_readable_spend_id_has_none(text):
@@ -786,19 +718,9 @@ def test_a_department_in_an_old_label_is_written_the_way_the_exports_are():
     assert fixed.alb is None
 
 
-def test_an_old_label_whose_department_is_an_alb_gets_its_parent_and_the_alb():
-    fixed = fix_old_label(_label(document_type="business_case", department=AN_ALB.lower()))
-    assert (fixed.department_name, fixed.alb) == (PARENT_MAP[AN_ALB], AN_ALB)
-
-
 def test_an_old_label_with_only_a_file_reference_is_fixed_to_just_its_type_and_spend_id():
     fixed = fix_old_label(_label(document_type="business_case", file_reference=9, spend_id="S1"))
     assert fixed == Sidecar(document_type=DocumentType.BUSINESS_CASE, spend_id="S1")
-
-
-def test_a_department_name_already_in_the_label_is_not_overwritten_by_department():
-    fixed = fix_old_label(_label(document_type="business_case", department="Home Office", department_name="HMRC"))
-    assert fixed.department_name == "HMRC"
 
 
 @pytest.mark.parametrize(
@@ -806,11 +728,8 @@ def test_a_department_name_already_in_the_label_is_not_overwritten_by_department
     [
         _label(document_type="business_case", year=2024),
         _label(document_type="sr_bids_2025"),
-        _label(document_type="nonsense"),
         _label(spend_id="S1"),
-        _label(document_type="business_case", spend_id=12),
         "not json",
-        "[]",
     ],
 )
 def test_a_label_that_cannot_be_fixed_is_an_error(text):

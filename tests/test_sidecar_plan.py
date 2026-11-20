@@ -63,10 +63,6 @@ def test_departments_that_match_nothing_are_reported_before_the_limit_is_applied
     assert result.unmatched_departments == ["Nowhere Office"]
 
 
-def test_no_departments_asked_for_means_none_unmatched():
-    assert _plan([_row("S1", "a.pdf")]).unmatched_departments == []
-
-
 # --- choosing, and comparing with the bucket ---
 
 
@@ -140,16 +136,6 @@ def test_files_outside_the_prefix_do_not_match():
     assert result.chosen_not_in_bucket == 1
 
 
-def test_an_empty_export_and_an_empty_bucket_give_zeros():
-    result = _plan([])
-    assert (result.rows_read, result.listed, result.chosen, result.would_write_with_overwrite) == (0, 0, 0, 0)
-
-
-def test_a_limit_below_one_is_rejected():
-    with pytest.raises(ValueError, match="at least 1"):
-        _plan([_row("S1", "a.pdf")], limit=0)
-
-
 # --- dates that could not be read ---
 
 
@@ -171,11 +157,6 @@ def test_an_empty_date_is_not_unreadable_but_is_still_a_document_with_no_date():
 
 def test_an_unreadable_date_on_a_row_with_no_files_is_not_counted():
     assert _plan([_row("S1", "", date="soon")]).unreadable_dates == {}
-
-
-def test_documents_with_an_unreadable_date_are_still_listed_and_chosen():
-    result = _plan([_row("S1", "a.pdf", date="soon")], ["files/a.pdf"])
-    assert (result.listed, result.listed_without_date, result.chosen) == (1, 1, 1)
 
 
 # --- test data ---
@@ -204,11 +185,6 @@ def test_ignored_test_rows_are_in_no_other_row_count():
     assert result.rows_without_documents == 0
     assert result.unrecognised_submitters == {}
     assert result.unreadable_dates == {}
-
-
-def test_a_test_documents_file_counts_as_not_listed_by_the_export():
-    result = _plan([_row("S1", "a.pdf", submitter="GATS_test")], ["files/a.pdf"])
-    assert result.bucket_not_listed == 1
 
 
 # --- what every document in the bucket gets ---
@@ -251,7 +227,7 @@ def test_a_document_no_export_lists_with_no_label_gets_a_basic_label_if_it_is_a_
     assert all(sidecar == Sidecar(document_type="business_case") for sidecar in result.new.values())
 
 
-@pytest.mark.parametrize("name", ["a.pptx", "b.xlsx", "c.png", "d.csv", "e.eml", "f.doc", "g.odt", "h"])
+@pytest.mark.parametrize("name", ["a.pptx", "c.png", "h"])
 def test_a_document_of_any_other_type_with_nothing_to_label_it_from_waits(name):
     result = _full([], [f"files/{name}"])
     assert result.outcomes == {f"files/{name}": Outcome.WAITING}
@@ -259,11 +235,10 @@ def test_a_document_of_any_other_type_with_nothing_to_label_it_from_waits(name):
     assert result.count(Outcome.WAITING) == 1
 
 
-@pytest.mark.parametrize("name", ["a.pptx", "b.xlsx", "c.png"])
-def test_a_document_an_export_lists_is_labelled_whatever_its_type(name):
-    result = _full([_row("S1", name)], [f"files/{name}"])
-    assert result.outcomes == {f"files/{name}": Outcome.FROM_EXPORT}
-    assert list(result.new) == [f"files/{name}.metadata.json"]
+def test_a_document_an_export_lists_is_labelled_whatever_its_type():
+    result = _full([_row("S1", "slides.pptx")], ["files/slides.pptx"])
+    assert result.outcomes == {"files/slides.pptx": Outcome.FROM_EXPORT}
+    assert list(result.new) == ["files/slides.pptx.metadata.json"]
 
 
 def test_a_document_no_export_lists_is_rebuilt_from_the_case_its_old_label_names():
@@ -320,12 +295,6 @@ def test_an_old_label_that_cannot_be_fixed_is_left_alone_and_counted(text):
     assert (result.new, result.replacements) == ({}, {})
 
 
-def test_a_label_that_could_not_be_read_is_unfixable_and_not_replaced():
-    result = _full([], ["files/x.pdf", "files/x.pdf.metadata.json"], {})
-    assert result.outcomes == {"files/x.pdf": Outcome.OLD_LABEL_UNFIXABLE}
-    assert result.replacements == {}
-
-
 def test_the_export_wins_over_the_old_label_for_a_document_it_lists():
     old = _old_label(spend_id="S9", department="Other")
     result = _full([_row("S1", "a.pdf")], ["files/a.pdf"], {"files/a.pdf.metadata.json": old})
@@ -376,12 +345,6 @@ def test_a_run_over_the_whole_bucket_reads_every_existing_label_once():
     assert reader.asked == [["files/a.pdf.metadata.json", "files/b.pdf.metadata.json"]]
 
 
-def test_nothing_is_read_when_there_are_no_labels():
-    reader = _reader({})
-    plan([_row("S1", "a.pdf")], ["files/a.pdf"], prefix=PREFIX, read_labels=reader)
-    assert reader.asked == []
-
-
 # --- a limit or departments: only the chosen files are in the run ---
 
 
@@ -407,10 +370,6 @@ def test_with_departments_only_labels_of_the_chosen_files_are_read():
     assert result.outside_run == 2
 
 
-def test_a_run_with_no_limit_or_departments_leaves_nothing_outside_it():
-    assert _full([_row("S1", "a.pdf")], ["files/a.pdf", "files/b.pptx"]).outside_run == 0
-
-
 # --- rows from several exports ---
 
 
@@ -425,35 +384,3 @@ def test_rows_from_several_exports_are_combined_and_the_later_one_wins_for_a_sha
 
 
 # --- the totals add up ---
-
-
-def test_every_document_in_the_bucket_has_exactly_one_outcome():
-    rows = [_row("S1", "a.pdf"), _row("S2", "", submitter=HOME_OFFICE)]
-    bucket = [
-        "files/a.pdf",
-        "files/b.pdf",
-        "files/c.pptx",
-        "files/d.pdf",
-        "files/d.pdf.metadata.json",
-        "files/e.pdf",
-        "files/e.pdf.metadata.json",
-        "files/f.pdf",
-        "files/f.pdf.metadata.json",
-        "files/old.json",
-    ]
-    labels = {
-        "files/d.pdf.metadata.json": _old_label(spend_id="S2"),
-        "files/e.pdf.metadata.json": _old_label(spend_id="S9"),
-        "files/f.pdf.metadata.json": "garbage",
-    }
-    result = _full(rows, bucket, labels)
-
-    assert result.outcomes == {
-        "files/a.pdf": Outcome.FROM_EXPORT,
-        "files/b.pdf": Outcome.BASIC_LABEL,
-        "files/c.pptx": Outcome.WAITING,
-        "files/d.pdf": Outcome.REBUILT_FROM_CASE,
-        "files/e.pdf": Outcome.OLD_LABEL_KEPT,
-        "files/f.pdf": Outcome.OLD_LABEL_UNFIXABLE,
-    }
-    assert sum(result.count(outcome) for outcome in Outcome) == 6

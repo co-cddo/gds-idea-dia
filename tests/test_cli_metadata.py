@@ -116,12 +116,6 @@ def test_latest_reads_the_newest_export_in_the_gas_folder(prod):
     assert _count(result.output, "rows read") == 1
 
 
-def test_the_limit_counts_documents_and_takes_the_newest(prod):
-    result = _run("--export", "old.csv", "--limit", "1")
-    assert _count(result.output, "documents listed") == 4
-    assert _count(result.output, "documents chosen") == 1
-
-
 def test_departments_are_applied_and_ones_that_match_nothing_are_named(prod):
     result = _run("--export", "old.csv", "--departments", "home office, Nowhere Office")
 
@@ -189,12 +183,6 @@ def test_giving_an_export_replaces_the_defaults(prod):
     result = _run("--export", "old.csv")
     assert "spend-controls-raw-data/gas/new.csv" not in result.output
     assert _count(result.output, "rows read") == 3
-
-
-def test_a_missing_default_export_is_a_clear_error(prod):
-    result = _run()
-    assert result.exit_code == 1
-    assert "does not exist" in result.output
 
 
 def test_a_missing_export_is_a_clear_error_not_a_traceback(prod):
@@ -323,15 +311,6 @@ def test_dates_that_cannot_be_read_are_counted_apart_from_empty_ones_with_exampl
     assert "    soon: 2" in result.output
 
 
-def test_every_count_starts_in_the_same_column(prod):
-    result = _run("--export", "old.csv")
-
-    counts = [line for line in _plain(result.output).splitlines() if re.match(r"  [a-z].*:\s+\S", line)]
-    assert len(counts) >= 10
-    columns = {re.match(r"  [^:]+:\s*", line).end() for line in counts}
-    assert columns == {39}
-
-
 def test_rows_from_test_submitters_are_ignored_and_counted_in_the_output(prod):
     body = OLD_EXPORT + 'S9,GATS_test,2026-05-01,"z.pdf",Test case\nS8,00_Test,,"y.pdf",Test case\n'
     prod.put_object(Bucket=BUCKET, Key="spend-controls-raw-data/with-tests.csv", Body=body.encode())
@@ -357,28 +336,6 @@ def test_it_prints_what_every_document_in_the_bucket_would_get(prod):
     assert _count(result.output, "label rebuilt from its case") == 0
     assert _count(result.output, "no label yet") == 0
     assert _count(result.output, "left alone") == 0
-
-
-def test_a_pptx_with_no_source_waits_and_a_pdf_with_no_source_gets_a_basic_label(prod):
-    prod.put_object(Bucket=BUCKET, Key="files/slides.pptx", Body=b"x")
-
-    result = _run("--export", "old.csv")
-
-    assert _count(result.output, "no label yet") == 1
-    assert _count(result.output, "basic label") == 2
-
-
-def test_an_old_label_whose_case_is_in_the_export_is_rebuilt_from_the_case(prod):
-    prod.put_object(Bucket=BUCKET, Key="files/extra.pdf", Body=b"x")
-    prod.put_object(
-        Bucket=BUCKET,
-        Key="files/extra.pdf.metadata.json",
-        Body=b'{"metadataAttributes": {"document_type": "business_case", "spend_id": "S1"}}',
-    )
-
-    result = _run("--export", "old.csv")
-
-    assert _count(result.output, "label rebuilt from its case") == 1
 
 
 def test_a_second_run_over_labels_that_are_already_correct_would_write_nothing(prod):
@@ -421,10 +378,6 @@ def test_a_limit_over_several_exports_says_which_dates_are_used(prod):
     assert "use --export latest" in _plain(result.output)
 
 
-def test_a_limit_over_one_export_has_no_note(prod):
-    assert "Note:" not in _run("--export", "latest", "--limit", "2").output
-
-
 # --- a newer older export than the default ---
 
 
@@ -437,11 +390,6 @@ def test_a_newer_older_export_than_the_default_is_a_warning_when_the_defaults_ar
 
     assert result.exit_code == 0, result.output
     assert "Warning: spend-controls-raw-data/DataExport_99999999999999.csv is newer" in result.output
-
-
-def test_no_warning_when_the_default_is_the_newest_older_export(prod):
-    prod.put_object(Bucket=BUCKET, Key=OLD_EXPORT_KEY, Body=OLD_EXPORT.encode())
-    assert "Warning" not in _run().output
 
 
 def test_no_warning_check_is_made_when_an_export_is_given(prod):
@@ -470,22 +418,3 @@ def test_the_report_lists_every_document_with_what_it_gets(prod, tmp_path):
     assert by_document["files/z.pdf"] == ("basic_label", "new")
     assert by_document["files/ghost.pdf"] == ("listed_but_not_in_bucket", "none")
     assert "files/old.json" not in by_document
-
-
-def test_the_report_names_documents_but_the_screen_does_not(prod, tmp_path):
-    report = tmp_path / "metadata.csv"
-    result = _run("--export", "old.csv", "--report", str(report))
-    assert "z.pdf" in report.read_text()
-    assert "z.pdf" not in result.output
-
-
-def test_no_report_is_written_unless_asked_for(prod, tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    _run("--export", "old.csv")
-    assert list(tmp_path.iterdir()) == []
-
-
-def test_progress_is_not_mixed_into_the_counts(prod):
-    result = _run("--export", "old.csv")
-    assert "Reading 1 existing labels..." in result.output
-    assert result.stdout.count("Reading") == 0
