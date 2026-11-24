@@ -85,6 +85,8 @@ class SidecarPlan:
         unchanged: Documents whose label already holds what they would get.
         new: Sidecars to write where there is no label yet, by sidecar key.
         replacements: Sidecars that would replace a label that holds something different.
+        replaced_text: The text of each label in `replacements`, as it is in the bucket, by
+            sidecar key. It is what a backup must save before the label is replaced.
     """
 
     rows_read: int
@@ -104,6 +106,7 @@ class SidecarPlan:
     unchanged: int
     new: dict[str, Sidecar]
     replacements: dict[str, Sidecar]
+    replaced_text: dict[str, str]
 
     @property
     def chosen_not_in_bucket(self) -> int:
@@ -341,4 +344,5 @@ def plan(
         unchanged=unchanged,
         new=new,
         replacements=replacements,
+        replaced_text={key: old_labels[key] for key in replacements if key in old_labels},
     )

@@ -95,6 +95,16 @@ def test_a_file_with_no_label_is_new_and_one_with_a_label_is_a_replacement():
     assert result.would_write_with_overwrite == 2
 
 
+def test_a_replacement_keeps_the_exact_text_of_the_label_it_replaces():
+    old = '{"metadataAttributes": {"department": "Home Office"}}  '
+    result = _plan(
+        [_row("S1", "a.pdf")],
+        ["files/a.pdf", "files/a.pdf.metadata.json"],
+        read_labels=lambda keys: {key: old for key in keys},
+    )
+    assert result.replaced_text == {"files/a.pdf.metadata.json": old}
+
+
 def test_the_sidecars_to_write_hold_the_mapped_metadata():
     sidecar = _plan([_row("S1", "a.pdf")], ["files/a.pdf"]).new["files/a.pdf.metadata.json"]
     assert (sidecar.spend_id, sidecar.department_name, str(sidecar.date)) == ("S1", "Home Office", "2026-05-01")
