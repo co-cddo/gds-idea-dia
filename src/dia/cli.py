@@ -253,8 +253,8 @@ def metadata(
         SOURCE_NAME,
         ExportError,
         export_key,
+        find_old_exports_after_pinned,
         list_bucket_keys,
-        newer_old_exports,
         read_export,
         read_labels,
     )
@@ -280,7 +280,7 @@ def metadata(
     try:
         s3 = source_s3_client(role_arn, boto3.client("sts", region_name=REGION), session_name="dia-metadata")
         keys = [export_key(s3, location.bucket, name) for name in (export or DEFAULT_EXPORTS)]
-        newer = newer_old_exports(s3, location.bucket) if export is None else []
+        newer = find_old_exports_after_pinned(s3, location.bucket) if export is None else []
         rows = [row for key in keys for row in read_export(s3, location.bucket, key)]
         bucket_keys = list_bucket_keys(s3, location.bucket, location.prefix)
         result = plan(

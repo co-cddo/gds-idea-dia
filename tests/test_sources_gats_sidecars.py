@@ -15,11 +15,11 @@ from dia.sources.gats_sidecars import (
     choose_documents,
     documents_for_row,
     export_key,
+    find_old_exports_after_pinned,
     fix_old_label,
     is_test_row,
     latest_export_key,
     list_bucket_keys,
-    newer_old_exports,
     old_label_spend_id,
     read_export,
     read_labels,
@@ -639,7 +639,7 @@ def test_an_older_export_uploaded_after_the_pinned_one_is_reported():
             ("spend-controls-raw-data/DataExport_earlier.csv", _at(1)),
         ]
     )
-    assert newer_old_exports(s3, BUCKET) == ["spend-controls-raw-data/DataExport_later.csv"]
+    assert find_old_exports_after_pinned(s3, BUCKET) == ["spend-controls-raw-data/DataExport_later.csv"]
 
 
 def test_the_newer_daily_exports_and_other_files_are_not_older_exports():
@@ -650,7 +650,7 @@ def test_the_newer_daily_exports_and_other_files_are_not_older_exports():
             ("spend-controls-raw-data/notes.txt", _at(25)),
         ]
     )
-    assert newer_old_exports(s3, BUCKET) == []
+    assert find_old_exports_after_pinned(s3, BUCKET) == []
 
 
 # --- reading labels ---

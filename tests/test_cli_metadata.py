@@ -385,7 +385,7 @@ def test_a_newer_older_export_than_the_default_is_a_warning_when_the_defaults_ar
     prod.put_object(Bucket=BUCKET, Key=OLD_EXPORT_KEY, Body=OLD_EXPORT.encode())
     newer = ["spend-controls-raw-data/DataExport_99999999999999.csv"]
 
-    with patch("dia.sources.gats_sidecars.newer_old_exports", return_value=newer):
+    with patch("dia.sources.gats_sidecars.find_old_exports_after_pinned", return_value=newer):
         result = _run()
 
     assert result.exit_code == 0, result.output
@@ -393,7 +393,7 @@ def test_a_newer_older_export_than_the_default_is_a_warning_when_the_defaults_ar
 
 
 def test_no_warning_check_is_made_when_an_export_is_given(prod):
-    with patch("dia.sources.gats_sidecars.newer_old_exports", return_value=["x.csv"]) as check:
+    with patch("dia.sources.gats_sidecars.find_old_exports_after_pinned", return_value=["x.csv"]) as check:
         result = _run("--export", "old.csv")
     assert "Warning" not in result.output
     check.assert_not_called()

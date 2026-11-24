@@ -88,7 +88,7 @@ def export_key(s3_client: Any, bucket: str, export: str) -> str:
     return export if "/" in export else OLD_EXPORT_PREFIX + export
 
 
-def newer_old_exports(s3_client: Any, bucket: str) -> list[str]:
+def find_old_exports_after_pinned(s3_client: Any, bucket: str) -> list[str]:
     """Return the CSVs in the older folder that were uploaded after `OLD_EXPORT_KEY`.
 
     The older layout's exports stopped, and `OLD_EXPORT_KEY` is the last. If this is not empty,
