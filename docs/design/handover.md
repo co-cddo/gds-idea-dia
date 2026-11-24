@@ -11,7 +11,7 @@ facts that are not obvious from the code.
 
 ## 1. Where things stand
 
-State when this was written, with `dev` at #81. Check `gh pr list` and
+State when this was written, with `dev` at #83 and the 8b extension in #86. Check `gh pr list` and
 `git log origin/dev` before relying on it.
 
 **Built, and run for real in dev**
@@ -120,7 +120,19 @@ State when this was written, with `dev` at #81. Check `gh pr list` and
   file is ignored. Run in prod on 8 March 2026 older export plus the 20 November newer one,
   the dry run gives: 8,257 from the export (2,496 new, 5,761 replacing an old label), 4,187
   rebuilt from their case, 818 kept, 12 fixed, 640 basic, 1,958 waiting, nothing unfixable.
-  That is 3,136 new labels and 9,960 replaced, and nothing is written yet.
+  That is 3,136 new labels and 9,960 replaced.
+- **Writing the labels (8c, `dia.sources.sidecar_writer`).** `dia pipeline metadata --write
+  [--overwrite] [--yes]` writes what the dry run planned. Built and tested with moto, **never
+  run against the real bucket**. It asks first (default no; `--yes` skips). A new label is
+  written with `IfNoneMatch="*"`, so a label that appeared since the plan is skipped and never
+  replaced. `--overwrite` also replaces labels that differ, after saving each old one, as it was,
+  under `./output/metadata/<time>/<key>`; if a save fails nothing is written (`SidecarPlan.replaced_text`
+  holds the old text for this). 16 writes at a time (the client's pool is sized to match). A label
+  that fails, such as one over 10 KB, is counted and the run continues; the exit code is 1.
+  `./output/metadata/<time>.csv` lists keys and `new`, `replaced`, `skipped_exists` or `failed`.
+  `--write` in dev exits 1 before any S3 call, because the role is read-only; `--overwrite` or
+  `--yes` without `--write` is a usage error. Spec 3.5 records this as the one exception to "local
+  runs write only locally". Whether the prod role may `PutObject` on `files/` is unchecked.
 
 **Agreed, not built**
 
@@ -148,7 +160,7 @@ State when this was written, with `dev` at #81. Check `gh pr list` and
   `dia pipeline <stage>` command that runs locally and with `--remote`. What
   "latest" means is not decided (see section 2).
 
-**Not started:** writing the sidecars (8c), the ledger, and every stage after text.
+**Not started:** the ledger, and every stage after text.
 
 **Old code still in the repo.** The rest of `src/dia` is the first build: `extract-text`
 and its runner, `sources/known.py`, `DataSource`, the `metadata` package, the old
@@ -160,13 +172,12 @@ ledger and its CLI, writers, filters, and the agent. Only the old text stage eve
 Follow section 7 of the spec. In short, the order is:
 
 1. **Metadata model and sidecar format.** Done (`dia.sources.sidecar`).
-2. **The GATS metadata step.** The first thing that reads real GATS data. The mapping
-   from export rows to sidecars and the dry run (`dia pipeline metadata`) are built.
-   Next is 8c, the writing: `--write` with a confirmation (`--yes` skips it); `--overwrite`
-   to replace existing labels; an `IfNoneMatch="*"` write otherwise (moto 5.2.2 supports it);
-   an error in dev; failures counted and the run continuing; about 16 writes at a time;
-   each replaced label saved on this machine first; and a report of the keys written. Do
-   a trial first (`--export latest --limit 10 --write`) and check one label in S3.
+2. **The GATS metadata step.** The first thing that reads real GATS data. The mapping, the
+   dry run and the writing (`--write`) are built. Next is the first real run, by whoever has
+   prod credentials: the dry run with the defaults (check the counts), then a trial
+   (`--export latest --limit 10 --write`) and one label opened in S3, then the full run with
+   `--write --overwrite`. Settle the `file_reference` and `department` question (below) before
+   that last one. Then tick step 8 in the spec and record what the run found here.
 3. **The minimal ledger.**
 4. **S3 reader and the text stage**, which delete `known.py`, `DataSource`,
    `extract-text` and the old metadata package.
@@ -197,8 +208,7 @@ Then harden the ledger and CLI, and scale up to all of GATS and the other source
   an `--overwrite` option replaces it.
 - **Writing:** the command is run locally with prod credentials, and writes into the
   GATS bucket. The data owners have agreed to our adding sidecar files. This is an
-  exception to "local runs write only locally", and the command's PR should say so in
-  the spec.
+  exception to "local runs write only locally", recorded in spec 3.5.
 
 **Still to settle**
 
@@ -230,7 +240,7 @@ Then harden the ledger and CLI, and scale up to all of GATS and the other source
   (ours is `department_name`), have no `date`, and many (23 of 40 sampled) have a
   `file_reference`, which `Sidecar` does not have (the knowledge-bases plan already drops
   it). The bucket has never had versioning enabled, so an overwrite cannot be undone.
-  Decided: 8c saves each label it replaces on the machine running it, before replacing it.
+  Decided, and built in 8c: it saves each label it replaces on the machine running it, before replacing it.
   Decided: every old label is replaced with the new format, from the export where there is
   one, from the case by spend ID, or fixed from its own content. `spend_id` stays a label key.
 - **Bodies not in `PARENT_MAP`.** These are unrecognised in the two exports, and are
@@ -485,7 +495,8 @@ what you don't need.
 **Other**
 
 - **Local runs write only locally** (`./output/`). `--remote` is the only way to
-  change real state.
+  change real state, except `dia pipeline metadata --write`, which a local run with prod
+  credentials uses to add sidecars to the GATS bucket (spec 3.5).
 - **Commands.** Pipeline commands live under `dia pipeline`, the agent under `dia
   agent`. `extract-text` and `ledger` are still at the top level and move under
   `pipeline` when rewritten. `dia agent status` is effectively the agent's own

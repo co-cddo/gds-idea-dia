@@ -15,14 +15,14 @@ uv run dia --version
 
 - [`dia extract-text`](docs/extract-text.md) — Stage 1: extract text from documents in a source
 - `dia pipeline preflight` — check that this process can do what the pipeline needs (see below)
-- `dia pipeline metadata` — dry run: what labelling the GATS documents from an export would do (see below)
+- `dia pipeline metadata` — label the GATS documents from the exports: a dry run, or with `--write` the real thing (see below)
 
-### Metadata dry run
+### Metadata labels
 
 `dia pipeline metadata` works out what label each document in the GATS (Get Approval to
-Spend, run by the Government Assurance Service) bucket should have, and prints counts. It
-is read-only and never writes to S3. Run it with valid AWS credentials (in dev it reads
-through the cross-account role):
+Spend, run by the Government Assurance Service) bucket should have, and prints counts. By
+default it is a dry run and never writes to S3. Run it with valid AWS credentials (in dev it
+reads through the cross-account role):
 
 ```bash
 uv run dia pipeline metadata                                  # every document, from the two default exports
@@ -57,6 +57,30 @@ the newer one. Rows from test submitters (a name ending in `test` or `testing`) 
 counted. A file name with a comma in it ("Business Case, v2.pdf") is kept whole. The screen
 names only unrecognised submitters, departments that matched nothing and unreadable dates;
 `--report` has the document names. Other `.json` files in the bucket are ignored.
+
+#### Writing the labels
+
+`--write` adds the labels to the bucket. It is the one place a local run writes to real
+state, and it writes only `.metadata.json` files next to the documents. It works only in
+production, run locally with production credentials: in dev it stops, because the role is
+read-only.
+
+```bash
+uv run dia pipeline metadata --export latest --limit 10 --write            # a trial: 10 new labels
+uv run dia pipeline metadata --write --overwrite                           # also replace labels that differ
+uv run dia pipeline metadata --write --yes                                 # skip the confirmation
+```
+
+- It prints the counts, then asks before writing (the default is no). `--yes` skips this.
+- Without `--overwrite` it writes only labels that do not exist yet (a label that appears
+  while it runs is never replaced). Labels that differ are counted and left alone.
+- With `--overwrite` each label it replaces is first saved, as it was, under
+  `./output/metadata/<time>/` at the same key. The bucket has no versioning, so this is the
+  only copy. If a save fails nothing is written. Those files hold real case data and
+  `output/` is git-ignored.
+- It writes 16 labels at a time. A label that fails (for example over Bedrock's 10 KB limit)
+  is counted and the rest go on; the exit code is 1 if any failed.
+- `./output/metadata/<time>.csv` lists the keys written, skipped and failed, with no label content.
 
 ### Preflight
 

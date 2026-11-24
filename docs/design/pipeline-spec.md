@@ -184,8 +184,10 @@ cost estimate show how many records were padding.
 - The graph pipeline reads source buckets and never writes to them, except for
   metadata sidecars. Sidecars are written in every bucket, including external
   ones such as GATS, but only by a phase that can write there: a dev run cannot
-  write to a prod bucket it reads through the role, so it warns instead. All other
-  writes go to the current phase's own buckets, ledger and graph.
+  write to a prod bucket it reads through the role, so it refuses. This is the one
+  exception to "a local run writes only to `./output/`": `dia pipeline metadata --write`,
+  run locally with production credentials, writes sidecars into the GATS bucket, after a
+  confirmation. All other writes go to the current phase's own buckets, ledger and graph.
 - It is accepted that real data will exist in dev and on laptops.
 - Our buckets, tables and other resources are named by phase from one place,
   shared by the CDK and the runtime code.
@@ -357,11 +359,14 @@ steps below.
     from its case by spend ID, its old label kept or fixed, a label with only `document_type`
     (PDF and Word only), or nothing yet. A label is only replaced if what it would get is
     different. The planning is in `dia.sources.sidecar_plan`.
-  - [ ] 8c. Writing: `--write` after a confirmation (`--yes` skips it), and an existing
-    sidecar is replaced only with `--overwrite`. Before replacing a label it saves the old one
-    on this machine. It is run locally with prod credentials; dev warns that it cannot write
-    to the prod bucket. This needs an exception to the rule that local runs write only
-    locally, for sidecars only. A trial (`--export latest --limit 10`) comes first.
+  - [x] 8c. Writing (`dia.sources.sidecar_writer`): `--write` after a confirmation (`--yes`
+    skips it). A new label is written with `IfNoneMatch="*"`, so it never replaces one; an
+    existing label is replaced only with `--overwrite`, and its old text is saved on this
+    machine first (nothing is written if that fails). It is run locally with prod
+    credentials; dev refuses, because the role is read-only. A failed label is counted and
+    the run goes on. This is an exception to the rule that local runs write only locally,
+    for sidecars only (section 3.5). A trial (`--export latest --limit 10 --write`) comes
+    first. The first real run is not done yet.
 - [ ] 9. **Minimal ledger**: a protocol, a DynamoDB version in a new table and a
   local-file version. Records done or failed per document, with the reason, the output
   location and the code version. The in-progress lock, stale settings, batch job state
