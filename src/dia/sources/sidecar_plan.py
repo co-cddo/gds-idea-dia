@@ -54,6 +54,10 @@ class Outcome(StrEnum):
     WAITING = "waiting_for_new_step"
 
 
+# What a document gets: the outcome, and the sidecar to write (none when there is nothing to write).
+_Target = tuple[Outcome, Sidecar | None]
+
+
 @dataclass(frozen=True)
 class SidecarPlan:
     """What a run would do. Each count is of documents unless it says rows.
@@ -126,7 +130,7 @@ def _is_document_key(key: str) -> bool:
     return not is_sidecar_key(key) and not key.lower().endswith(".json")
 
 
-def _classify_old_label(text: str | None, cases: Mapping[str, Sidecar]) -> tuple[Outcome, Sidecar | None]:
+def _classify_old_label(text: str | None, cases: Mapping[str, Sidecar]) -> _Target:
     """Decide what a document with an existing label, that no export lists, gets."""
     if text is None:
         return Outcome.OLD_LABEL_UNFIXABLE, None
@@ -143,6 +147,132 @@ def _classify_old_label(text: str | None, cases: Mapping[str, Sidecar]) -> tuple
         return Outcome.OLD_LABEL_FIXED, fix_old_label(text)
     except SidecarError:
         return Outcome.OLD_LABEL_UNFIXABLE, None
+
+
+@dataclass(frozen=True)
+class _ExportRows:
+    """What reading the export rows found. See `SidecarPlan` for what each field means."""
+
+    rows_read: int
+    test_rows_ignored: int
+    rows_without_documents: int
+    unrecognised: Counter[str]
+    unreadable: Counter[str]
+    listed: dict[str, Sidecar]
+    cases: dict[str, Sidecar]
+
+
+def _read_export_rows(rows: Iterable[Mapping[str, Any]]) -> _ExportRows:
+    """Go through the rows once: count the oddities, and gather the listed files and the cases by spend ID."""
+    listed: dict[str, Sidecar] = {}
+    cases: dict[str, Sidecar] = {}
+    rows_read = 0
+    test_rows_ignored = 0
+    rows_without_documents = 0
+    unrecognised: Counter[str] = Counter()
+    unreadable: Counter[str] = Counter()
+
+    for row in rows:
+        rows_read += 1
+        if is_test_row(row):
+            test_rows_ignored += 1
+            continue
+        case = row_sidecar(row)
+        documents = documents_for_row(row, case)
+        if not documents:
+            rows_without_documents += 1
+        elif (date_text := unreadable_date(row)) is not None:
+            unreadable[date_text] += 1
+        if (submitter := unrecognised_submitter(row)) is not None:
+            unrecognised[submitter] += 1
+        if case.spend_id:
+            cases[case.spend_id] = case
+        listed.update(documents)
+
+    return _ExportRows(
+        rows_read=rows_read,
+        test_rows_ignored=test_rows_ignored,
+        rows_without_documents=rows_without_documents,
+        unrecognised=unrecognised,
+        unreadable=unreadable,
+        listed=listed,
+        cases=cases,
+    )
+
+
+def _targets_from_export(
+    chosen: Mapping[str, Sidecar], bucket_documents: set[str], prefix: str
+) -> tuple[dict[str, _Target], list[str]]:
+    """Match the chosen files to objects in the bucket.
+
+    Returns:
+        The target of each chosen file that is in the bucket, by document key, and the document
+        keys of those that are not.
+    """
+    targets: dict[str, _Target] = {}
+    not_in_bucket: list[str] = []
+    for file_name, sidecar in chosen.items():
+        document_key = prefix + file_name
+        if document_key in bucket_documents:
+            targets[document_key] = (Outcome.FROM_EXPORT, sidecar)
+        else:
+            not_in_bucket.append(document_key)
+    return targets, not_in_bucket
+
+
+def _read_old_labels(
+    document_keys: Iterable[str],
+    labels: set[str],
+    read_labels: Callable[[list[str]], Mapping[str, str]] | None,
+) -> dict[str, str]:
+    """Read the labels that exist for these documents, by sidecar key. Reads nothing if there is no reader."""
+    wanted = sorted(sidecar_key(key) for key in document_keys if sidecar_key(key) in labels)
+    return dict(read_labels(wanted)) if read_labels is not None and wanted else {}
+
+
+def _targets_for_unlisted(
+    unlisted: Iterable[str], labels: set[str], old_labels: Mapping[str, str], cases: Mapping[str, Sidecar]
+) -> dict[str, _Target]:
+    """Decide what each document no export lists gets, by document key."""
+    targets: dict[str, _Target] = {}
+    for document_key in sorted(unlisted):
+        label_key = sidecar_key(document_key)
+        if label_key in labels:
+            targets[document_key] = _classify_old_label(old_labels.get(label_key), cases)
+        elif document_key.lower().endswith(BASIC_LABEL_EXTENSIONS):
+            targets[document_key] = (Outcome.BASIC_LABEL, Sidecar(document_type=SOURCES[SOURCE_NAME].document_type))
+        else:
+            targets[document_key] = (Outcome.WAITING, None)
+    return targets
+
+
+def _split_writes(
+    targets: Mapping[str, _Target], labels: set[str], old_labels: Mapping[str, str]
+) -> tuple[dict[str, Sidecar], dict[str, Sidecar], int]:
+    """Sort the targets into labels to create, labels to replace, and labels that already hold the target.
+
+    Returns:
+        The new sidecars and the replacements, each by sidecar key, and the count unchanged.
+    """
+    new: dict[str, Sidecar] = {}
+    replacements: dict[str, Sidecar] = {}
+    unchanged = 0
+    for document_key, (_, target) in targets.items():
+        if target is None:
+            continue
+        label_key = sidecar_key(document_key)
+        if label_key not in labels:
+            new[label_key] = target
+            continue
+        try:
+            current = from_json(old_labels[label_key]) if label_key in old_labels else None
+        except SidecarError:
+            current = None
+        if current == target:
+            unchanged += 1
+        else:
+            replacements[label_key] = target
+    return new, replacements, unchanged
 
 
 def plan(
@@ -172,90 +302,34 @@ def plan(
     Returns:
         The counts, and the sidecars to write.
     """
-    listed: dict[str, Sidecar] = {}
-    cases: dict[str, Sidecar] = {}
-    rows_read = 0
-    test_rows_ignored = 0
-    rows_without_documents = 0
-    unrecognised: Counter[str] = Counter()
-    unreadable: Counter[str] = Counter()
-
-    for row in rows:
-        rows_read += 1
-        if is_test_row(row):
-            test_rows_ignored += 1
-            continue
-        documents: dict[str, Sidecar] = documents_for_row(row)
-        if not documents:
-            rows_without_documents += 1
-        elif (date_text := unreadable_date(row)) is not None:
-            unreadable[date_text] += 1
-        if (submitter := unrecognised_submitter(row)) is not None:
-            unrecognised[submitter] += 1
-        case = row_sidecar(row)
-        if case.spend_id:
-            cases[case.spend_id] = case
-        listed.update(documents)
+    export = _read_export_rows(rows)
 
     keys = set(bucket_keys)
     labels = {key for key in keys if is_sidecar_key(key)}
     bucket_documents = {key for key in keys if _is_document_key(key)}
     restricted = limit is not None or departments is not None
 
-    chosen: dict[str, Sidecar] = choose_documents(listed, limit, departments)
-    targets: dict[str, tuple[Outcome, Sidecar | None]] = {}
-    not_in_bucket: list[str] = []
-    for file_name, sidecar in chosen.items():
-        document_key = prefix + file_name
-        if document_key in bucket_documents:
-            targets[document_key] = (Outcome.FROM_EXPORT, sidecar)
-        else:
-            not_in_bucket.append(document_key)
+    chosen = choose_documents(export.listed, limit, departments)
+    targets, not_in_bucket = _targets_from_export(chosen, bucket_documents, prefix)
 
-    listed_keys = {prefix + name for name in listed}
-    unlisted = bucket_documents - listed_keys
+    unlisted = bucket_documents - {prefix + name for name in export.listed}
     in_run = set(targets) if restricted else bucket_documents
-    wanted = sorted(sidecar_key(key) for key in in_run if sidecar_key(key) in labels)
-    old_labels = dict(read_labels(wanted)) if read_labels is not None and wanted else {}
+    old_labels = _read_old_labels(in_run, labels, read_labels)
 
     if not restricted:
-        for document_key in sorted(unlisted):
-            label_key = sidecar_key(document_key)
-            if label_key in labels:
-                targets[document_key] = _classify_old_label(old_labels.get(label_key), cases)
-            elif document_key.lower().endswith(BASIC_LABEL_EXTENSIONS):
-                targets[document_key] = (Outcome.BASIC_LABEL, Sidecar(document_type=SOURCES[SOURCE_NAME].document_type))
-            else:
-                targets[document_key] = (Outcome.WAITING, None)
+        targets.update(_targets_for_unlisted(unlisted, labels, old_labels, export.cases))
 
-    new: dict[str, Sidecar] = {}
-    replacements: dict[str, Sidecar] = {}
-    unchanged = 0
-    for document_key, (_, target) in targets.items():
-        if target is None:
-            continue
-        label_key = sidecar_key(document_key)
-        if label_key not in labels:
-            new[label_key] = target
-            continue
-        try:
-            current = from_json(old_labels[label_key]) if label_key in old_labels else None
-        except SidecarError:
-            current = None
-        if current == target:
-            unchanged += 1
-        else:
-            replacements[label_key] = target
+    new, replacements, unchanged = _split_writes(targets, labels, old_labels)
 
     return SidecarPlan(
-        rows_read=rows_read,
-        test_rows_ignored=test_rows_ignored,
-        rows_without_documents=rows_without_documents,
-        unrecognised_submitters=dict(unrecognised),
-        unreadable_dates=dict(unreadable),
-        unmatched_departments=[] if departments is None else unmatched_departments(listed, departments),
-        listed=len(listed),
-        listed_without_date=sum(1 for sidecar in listed.values() if sidecar.date is None),
+        rows_read=export.rows_read,
+        test_rows_ignored=export.test_rows_ignored,
+        rows_without_documents=export.rows_without_documents,
+        unrecognised_submitters=dict(export.unrecognised),
+        unreadable_dates=dict(export.unreadable),
+        unmatched_departments=[] if departments is None else unmatched_departments(export.listed, departments),
+        listed=len(export.listed),
+        listed_without_date=sum(1 for sidecar in export.listed.values() if sidecar.date is None),
         chosen=len(chosen),
         not_in_bucket=not_in_bucket,
         chosen_already_labelled=sum(
