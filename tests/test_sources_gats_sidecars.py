@@ -628,6 +628,11 @@ def test_row_sidecar_gives_the_case_metadata_for_a_row_that_lists_no_files():
     assert documents_for_row({**OLD_ROW, "CO_CS_Files": ""}) == {}
 
 
+def test_documents_for_row_uses_the_case_it_is_given():
+    given = row_sidecar({**OLD_ROW, "CO_CaseSubmitDate": "2020-01-01"})
+    assert set(documents_for_row(OLD_ROW, given).values()) == {given}
+
+
 # --- the default exports, and a newer older export ---
 
 

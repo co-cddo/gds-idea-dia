@@ -69,7 +69,8 @@ State when this was written, with `dev` at #81. Check `gh pr list` and
   not in `TASK_MODULES`: add it when a task command imports it. A test fails if a
   source declares a key that `Sidecar` lacks, or the reverse.
 - **GATS sidecar mapping (`dia.sources.gats_sidecars`).** `documents_for_row` turns one
-  export row into a `{file name: Sidecar}` dict, one entry per document the row lists,
+  export row into a `{file name: Sidecar}` dict, one entry per document the row lists
+  (pass it the row's `row_sidecar` if you already have it, to avoid building it twice),
   for both export layouts. `choose_documents` takes and returns such a dict. It picks which to label: it
   filters by department, orders newest first by `Sidecar.date` (no date last), then
   takes the first `limit`, so `--limit` counts documents. A department matches on

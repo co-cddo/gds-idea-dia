@@ -281,9 +281,14 @@ def row_sidecar(row: Mapping[str, Any]) -> Sidecar:
     return sidecar
 
 
-def documents_for_row(row: Mapping[str, Any]) -> dict[str, Sidecar]:
-    """Map each document the row lists, by file name, to the row's metadata (see `row_sidecar`)."""
-    return dict.fromkeys(_file_names(row), row_sidecar(row))
+def documents_for_row(row: Mapping[str, Any], case: Sidecar | None = None) -> dict[str, Sidecar]:
+    """Map each document the row lists, by file name, to the row's metadata (see `row_sidecar`).
+
+    Args:
+        row: One export row.
+        case: The row's `row_sidecar`, if the caller already has it. Built from the row if not given.
+    """
+    return dict.fromkeys(_file_names(row), row_sidecar(row) if case is None else case)
 
 
 def _newest_first(document: tuple[str, Sidecar]) -> tuple[bool, int, str]:
