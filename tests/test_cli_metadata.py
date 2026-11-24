@@ -418,3 +418,78 @@ def test_the_report_lists_every_document_with_what_it_gets(prod, tmp_path):
     assert by_document["files/z.pdf"] == ("basic_label", "new")
     assert by_document["files/ghost.pdf"] == ("listed_but_not_in_bucket", "none")
     assert "files/old.json" not in by_document
+
+
+# --- --write ---
+
+
+@pytest.fixture
+def in_tmp(tmp_path, monkeypatch):
+    """Backups and reports go under ./output, so run in a scratch directory."""
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
+
+
+def _text(client, key) -> str:
+    return client.get_object(Bucket=BUCKET, Key=key)["Body"].read().decode()
+
+
+def test_overwrite_and_yes_need_write(prod):
+    for flag in ("--overwrite", "--yes"):
+        result = _run("--export", "old.csv", flag)
+        assert result.exit_code == 2
+        assert "--write" in _plain(result.output)
+
+
+def test_write_in_dev_is_refused_before_anything_is_read(dev):
+    with patch("botocore.client.BaseClient._make_api_call") as calls:
+        result = _run("--export", "old.csv", "--write", "--yes")
+
+    assert result.exit_code == 1
+    assert "only works in production" in result.output
+    calls.assert_not_called()
+
+
+def test_write_asks_first_and_a_no_writes_nothing(prod, in_tmp):
+    before = _snapshot(prod)
+
+    result = runner.invoke(app, ["pipeline", "metadata", "--export", "old.csv", "--write"], input="n\n")
+
+    assert result.exit_code == 1
+    assert "Write 4 labels" in result.output
+    assert _snapshot(prod) == before
+
+
+def test_write_adds_new_labels_and_leaves_a_different_existing_one_alone(prod, in_tmp):
+    result = _run("--export", "old.csv", "--write", "--yes")
+
+    assert result.exit_code == 0, result.output
+    assert '"spend_id": "S1"' in _text(prod, "files/b.docx.metadata.json")
+    assert _text(prod, "files/a.pdf.metadata.json") == "x"
+    assert "pass --overwrite" in result.output
+    assert [p for p in (in_tmp / "output/metadata").iterdir() if p.is_dir()] == []
+
+
+def test_write_with_overwrite_saves_the_old_label_then_replaces_it(prod, in_tmp):
+    result = _run("--export", "old.csv", "--write", "--overwrite", "--yes")
+
+    assert result.exit_code == 0, result.output
+    assert '"spend_id": "S1"' in _text(prod, "files/a.pdf.metadata.json")
+    (backup,) = (in_tmp / "output/metadata").glob("*/files/a.pdf.metadata.json")
+    assert backup.read_text() == "x"
+    assert len(list((in_tmp / "output/metadata").glob("*.csv"))) == 1
+
+
+def test_a_failed_write_is_reported_and_the_exit_code_is_1(prod, in_tmp):
+    original = boto3.client("s3", region_name="eu-west-2")._make_api_call.__func__
+
+    def deny_puts(self, operation_name, api_params):
+        if operation_name == "PutObject":
+            raise ClientError({"Error": {"Code": "AccessDenied", "Message": "no"}}, "PutObject")
+        return original(self, operation_name, api_params)
+
+    with patch("botocore.client.BaseClient._make_api_call", deny_puts):
+        result = _run("--export", "old.csv", "--write", "--yes")
+
+    assert result.exit_code == 1
+    assert "Failed: 4" in result.output

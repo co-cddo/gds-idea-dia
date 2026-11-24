@@ -3,7 +3,7 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 
@@ -227,12 +227,28 @@ def metadata(
         Path | None,
         typer.Option("--report", help="Write what every document would get to this CSV file, on this machine."),
     ] = None,
+    write: Annotated[
+        bool, typer.Option("--write", help="Write the labels to the bucket, after a confirmation. Production only.")
+    ] = False,
+    overwrite: Annotated[
+        bool,
+        typer.Option(
+            "--overwrite",
+            help="With --write, also replace labels that hold something different. Each old label is saved "
+            "under ./output/metadata/ first.",
+        ),
+    ] = False,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="With --write, skip the confirmation prompt.")] = False,
 ) -> None:
-    """Dry run: what labelling the GATS documents from the exports would do.
+    """Label the GATS documents from the exports: a dry run, or with --write the real thing.
 
     Reads the exports, the documents bucket and the labels already in it, and prints counts.
-    Read-only: it never writes to S3. In dev it reads through the cross-account role.
+    Without --write it never writes to S3. In dev it reads through the cross-account role, which
+    cannot write, so --write is refused there. With --write it adds `.metadata.json` files next to
+    the documents, with the production credentials of whoever runs it.
     """
+    if (overwrite or yes) and not write:
+        raise typer.BadParameter("--overwrite and --yes only apply with --write.", param_hint="--write")
     wanted = None
     if departments is not None:
         wanted = [name.strip() for name in departments.split(",") if name.strip()]
@@ -240,6 +256,7 @@ def metadata(
             raise typer.BadParameter("give at least one department name.", param_hint="--departments")
 
     import boto3
+    from botocore.config import Config
     from botocore.exceptions import BotoCoreError, ClientError
     from gds_idea_cdk_constructs import DeploymentEnvironment
 
@@ -260,8 +277,15 @@ def metadata(
     )
     from dia.sources.models import resolve
     from dia.sources.sidecar_plan import plan
+    from dia.sources.sidecar_writer import WORKERS
 
     environment = detect_environment()
+    if write and environment != DeploymentEnvironment.PRODUCTION:
+        typer.echo(
+            "Error: --write only works in production. In dev the documents are read through the cross-account "
+            "role, which is read-only. Run it with production credentials."
+        )
+        raise typer.Exit(code=1)
     location = resolve(SOURCES[SOURCE_NAME].location, environment)
 
     role_arn = None
@@ -278,7 +302,12 @@ def metadata(
 
     where = f"s3://{location.bucket}/{location.prefix}"
     try:
-        s3 = source_s3_client(role_arn, boto3.client("sts", region_name=REGION), session_name="dia-metadata")
+        s3 = source_s3_client(
+            role_arn,
+            boto3.client("sts", region_name=REGION),
+            session_name="dia-metadata",
+            config=Config(max_pool_connections=WORKERS),
+        )
         keys = [export_key(s3, location.bucket, name) for name in (export or DEFAULT_EXPORTS)]
         newer = find_old_exports_after_pinned(s3, location.bucket) if export is None else []
         rows = [row for key in keys for row in read_export(s3, location.bucket, key)]
@@ -316,6 +345,11 @@ def metadata(
     if report is not None:
         _write_report(result, report)
         typer.echo(f"\nReport written to {report}")
+
+    if not write:
+        typer.echo("\nDry run: nothing was written to S3. Other .json files in the bucket are ignored.")
+        return
+    _write_labels(s3, location.bucket, result, overwrite=overwrite, yes=yes)
 
 
 def _print_plan(result: "SidecarPlan") -> None:
@@ -366,7 +400,46 @@ def _print_plan(result: "SidecarPlan") -> None:
     line("with --overwrite", result.would_write_with_overwrite)
     line("already correct, left alone", result.unchanged)
 
-    typer.echo("\nDry run: nothing was written to S3. Other .json files in the bucket are ignored.")
+
+def _write_labels(s3: Any, bucket: str, result: "SidecarPlan", *, overwrite: bool, yes: bool) -> None:
+    """Confirm, then write a plan's labels to the bucket, and report. Exits 1 if any label failed."""
+    from datetime import UTC, datetime
+
+    from dia.sources.sidecar_writer import BackupError, write_plan
+
+    replacing = len(result.replacements) if overwrite else 0
+    typer.echo("\nWriting")
+    typer.echo(f"  new labels:       {len(result.new)}")
+    typer.echo(f"  replaced labels:  {replacing}")
+    if result.replacements and not overwrite:
+        typer.echo(f"  left alone:       {len(result.replacements)} that differ (pass --overwrite to replace them)")
+    if not result.new and not replacing:
+        typer.echo("Nothing to write.")
+        return
+
+    if not yes:
+        typer.confirm(f"Write {len(result.new) + replacing} labels to s3://{bucket}?", default=False, abort=True)
+
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    backup_dir = Path("output/metadata") / stamp
+    report_path = Path("output/metadata") / f"{stamp}.csv"
+    try:
+        written = write_plan(s3, bucket, result, overwrite=overwrite, backup_dir=backup_dir, report_path=report_path)
+    except BackupError as e:
+        typer.echo(f"Error: {e}. Nothing was written.")
+        raise typer.Exit(code=1) from None
+
+    typer.echo(f"\nWritten: {len(written.written_new)} new, {len(written.written_replaced)} replaced")
+    if written.skipped_exists:
+        typer.echo(f"Skipped: {len(written.skipped_exists)} that appeared since the plan was made")
+    if replacing:
+        typer.echo(f"Old labels saved in {backup_dir}")
+    typer.echo(f"Report: {report_path}")
+    if written.failed:
+        typer.echo(f"\nFailed: {len(written.failed)}")
+        for key, reason in list(written.failed.items())[:10]:
+            typer.echo(f"  {key}: {reason}")
+        raise typer.Exit(code=1)
 
 
 def _write_report(result: "SidecarPlan", path: Path) -> None:
