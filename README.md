@@ -19,29 +19,44 @@ uv run dia --version
 
 ### Metadata dry run
 
-`dia pipeline metadata` reads a GATS (Get Approval to Spend, run by the Government
-Assurance Service) export and lists the documents bucket, then prints
-counts: how many documents the export lists, how many it would label, and how many are
-already labelled. It is read-only and never writes. Run it with valid AWS credentials
-(in dev it reads through the cross-account role):
+`dia pipeline metadata` works out what label each document in the GATS (Get Approval to
+Spend, run by the Government Assurance Service) bucket should have, and prints counts. It
+is read-only and never writes to S3. Run it with valid AWS credentials (in dev it reads
+through the cross-account role):
 
 ```bash
-uv run dia pipeline metadata --export latest --limit 10     # the newest 10 documents, from the newest export in gas/
-uv run dia pipeline metadata --export <file-name>.csv       # a file in spend-controls-raw-data/
-uv run dia pipeline metadata --export latest --departments "Home Office,HMRC"
+uv run dia pipeline metadata                                  # every document, from the two default exports
+uv run dia pipeline metadata --export latest --limit 10       # a trial: the newest 10 listed documents
+uv run dia pipeline metadata --export <file>.csv --export latest   # choose the exports (replaces the defaults)
+uv run dia pipeline metadata --report output/metadata/dry-run.csv  # also list every document, on this machine
 ```
 
-`--limit` counts documents, not cases, and is applied after `--departments`. "Newest" is
-by the label's `date`. In the older export that is the spend start date (`CO_SpendStartDate`,
-then `CO_DT_SpendStartDate`, then `CO_CaseSubmitDate`), and in the newer export it is the case
-submit date. Documents with no readable date come last. Rows from test submitters
-(`GATS_test`, a name ending in `test` or `testing`) are ignored and counted. A file name
-with a comma in it ("Business Case, v2.pdf") is kept whole, because a piece with no file
-extension is joined to the next one. The output names only unrecognised
-submitters, departments that matched nothing and unreadable date values, and counts
-everything else. Other `.json` files in the bucket are ignored. A document already
-labelled is counted under "already have a label", and "with --overwrite" shows how many
-labels a run that replaces them would write.
+With no `--export` it reads the last export of the older layout (`DataExport_08032026052712.csv`,
+since those stopped) and the newest in `gas/`. If another file appears in the older folder
+it warns. A bare file name is looked for in `spend-controls-raw-data/`. When two exports list
+the same file, the later one wins.
+
+Every document in the bucket gets one of these:
+
+| It gets | When |
+|---|---|
+| A label from the export | An export lists the file, whatever its type |
+| A label rebuilt from its case | No export lists it, but its old label names a case (spend ID) that an export has |
+| Its old label, kept | Its case is not in the exports, and the old label is already in the right format |
+| Its old label, fixed | The same, but in the old script's format (`department`, `file_reference`) |
+| A label with only `document_type` | No export, no old label, and it is a PDF or Word file |
+| Nothing yet | No export, no old label, and any other type (waits for a step that reads them) |
+
+An existing label is only replaced if what it would get is different, so a second run changes
+nothing. `--limit` counts documents, not cases, and `--departments` is applied before it. With
+either, only the chosen listed documents are in the run and the rest are left alone.
+
+"Newest" is by the label's `date`: the spend start date in the older export
+(`CO_SpendStartDate`, then `CO_DT_SpendStartDate`, then `CO_CaseSubmitDate`) and the case submit date in
+the newer one. Rows from test submitters (a name ending in `test` or `testing`) are ignored and
+counted. A file name with a comma in it ("Business Case, v2.pdf") is kept whole. The screen
+names only unrecognised submitters, departments that matched nothing and unreadable dates;
+`--report` has the document names. Other `.json` files in the bucket are ignored.
 
 ### Preflight
 

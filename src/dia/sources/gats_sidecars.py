@@ -3,7 +3,7 @@
 A row is one case, and lists the documents it covers. This module gives each listed
 document a `Sidecar`, as a dict of file name to sidecar, and picks which documents to
 label. A file listed by two rows keeps the sidecar of the row merged in last. It reads the
-export from S3 and writes nothing.
+exports and the existing labels from S3 and writes nothing.
 
 The export has two layouts, with different names for the file list and the case name:
 older (`CO_CS_Files`, `CO_CS_CaseName`) and newer (`CO_I_Documents`, `CO_I_Name`).
@@ -14,13 +14,15 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import io
+import json
 import re
 from collections.abc import Iterable, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from dia.department_mapping import PARENT_MAP
 from dia.sources.definitions import SOURCES
-from dia.sources.sidecar import Sidecar, SidecarError, check, parse_date
+from dia.sources.sidecar import Sidecar, SidecarError, check, from_json, parse_date
 
 SOURCE_NAME = "gats_business_cases"
 
@@ -37,6 +39,10 @@ _TEST_SUBMITTER = re.compile(r"(?:^|[^a-z])test(?:ing)?$", re.IGNORECASE)
 OLD_EXPORT_PREFIX = "spend-controls-raw-data/"
 NEW_EXPORT_PREFIX = "spend-controls-raw-data/gas/"
 LATEST = "latest"
+
+# The older layout's exports stopped on 8 March 2026. This is the last one, and the newest one is `latest`.
+OLD_EXPORT_KEY = OLD_EXPORT_PREFIX + "DataExport_08032026052712.csv"
+DEFAULT_EXPORTS = (OLD_EXPORT_KEY, LATEST)
 
 # One export cell can list thousands of files. `csv` refuses a cell over 128 KB unless told otherwise.
 csv.field_size_limit(2**31 - 1)
@@ -80,6 +86,24 @@ def export_key(s3_client: Any, bucket: str, export: str) -> str:
     if export == LATEST:
         return latest_export_key(s3_client, bucket)
     return export if "/" in export else OLD_EXPORT_PREFIX + export
+
+
+def find_old_exports_after_pinned(s3_client: Any, bucket: str) -> list[str]:
+    """Return the CSVs in the older folder that were uploaded after `OLD_EXPORT_KEY`.
+
+    The older layout's exports stopped, and `OLD_EXPORT_KEY` is the last. If this is not empty,
+    that has changed and the default exports are out of date.
+    """
+    csvs = {}
+    for page in s3_client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=OLD_EXPORT_PREFIX):
+        for item in page.get("Contents", []):
+            key = item["Key"]
+            if "/" not in key[len(OLD_EXPORT_PREFIX) :] and key.lower().endswith(".csv"):
+                csvs[key] = item["LastModified"]
+    pinned = csvs.get(OLD_EXPORT_KEY)
+    if pinned is None:
+        return []
+    return sorted(key for key, modified in csvs.items() if modified > pinned)
 
 
 def read_export(s3_client: Any, bucket: str, key: str) -> list[dict[str, str]]:
@@ -230,8 +254,8 @@ def unrecognised_submitter(row: Mapping[str, Any]) -> str | None:
     return submitter
 
 
-def documents_for_row(row: Mapping[str, Any]) -> dict[str, Sidecar]:
-    """Map each document the row lists, by file name, to the same metadata.
+def row_sidecar(row: Mapping[str, Any]) -> Sidecar:
+    """Return the metadata for the case a row describes, whether or not it lists any files.
 
     A known ALB gives its parent as the department. A known department is written in its
     canonical spelling. Any other submitter is kept as written, with no ALB. The date is the
@@ -254,8 +278,17 @@ def documents_for_row(row: Mapping[str, Any]) -> dict[str, Sidecar]:
         date=submitted,
     )
     check(sidecar, source)
+    return sidecar
 
-    return dict.fromkeys(_file_names(row), sidecar)
+
+def documents_for_row(row: Mapping[str, Any], case: Sidecar | None = None) -> dict[str, Sidecar]:
+    """Map each document the row lists, by file name, to the row's metadata (see `row_sidecar`).
+
+    Args:
+        row: One export row.
+        case: The row's `row_sidecar`, if the caller already has it. Built from the row if not given.
+    """
+    return dict.fromkeys(_file_names(row), row_sidecar(row) if case is None else case)
 
 
 def _newest_first(document: tuple[str, Sidecar]) -> tuple[bool, int, str]:
@@ -297,3 +330,59 @@ def unmatched_departments(documents: Mapping[str, Sidecar], departments: Iterabl
     """
     present = {_name_key(sidecar.department_name) for sidecar in documents.values() if sidecar.department_name}
     return [name for name in departments if _name_key(name) not in present]
+
+
+# --- labels already in the bucket, written by the previous repo's script ---
+
+
+def read_labels(s3_client: Any, bucket: str, keys: Iterable[str], workers: int = 8) -> dict[str, str]:
+    """Return the text of each label, by key, reading `workers` at a time.
+
+    Raises:
+        botocore.exceptions.ClientError: If any label cannot be read.
+    """
+
+    def read(key: str) -> tuple[str, str]:
+        body = s3_client.get_object(Bucket=bucket, Key=key)["Body"].read()
+        return key, body.decode("utf-8", errors="replace")
+
+    with ThreadPoolExecutor(workers) as pool:
+        return dict(pool.map(read, list(keys)))
+
+
+def old_label_spend_id(text: str) -> str | None:
+    """Return the spend ID an existing label names, or `None` if it has none or cannot be read."""
+    try:
+        value = json.loads(text)["metadataAttributes"].get("spend_id")
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return None
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def fix_old_label(text: str) -> Sidecar:
+    """Turn a label from the previous repo's script into a `Sidecar`, changing as little as possible.
+
+    `department` becomes `department_name`, written the way the exports' submitters are, and
+    `file_reference` is dropped.
+
+    Raises:
+        SidecarError: If the text is not a label, has a key other than the old script's, or has a bad value.
+    """
+    try:
+        attributes = dict(json.loads(text)["metadataAttributes"])
+    except (ValueError, KeyError, TypeError) as error:
+        raise SidecarError(f"not a label: {error}") from error
+
+    attributes.pop("file_reference", None)
+    department = attributes.pop("department", None)
+    if isinstance(department, str):
+        name, alb = _department_and_alb(department.strip() or None)
+        attributes.setdefault("department_name", name)
+        if alb is not None:
+            attributes.setdefault("alb", alb)
+    elif department is not None:
+        attributes.setdefault("department_name", department)
+
+    sidecar = from_json(json.dumps({"metadataAttributes": attributes}))
+    check(sidecar, SOURCES[SOURCE_NAME])
+    return sidecar

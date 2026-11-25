@@ -69,7 +69,8 @@ State when this was written, with `dev` at #81. Check `gh pr list` and
   not in `TASK_MODULES`: add it when a task command imports it. A test fails if a
   source declares a key that `Sidecar` lacks, or the reverse.
 - **GATS sidecar mapping (`dia.sources.gats_sidecars`).** `documents_for_row` turns one
-  export row into a `{file name: Sidecar}` dict, one entry per document the row lists,
+  export row into a `{file name: Sidecar}` dict, one entry per document the row lists
+  (pass it the row's `row_sidecar` if you already have it, to avoid building it twice),
   for both export layouts. `choose_documents` takes and returns such a dict. It picks which to label: it
   filters by department, orders newest first by `Sidecar.date` (no date last), then
   takes the first `limit`, so `--limit` counts documents. A department matches on
@@ -96,20 +97,30 @@ State when this was written, with `dev` at #81. Check `gh pr list` and
   **Accepted risk:** a document listed by two rows (a resubmitted case) keeps the
   sidecar of the row merged in last, and counts once towards `--limit`.
 - **The metadata dry run (`dia pipeline metadata`, `dia.sources.sidecar_plan`).**
-  `dia pipeline metadata --export latest|<key> [--limit N] [--departments "A,B"]` reads
-  the export and lists the documents bucket once, and prints counts. It never writes: a
-  test checks that it makes only `GetObject` and `ListObjectsV2` calls. In dev it reads
-  through the cross-account role (session name `dia-metadata`). `sidecar_plan.plan` is
-  pure: it takes the rows and the bucket keys, and returns the counts and the sidecars
-  to write, split into `new` and `replacements` for 8c. A bucket key ending
-  `.metadata.json` is a label, any other `.json` file is ignored, and the rest are
-  documents. The old labels from the previous repo's script are `.metadata.json` files,
-  so they count as "already have a label", and the first full write will need
-  `--overwrite`. "documents with no date" counts everything the export lists, not only
-  what is chosen. Rows from test submitters are skipped and counted. The output names
-  unrecognised submitters, unreadable dates and unmatched departments, and counts
-  everything else. It has been run in prod on the 8 March 2026 older export and on
-  `latest`; see "Still to settle" for what it found.
+  `dia pipeline metadata [--export ...] [--limit N] [--departments "A,B"] [--report FILE]`
+  reads the exports, lists the documents bucket and reads the labels already in it, and
+  prints counts. It never writes to S3: a test checks that it makes only `GetObject` and
+  `ListObjectsV2` calls (`--report` writes a CSV on this machine, only when asked). In dev
+  it reads through the cross-account role (session name `dia-metadata`).
+  With no `--export` it reads `OLD_EXPORT_KEY` (the last older-layout export, 8 March 2026,
+  as those exports stopped) and `latest`, and warns if a newer file appears in the older
+  folder. `--export` can be repeated and replaces the defaults; the later export wins for a
+  shared file. The two exports do not overlap today.
+  `sidecar_plan.plan` is pure (it is given a function that reads labels). Every document in
+  the bucket gets one `Outcome`: **from_export** (an export lists the file, any type),
+  **rebuilt_from_case** (not listed, but its old label's spend ID is a case in the exports),
+  **old_label_kept** or **old_label_fixed** (not listed, case not in the exports: the old
+  label as it is, or with `department` renamed and `file_reference` dropped),
+  **old_label_unfixable** (left alone), **basic_label** (no export, no label, a PDF or
+  `.docx`: only `document_type`), or **waiting_for_new_step** (no export, no label, any other
+  type: nothing yet, see #85). A label is only replaced if what it would get differs
+  (`new`, `replacements`, `unchanged`), so a run can be repeated. With `--limit` or
+  `--departments` only the chosen listed files are in the run. Rows from test submitters are
+  skipped and counted. A bucket key ending `.metadata.json` is a label and any other `.json`
+  file is ignored. Run in prod on 8 March 2026 older export plus the 20 November newer one,
+  the dry run gives: 8,257 from the export (2,496 new, 5,761 replacing an old label), 4,187
+  rebuilt from their case, 818 kept, 12 fixed, 640 basic, 1,958 waiting, nothing unfixable.
+  That is 3,136 new labels and 9,960 replaced, and nothing is written yet.
 
 **Agreed, not built**
 
@@ -151,10 +162,11 @@ Follow section 7 of the spec. In short, the order is:
 1. **Metadata model and sidecar format.** Done (`dia.sources.sidecar`).
 2. **The GATS metadata step.** The first thing that reads real GATS data. The mapping
    from export rows to sidecars and the dry run (`dia pipeline metadata`) are built.
-   Next: run the dry run on the 8 March 2026 export (the newest older one in prod) and on
-   `latest --limit 10`, read the
-   counts, fix what they show, then build 8c (`--write`, `--overwrite`, in parallel,
-   with a report of the keys written).
+   Next is 8c, the writing: `--write` with a confirmation (`--yes` skips it); `--overwrite`
+   to replace existing labels; an `IfNoneMatch="*"` write otherwise (moto 5.2.2 supports it);
+   an error in dev; failures counted and the run continuing; about 16 writes at a time;
+   each replaced label saved on this machine first; and a report of the keys written. Do
+   a trial first (`--export latest --limit 10 --write`) and check one label in S3.
 3. **The minimal ledger.**
 4. **S3 reader and the text stage**, which delete `known.py`, `DataSource`,
    `extract-text` and the old metadata package.
@@ -205,18 +217,22 @@ Then harden the ledger and CLI, and scale up to all of GATS and the other source
 - **File names against bucket keys.** The names a case lists are assumed to match keys
   under `files/`. The dry run counts the ones that do not ("not in the bucket"), and
   they are skipped. The 11 left in the older export are not in the bucket at all.
-- **Documents with no label.** The bucket has 15,841 documents and 10,778 old labels
-  (all `.metadata.json`). The two exports checked do not overlap, and between them list
-  about 8,250 documents. About 7,700 documents are listed by neither, and 2,620 of those
-  have no label at all, so they would stay unlabelled and the text stage would skip
-  them. The old code merged `department_files/historic_cases_metadata.csv` for these,
-  but that folder is not in the prod bucket (only the dev one). Where their metadata
-  comes from is not decided.
+- **Documents with no label.** The bucket has about 15,900 documents and 10,778 old labels
+  (all `.metadata.json`). The two default exports do not overlap and list 8,257 of the
+  documents. 148 exports exist (55 older, 93 newer), but reading all of them adds only 396
+  more, so the two defaults are enough. 2,597 documents have no export row and no old
+  label. The PDF and Word ones (639) get a label with only `document_type`; the rest
+  (1,958, mostly PowerPoint and Excel) wait for a step that reads those types (#85). Where
+  better metadata for these could come from is #84. The old code merged
+  `department_files/historic_cases_metadata.csv`, which is only in the dev bucket and was
+  not readable from prod.
 - **Overwriting the old labels loses information.** The old labels use `department`
   (ours is `department_name`), have no `date`, and many (23 of 40 sampled) have a
-  `file_reference`, which `Sidecar` does not have. The bucket has never had versioning
-  enabled, so an overwrite cannot be undone. Before the first `--overwrite` (8c), back up
-  the old labels, and check that nothing reads `file_reference`.
+  `file_reference`, which `Sidecar` does not have (the knowledge-bases plan already drops
+  it). The bucket has never had versioning enabled, so an overwrite cannot be undone.
+  Decided: 8c saves each label it replaces on the machine running it, before replacing it.
+  Decided: every old label is replaced with the new format, from the export where there is
+  one, from the case by spend ID, or fixed from its own content. `spend_id` stays a label key.
 - **Bodies not in `PARENT_MAP`.** These are unrecognised in the two exports, and are
   written as given: the Charity Commission, the Prime Minister's Office (10 Downing
   Street), UK Shared Business Services, the National Infrastructure and Service

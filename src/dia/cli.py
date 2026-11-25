@@ -2,6 +2,7 @@
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
 import typer
@@ -207,25 +208,30 @@ def preflight(
 @pipeline_app.command("metadata")
 def metadata(
     export: Annotated[
-        str,
+        list[str] | None,
         typer.Option(
             "--export",
-            help="The export CSV: `latest` for the newest in gas/, or its key (a bare file name is looked for "
-            "in spend-controls-raw-data/).",
+            help="An export CSV: `latest` for the newest in gas/, or its key (a bare file name is looked for "
+            "in spend-controls-raw-data/). Repeat it to read several, the later ones winning. "
+            "Default: the last older-layout export, and `latest`.",
         ),
-    ],
+    ] = None,
     limit: Annotated[
-        int | None, typer.Option("--limit", min=1, help="Only the newest N documents (not cases).")
+        int | None, typer.Option("--limit", min=1, help="Only the newest N listed documents (not cases).")
     ] = None,
     departments: Annotated[
         str | None,
         typer.Option("--departments", help='Only these departments, comma-separated, ALBs included: "A,B".'),
     ] = None,
+    report: Annotated[
+        Path | None,
+        typer.Option("--report", help="Write what every document would get to this CSV file, on this machine."),
+    ] = None,
 ) -> None:
-    """Dry run: what labelling the GATS documents from an export would do.
+    """Dry run: what labelling the GATS documents from the exports would do.
 
-    Reads the export and lists the documents bucket, and prints counts. Read-only: it
-    never writes. In dev it reads through the cross-account role.
+    Reads the exports, the documents bucket and the labels already in it, and prints counts.
+    Read-only: it never writes to S3. In dev it reads through the cross-account role.
     """
     wanted = None
     if departments is not None:
@@ -242,7 +248,16 @@ def metadata(
     from dia.preflight import source_s3_client
     from dia.runtime_config import RuntimeConfig
     from dia.sources.definitions import SOURCES
-    from dia.sources.gats_sidecars import SOURCE_NAME, ExportError, export_key, list_bucket_keys, read_export
+    from dia.sources.gats_sidecars import (
+        DEFAULT_EXPORTS,
+        SOURCE_NAME,
+        ExportError,
+        export_key,
+        find_old_exports_after_pinned,
+        list_bucket_keys,
+        read_export,
+        read_labels,
+    )
     from dia.sources.models import resolve
     from dia.sources.sidecar_plan import plan
 
@@ -257,12 +272,25 @@ def metadata(
             typer.echo("Error: the documents are read through the cross-account role, but the runtime config has none.")
             raise typer.Exit(code=1)
 
+    def read_existing_labels(label_keys: list[str]) -> dict[str, str]:
+        typer.echo(f"Reading {len(label_keys)} existing labels...", err=True)
+        return read_labels(s3, location.bucket, label_keys)
+
     where = f"s3://{location.bucket}/{location.prefix}"
     try:
         s3 = source_s3_client(role_arn, boto3.client("sts", region_name=REGION), session_name="dia-metadata")
-        key = export_key(s3, location.bucket, export)
-        rows = read_export(s3, location.bucket, key)
+        keys = [export_key(s3, location.bucket, name) for name in (export or DEFAULT_EXPORTS)]
+        newer = find_old_exports_after_pinned(s3, location.bucket) if export is None else []
+        rows = [row for key in keys for row in read_export(s3, location.bucket, key)]
         bucket_keys = list_bucket_keys(s3, location.bucket, location.prefix)
+        result = plan(
+            rows,
+            bucket_keys,
+            prefix=location.prefix,
+            read_labels=read_existing_labels,
+            limit=limit,
+            departments=wanted,
+        )
     except ExportError as e:
         typer.echo(f"Error: {e}")
         raise typer.Exit(code=1) from None
@@ -270,22 +298,34 @@ def metadata(
         typer.echo(f"Error: could not read from s3://{location.bucket}: {e}")
         raise typer.Exit(code=1) from None
 
-    result = plan(rows, bucket_keys, prefix=location.prefix, limit=limit, departments=wanted)
-
     via = " (through the cross-account role)" if location.cross_account else ""
     prod = " (production)" if environment == DeploymentEnvironment.PRODUCTION else ""
-    typer.echo(f"Export:    {key}")
-    typer.echo(f"Documents: {where}{via}{prod}\n")
+    for key in keys:
+        typer.echo(f"Export:    {key}")
+    typer.echo(f"Documents: {where}{via}{prod}")
+    for key in newer:
+        typer.echo(f"Warning: {key} is newer than the default older export. Pass --export to read it.")
+    if limit is not None and len(keys) > 1:
+        typer.echo(
+            "Note: --limit takes the newest by date across all these exports. The older export's dates are "
+            "spend start dates, which can be in the future: use --export latest for the newest cases."
+        )
+    typer.echo("")
     _print_plan(result)
+
+    if report is not None:
+        _write_report(result, report)
+        typer.echo(f"\nReport written to {report}")
 
 
 def _print_plan(result: "SidecarPlan") -> None:
     """Print a `SidecarPlan` as counts. Only the submitters, dates and departments are named."""
+    from dia.sources.sidecar_plan import Outcome
 
     def line(label: str, value: object) -> None:
         typer.echo(f"  {label + ':':<37}{value}")
 
-    typer.echo("The export")
+    typer.echo("The exports")
     line("rows read", result.rows_read)
     line("rows ignored as test data", result.test_rows_ignored)
     line("rows with no documents", result.rows_without_documents)
@@ -303,19 +343,57 @@ def _print_plan(result: "SidecarPlan") -> None:
     for name in result.unmatched_departments:
         typer.echo(f"    {name}")
 
-    typer.echo("\nChosen")
+    typer.echo("\nListed documents")
     line("documents chosen", result.chosen)
     line("not in the bucket", result.chosen_not_in_bucket)
     line("already have a label", result.chosen_already_labelled)
 
     typer.echo("\nThe bucket")
-    line("documents the export does not list", result.bucket_not_listed)
+    line("documents the exports do not list", result.bucket_not_listed)
+
+    typer.echo("\nWhat each document would get")
+    line("label from the export", result.count(Outcome.FROM_EXPORT))
+    line("label rebuilt from its case", result.count(Outcome.REBUILT_FROM_CASE))
+    line("old label kept", result.count(Outcome.OLD_LABEL_KEPT))
+    line("old label fixed", result.count(Outcome.OLD_LABEL_FIXED))
+    line("old label that cannot be fixed", result.count(Outcome.OLD_LABEL_UNFIXABLE))
+    line("basic label (document_type only)", result.count(Outcome.BASIC_LABEL))
+    line("no label yet (waits for a new step)", result.count(Outcome.WAITING))
+    line("left alone (limit or departments)", result.outside_run)
 
     typer.echo("\nWould write")
     line("new labels only", result.would_write_new)
     line("with --overwrite", result.would_write_with_overwrite)
+    line("already correct, left alone", result.unchanged)
 
-    typer.echo("\nDry run: nothing was written. Other .json files in the bucket are ignored.")
+    typer.echo("\nDry run: nothing was written to S3. Other .json files in the bucket are ignored.")
+
+
+def _write_report(result: "SidecarPlan", path: Path) -> None:
+    """Write one row per document in the run, and per listed file missing from the bucket, to a CSV file."""
+    import csv
+
+    from dia.sources.sidecar import sidecar_key
+    from dia.sources.sidecar_plan import Outcome
+
+    rows = [(key, "listed_but_not_in_bucket", "none") for key in result.not_in_bucket]
+    for key, outcome in sorted(result.outcomes.items()):
+        label = sidecar_key(key)
+        if label in result.new:
+            status = "new"
+        elif label in result.replacements:
+            status = "replaced"
+        elif outcome in (Outcome.WAITING, Outcome.OLD_LABEL_UNFIXABLE):
+            status = "none"
+        else:
+            status = "unchanged"
+        rows.append((key, str(outcome), status))
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(["document", "outcome", "label"])
+        writer.writerows(rows)
 
 
 tasks_app = typer.Typer(help="Look at the pipeline's tasks in the cloud.")
