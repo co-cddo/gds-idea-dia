@@ -11,16 +11,35 @@ from __future__ import annotations
 import csv
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 from botocore.exceptions import BotoCoreError, ClientError
 
-from dia.sources.sidecar import SidecarError, to_json
+from dia.sources.sidecar import Sidecar, SidecarError, to_json
 from dia.sources.sidecar_plan import SidecarPlan
 
 WORKERS = 16
 REPORT_COLUMNS = ["label", "status"]
+
+
+class _Status(StrEnum):
+    """How writing one label ended."""
+
+    WRITTEN = "written"
+    EXISTS = "exists"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True)
+class _Done:
+    """The end of writing one label. `reason` is set only when it failed."""
+
+    key: str
+    is_new: bool
+    status: _Status
+    reason: str = ""
 
 
 class BackupError(Exception):
@@ -87,21 +106,19 @@ def write_plan(
     overwrite: bool,
     backup_dir: Path,
     report_path: Path,
-    workers: int = WORKERS,
 ) -> WriteResult:
     """Write the new labels of a plan, and with `overwrite` the replacements too.
 
-    A failure on one label is counted and the rest go on. The report is written even if
-    some labels failed.
+    Writes `WORKERS` labels at a time. A failure on one label is counted and the rest go on.
+    The report is written even if some labels failed.
 
     Args:
-        s3_client: A client that may write to `bucket`. Needs `workers` or more connections.
+        s3_client: A client that may write to `bucket`. Needs `WORKERS` or more connections.
         bucket: The documents bucket.
         plan: What to write.
         overwrite: Also replace labels that hold something different.
         backup_dir: Where each replaced label's old text is saved first.
         report_path: Where the CSV of keys written is saved.
-        workers: How many labels to write at a time.
 
     Returns:
         What was written, skipped and failed.
@@ -115,31 +132,29 @@ def write_plan(
     jobs = [(key, plan.new[key], True) for key in sorted(plan.new)]
     jobs += [(key, plan.replacements[key], False) for key in replace]
 
-    def put(job: tuple[str, Any, bool]) -> tuple[str, bool, str]:
+    def put(job: tuple[str, Sidecar, bool]) -> _Done:
         key, sidecar, is_new = job
         try:
             body = to_json(sidecar).encode("utf-8")
             extra = {"IfNoneMatch": "*"} if is_new else {}
             s3_client.put_object(Bucket=bucket, Key=key, Body=body, ContentType="application/json", **extra)
-        except SidecarError as e:
-            return key, is_new, f"failed: {e}"
         except ClientError as e:
             if is_new and e.response.get("Error", {}).get("Code") == "PreconditionFailed":
-                return key, is_new, "exists"
-            return key, is_new, f"failed: {e}"
-        except BotoCoreError as e:
-            return key, is_new, f"failed: {e}"
-        return key, is_new, "written"
+                return _Done(key, is_new, _Status.EXISTS)
+            return _Done(key, is_new, _Status.FAILED, str(e))
+        except (SidecarError, BotoCoreError) as e:
+            return _Done(key, is_new, _Status.FAILED, str(e))
+        return _Done(key, is_new, _Status.WRITTEN)
 
     result = WriteResult()
-    with ThreadPoolExecutor(workers) as pool:
-        for key, is_new, status in pool.map(put, jobs):
-            if status == "written":
-                (result.written_new if is_new else result.written_replaced).append(key)
-            elif status == "exists":
-                result.skipped_exists.append(key)
+    with ThreadPoolExecutor(WORKERS) as pool:
+        for done in pool.map(put, jobs):
+            if done.status is _Status.WRITTEN:
+                (result.written_new if done.is_new else result.written_replaced).append(done.key)
+            elif done.status is _Status.EXISTS:
+                result.skipped_exists.append(done.key)
             else:
-                result.failed[key] = status.removeprefix("failed: ")
+                result.failed[done.key] = done.reason
 
     _write_report(result, report_path)
     return result

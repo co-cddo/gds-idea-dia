@@ -117,6 +117,7 @@ def test_a_failed_write_is_counted_and_the_rest_go_on(s3, tmp_path):
         result = _write(s3, tmp_path, plan)
 
     assert list(result.failed) == ["files/bad.pdf.metadata.json"]
+    assert "AccessDenied" in result.failed["files/bad.pdf.metadata.json"]
     assert result.written_new == [NEW_KEY]
 
 
