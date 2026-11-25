@@ -11,7 +11,7 @@ facts that are not obvious from the code.
 
 ## 1. Where things stand
 
-State when this was written, with `dev` at #83 and the 8b extension in #86. Check `gh pr list` and
+State when this was written, with `dev` at #86 and the writing step (8c) in #87. Check `gh pr list` and
 `git log origin/dev` before relying on it.
 
 **Built, and run for real in dev**
