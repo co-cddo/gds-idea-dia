@@ -28,7 +28,10 @@ class StorageStack(cdk.Stack):
             - sr25-bids, sr21-bids, nao-reports, reports: source documents for the knowledge
               bases (reports holds efficiency-report and technology-report prefixes)
         DynamoDB Tables:
-            - ledger: Tracks which documents have been successfully processed
+            - ledger: Tracks which documents have been successfully processed (old pipeline,
+              removed with the old code)
+            - pipeline-ledger: Per document, per stage: done or failed, at which version of the
+              document (partition key `source#stage`, sort key `document_key#version`)
         IAM:
             - batch-inference role: assumed by Bedrock Batch Inference jobs, scoped to the batch
               bucket (S3 read/write) plus bedrock:InvokeModel (required by the Bedrock batch
@@ -84,6 +87,17 @@ class StorageStack(cdk.Stack):
                 name="document_key",
                 type=dynamodb.AttributeType.STRING,
             ),
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            point_in_time_recovery=True,
+            removal_policy=cdk.RemovalPolicy.RETAIN,
+        )
+
+        self.pipeline_ledger_table = dynamodb.Table(
+            self,
+            "PipelineLedger",
+            table_name=config.names("pipeline-ledger"),
+            partition_key=dynamodb.Attribute(name="pk", type=dynamodb.AttributeType.STRING),
+            sort_key=dynamodb.Attribute(name="sk", type=dynamodb.AttributeType.STRING),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
             point_in_time_recovery=True,
             removal_policy=cdk.RemovalPolicy.RETAIN,

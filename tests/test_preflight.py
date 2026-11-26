@@ -118,7 +118,7 @@ def test_ledger_table_check_describes_the_phase_table():
 
     result = check_ledger_table(DEV_NAMES, dynamodb)
 
-    dynamodb.describe_table.assert_called_once_with(TableName="dia-ledger-dev")
+    dynamodb.describe_table.assert_called_once_with(TableName="dia-pipeline-ledger-dev")
     assert result.status is Status.OK
     assert "ACTIVE" in result.detail
 
