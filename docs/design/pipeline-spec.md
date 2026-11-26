@@ -217,8 +217,11 @@ How it behaves:
   documents stale. They are shown in `dia status`, and re-run only when you ask.
 - **Removed documents** are recorded. They stay in the graph until purged
   explicitly.
-- The storage design is decided when we build it, since the existing ledger can
-  be deleted.
+- It is stored in the DynamoDB table `dia-pipeline-ledger-{phase}`: partition key
+  `source#stage`, sort key `document_key#version`, so one query gives a stage's records
+  for a source. A document's version is its S3 `LastModified`. A stage records a
+  document as done only after its output is written, so a run that stops leaves no
+  record and the document is done again, never skipped.
 
 ### 3.7 Failures
 
@@ -367,10 +370,16 @@ steps below.
     the run goes on. This is an exception to the rule that local runs write only locally,
     for sidecars only (section 3.5). Run in prod on 26 November 2026: a trial of 10 labels,
     then 3,190 new and 9,960 replaced, with no failures (#87).
-- [ ] 9. **Minimal ledger**: a protocol, a DynamoDB version in a new table and a
-  local-file version. Records done or failed per document, with the reason, the output
-  location and the code version. The in-progress lock, stale settings, batch job state
-  and graph version are added when a stage first needs them.
+- [x] 9. **Minimal ledger** (`dia.pipeline_ledger`). A DynamoDB table
+  `dia-pipeline-ledger-{phase}` (partition key `source#stage`, sort key
+  `document_key#version`) and a local-file version behind one small interface: `records`
+  lists a stage's records for a source, and `record` saves them. A record is done or failed,
+  with the reason, the output location and the code version. A document's version is its S3
+  `LastModified`, so a changed document is done again and an unchanged one is skipped (`pending`).
+  A stage records a document as done only after its output is written. The in-progress lock,
+  stale settings, batch job state and graph version are added when a stage first needs them.
+  - A one-time script, `scripts/import_legacy_ledger.py`, marks the documents the old code put
+    in the dev graph as done for every stage, from the old JSON ledger.
 - [ ] 10. **S3 reader and text stage** (`dia pipeline text`). Reads each document's
   sidecar and adds its fields to the extracted text; a document with no sidecar is
   skipped and logged, and unsupported file types are recorded, not failed. Uses

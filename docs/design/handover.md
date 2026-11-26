@@ -147,6 +147,34 @@ State when this was written, with `dev` at #86 and the writing step (8c) in #87.
   `--yes` without `--write` is a usage error. Spec 3.5 records this as the one exception to "local
   runs write only locally". The prod role could write to `files/`.
 
+- **The pipeline ledger (`dia.pipeline_ledger`, step 9).** Records what each stage did to each
+  version of each document, so a run over a whole department only does the new and changed
+  ones. Table `dia-pipeline-ledger-{phase}` (CDK, `stacks/storage.py`; the old `dia-ledger-{phase}`
+  stays until the old code goes): partition key `source#stage`, sort key `document_key#version`.
+  Example: `gats_business_cases#text` / `files/HMRC case.pdf#2026-11-24T10:15:00Z`. The version is
+  the document's S3 `LastModified` (`document_version`), so a re-uploaded file is done again and
+  records of older versions stay. `DynamoLedger` and `LocalLedger` (JSON files) share one
+  interface, `records(source, stage)` and `record(records)`, and one set of tests. A stage calls
+  `pending(versions, records, retry_failed=...)` for what is left. **Rule: record a document as done
+  only after its output is written.** If the run stops first there is no record and it is done
+  again; a record written ahead of the work would make it skipped for good. A failed record keeps
+  its reason and is skipped until the document changes or `retry_failed` is set. Not built yet:
+  the CLI wiring (copy the real ledger for a local run, `--ignore-ledger`, `--retry-failed`), which
+  comes with the text stage. Preflight checks the new table. Built and tested with moto, **not
+  run against the real table until this is deployed.**
+- **Legacy ledger import (`scripts/import_legacy_ledger.py`, one-time, dev only).** The old code
+  ingested documents into the dev graph and kept `file_reference_mapping_new_v2.json`, a map of
+  `file_reference` to file name (6,072 entries; 5,888 are in the prod bucket, and the labels
+  replaced in step 8 agree with it for all 5,888; 184 are not in the bucket and are skipped).
+  The script records each found document as done for **every** stage, at its current
+  `LastModified`, with `code_version` `legacy-import`, so the new pipeline keeps the old graph
+  data and does not ingest those again. That assumes they have not changed since. About 41,000
+  records. Dry run by default; `--write` asks first; records that already exist are left alone,
+  so it can be run again. To run it, after this is merged and CI has deployed the table to dev:
+  with dev credentials, `uv run dia pipeline preflight` (the ledger table should be ok), then
+  `uv run python scripts/import_legacy_ledger.py <map file>`, check the counts, then add `--write`,
+  then run the dry run again (it should find nothing to write). Delete the script afterwards.
+
 **Agreed, not built**
 
 - **Two pipes, kept separate.** *Graph*: our extraction into Neptune and OpenSearch.
@@ -162,18 +190,12 @@ State when this was written, with `dev` at #86 and the writing step (8c) in #87.
   bucket we only consume, such as GATS: only prod writes, because dev reads it
   through the read-only cross-account role. A dev run of the metadata step warns that
   it cannot write there. So the GATS sidecars need a prod run first.
-- **A minimal ledger from the start.** Proposed shape: a new table
-  `dia-pipeline-ledger-{phase}`, partition key `source#stage`, sort key
-  `document_key#version`, recording done or failed per document with the reason, the
-  output location and the code version. Add the in-progress lock, stale settings,
-  batch job state and graph version when a stage first needs them. The old
-  `dia-ledger-{phase}` table stays until the code using it is deleted.
 - **The trial run.** Take the **latest 10 GATS business cases** from scratch through
   every stage into the dev graph, and ask the agent about them. Each stage is a new
   `dia pipeline <stage>` command that runs locally and with `--remote`. What
   "latest" means is not decided (see section 2).
 
-**Not started:** the ledger, and every stage after text.
+**Not started:** every stage after the labels, and the CLI wiring of the ledger.
 
 **Old code still in the repo.** The rest of `src/dia` is the first build: `extract-text`
 and its runner, `sources/known.py`, `DataSource`, the `metadata` package, the old
@@ -187,7 +209,7 @@ Follow section 7 of the spec. In short, the order is:
 1. **Metadata model and sidecar format.** Done (`dia.sources.sidecar`).
 2. **The GATS metadata step.** Done: the mapping, the dry run and the writing. The labels
    are in the prod bucket (see section 1).
-3. **The minimal ledger.**
+3. **The minimal ledger.** Built (`dia.pipeline_ledger`). Run the legacy import once it is deployed.
 4. **S3 reader and the text stage**, which delete `known.py`, `DataSource`,
    `extract-text` and the old metadata package.
 5. **Chunk, propositions, topics, validate, embed, load**, then check the result with
@@ -265,7 +287,6 @@ Then harden the ledger and CLI, and scale up to all of GATS and the other source
   bucket with prod credentials (the 8 March older export and the newest in `gas/`). Not
   verified: reading both through the cross-account role from dev. If that is denied, the
   command says it could not read from the bucket.
-- **How the ledger table is laid out**, using the proposal above.
 
 **What we know about the GATS data** (from `scripts/check_source_access.py`, October 2026)
 
