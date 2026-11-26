@@ -10,7 +10,7 @@ from moto import mock_aws
 
 from dia.sources.sidecar import Sidecar, to_json
 from dia.sources.sidecar_plan import SidecarPlan
-from dia.sources.sidecar_writer import BackupError, write_plan
+from dia.sources.sidecar_writer import BackupError, select, write_plan
 
 BUCKET = "bucket"
 NEW_KEY = "files/new.pdf.metadata.json"
@@ -74,6 +74,7 @@ def test_new_labels_are_written_and_existing_ones_are_left_alone_without_overwri
     assert _text(s3, NEW_KEY) == to_json(SIDECAR)
     assert _text(s3, OLD_KEY) == OLD_TEXT
     assert not (tmp_path / "backup").exists()
+    assert result.backup_dir is None
 
 
 def test_a_label_that_appeared_since_planning_is_never_replaced(s3, tmp_path):
@@ -92,6 +93,7 @@ def test_overwrite_saves_the_old_text_then_replaces_it(s3, tmp_path):
     assert result.written_replaced == [OLD_KEY]
     assert _text(s3, OLD_KEY) == to_json(SIDECAR)
     assert (tmp_path / "backup" / OLD_KEY).read_text() == OLD_TEXT
+    assert result.backup_dir == tmp_path / "backup"
 
 
 def test_a_failed_backup_stops_the_run_before_anything_is_written(s3, tmp_path):
@@ -136,3 +138,43 @@ def test_the_report_lists_keys_and_status_and_no_label_content(s3, tmp_path):
 
     rows = list(csv.reader((tmp_path / "report.csv").open()))
     assert rows == [["label", "status"], [NEW_KEY, "new"], [OLD_KEY, "replaced"]]
+
+
+def test_overwrite_with_nothing_to_replace_saves_nothing(s3, tmp_path):
+    result = _write(s3, tmp_path, _plan(replacements=()), overwrite=True)
+
+    assert result.backup_dir is None
+    assert not (tmp_path / "backup").exists()
+
+
+def test_a_conditional_write_conflict_counts_as_the_label_existing(s3, tmp_path):
+    original = s3.put_object
+
+    def put(**kwargs):
+        if kwargs["Key"] == NEW_KEY:
+            raise ClientError({"Error": {"Code": "ConditionalRequestConflict", "Message": "race"}}, "PutObject")
+        return original(**kwargs)
+
+    with patch.object(s3, "put_object", side_effect=put):
+        result = _write(s3, tmp_path)
+
+    assert result.skipped_exists == [NEW_KEY]
+    assert result.failed == {}
+
+
+def test_select_says_what_write_plan_will_write(s3, tmp_path):
+    plan = _plan()
+
+    without = select(plan, overwrite=False)
+    assert (list(without.new), list(without.replace), without.left_alone, without.total) == ([NEW_KEY], [], 1, 1)
+
+    with_overwrite = select(plan, overwrite=True)
+    assert (list(with_overwrite.new), list(with_overwrite.replace), with_overwrite.left_alone) == (
+        [NEW_KEY],
+        [OLD_KEY],
+        0,
+    )
+    assert with_overwrite.total == 2
+
+    result = _write(s3, tmp_path, plan, overwrite=True)
+    assert len(result.written_new) + len(result.written_replaced) == with_overwrite.total

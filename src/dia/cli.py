@@ -405,20 +405,20 @@ def _write_labels(s3: Any, bucket: str, result: "SidecarPlan", *, overwrite: boo
     """Confirm, then write a plan's labels to the bucket, and report. Exits 1 if any label failed."""
     from datetime import UTC, datetime
 
-    from dia.sources.sidecar_writer import BackupError, write_plan
+    from dia.sources.sidecar_writer import BackupError, select, write_plan
 
-    replacing = len(result.replacements) if overwrite else 0
+    chosen = select(result, overwrite=overwrite)
     typer.echo("\nWriting")
-    typer.echo(f"  new labels:       {len(result.new)}")
-    typer.echo(f"  replaced labels:  {replacing}")
-    if result.replacements and not overwrite:
-        typer.echo(f"  left alone:       {len(result.replacements)} that differ (pass --overwrite to replace them)")
-    if not result.new and not replacing:
+    typer.echo(f"  new labels:       {len(chosen.new)}")
+    typer.echo(f"  replaced labels:  {len(chosen.replace)}")
+    if chosen.left_alone:
+        typer.echo(f"  left alone:       {chosen.left_alone} that differ (pass --overwrite to replace them)")
+    if not chosen.total:
         typer.echo("Nothing to write.")
         return
 
     if not yes:
-        typer.confirm(f"Write {len(result.new) + replacing} labels to s3://{bucket}?", default=False, abort=True)
+        typer.confirm(f"Write {chosen.total} labels to s3://{bucket}?", default=False, abort=True)
 
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     backup_dir = Path("output/metadata") / stamp
@@ -432,8 +432,8 @@ def _write_labels(s3: Any, bucket: str, result: "SidecarPlan", *, overwrite: boo
     typer.echo(f"\nWritten: {len(written.written_new)} new, {len(written.written_replaced)} replaced")
     if written.skipped_exists:
         typer.echo(f"Skipped: {len(written.skipped_exists)} that appeared since the plan was made")
-    if replacing:
-        typer.echo(f"Old labels saved in {backup_dir}")
+    if written.backup_dir:
+        typer.echo(f"Old labels saved in {written.backup_dir}")
     typer.echo(f"Report: {report_path}")
     if written.failed:
         typer.echo(f"\nFailed: {len(written.failed)}")

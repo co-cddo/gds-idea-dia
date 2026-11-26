@@ -129,6 +129,10 @@ State when this was written, with `dev` at #86 and the writing step (8c) in #87.
   under `./output/metadata/<time>/<key>`; if a save fails nothing is written (`SidecarPlan.replaced_text`
   holds the old text for this). 16 writes at a time (the client's pool is sized to match). A label
   that fails, such as one over 10 KB, is counted and the run continues; the exit code is 1.
+  `select(plan, overwrite=...)` is the one place that says which labels a write touches: the
+  CLI's counts and prompt and `write_plan` both use it, and `WriteResult.backup_dir` says where
+  old labels were saved, so the CLI reports what the writer did. A 409 from a racing conditional
+  write counts as `skipped_exists`.
   `./output/metadata/<time>.csv` lists keys and `new`, `replaced`, `skipped_exists` or `failed`.
   `--write` in dev exits 1 before any S3 call, because the role is read-only; `--overwrite` or
   `--yes` without `--write` is a usage error. Spec 3.5 records this as the one exception to "local

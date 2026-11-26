@@ -12,6 +12,7 @@ import csv
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import StrEnum
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,8 @@ from dia.sources.sidecar_plan import SidecarPlan
 
 WORKERS = 16
 REPORT_COLUMNS = ["label", "status"]
+# S3 answers a losing conditional write with 412, or 409 if two writes to a key race.
+_LABEL_EXISTS_CODES = ("PreconditionFailed", "ConditionalRequestConflict")
 
 
 class _Status(StrEnum):
@@ -33,6 +36,15 @@ class _Status(StrEnum):
 
 
 @dataclass(frozen=True)
+class _Job:
+    """One label to write. `is_new` is true if no label should exist at `key` yet."""
+
+    key: str
+    sidecar: Sidecar
+    is_new: bool
+
+
+@dataclass(frozen=True)
 class _Done:
     """The end of writing one label. `reason` is set only when it failed."""
 
@@ -40,6 +52,35 @@ class _Done:
     is_new: bool
     status: _Status
     reason: str = ""
+
+
+@dataclass(frozen=True)
+class Selection:
+    """The labels a write will touch, given whether it may overwrite.
+
+    Attributes:
+        new: Sidecars to write where there is no label, by sidecar key.
+        replace: Sidecars that will replace a different label, by sidecar key. Empty
+            unless overwriting.
+        left_alone: Labels that differ from the plan and will not be replaced, because
+            overwriting is off.
+    """
+
+    new: dict[str, Sidecar]
+    replace: dict[str, Sidecar]
+    left_alone: int
+
+    @property
+    def total(self) -> int:
+        """Labels that will be written."""
+        return len(self.new) + len(self.replace)
+
+
+def select(plan: SidecarPlan, *, overwrite: bool) -> Selection:
+    """Say which of a plan's labels a write will touch. `write_plan` writes exactly this."""
+    if overwrite:
+        return Selection(new=dict(plan.new), replace=dict(plan.replacements), left_alone=0)
+    return Selection(new=dict(plan.new), replace={}, left_alone=len(plan.replacements))
 
 
 class BackupError(Exception):
@@ -55,12 +96,16 @@ class WriteResult:
         written_replaced: Labels that replaced a different one.
         skipped_exists: New labels not written because one had appeared since planning.
         failed: Label key to the reason it could not be written.
+        backup_dir: Where the old text of the labels to be replaced was saved, or `None`
+            if nothing was saved. Set before any label is written, so it holds even if
+            some replacements failed.
     """
 
     written_new: list[str] = field(default_factory=list)
     written_replaced: list[str] = field(default_factory=list)
     skipped_exists: list[str] = field(default_factory=list)
     failed: dict[str, str] = field(default_factory=dict)
+    backup_dir: Path | None = None
 
 
 def _backup(plan: SidecarPlan, keys: list[str], backup_dir: Path) -> None:
@@ -98,6 +143,21 @@ def _write_report(result: WriteResult, path: Path) -> None:
         writer.writerows(rows)
 
 
+def _put_label(s3_client: Any, bucket: str, job: _Job) -> _Done:
+    """Write one label. A new label is written only if none exists, so it never replaces one."""
+    try:
+        body = to_json(job.sidecar).encode("utf-8")
+        extra = {"IfNoneMatch": "*"} if job.is_new else {}
+        s3_client.put_object(Bucket=bucket, Key=job.key, Body=body, ContentType="application/json", **extra)
+    except ClientError as e:
+        if job.is_new and e.response.get("Error", {}).get("Code") in _LABEL_EXISTS_CODES:
+            return _Done(job.key, job.is_new, _Status.EXISTS)
+        return _Done(job.key, job.is_new, _Status.FAILED, str(e))
+    except (SidecarError, BotoCoreError) as e:
+        return _Done(job.key, job.is_new, _Status.FAILED, str(e))
+    return _Done(job.key, job.is_new, _Status.WRITTEN)
+
+
 def write_plan(
     s3_client: Any,
     bucket: str,
@@ -109,8 +169,9 @@ def write_plan(
 ) -> WriteResult:
     """Write the new labels of a plan, and with `overwrite` the replacements too.
 
-    Writes `WORKERS` labels at a time. A failure on one label is counted and the rest go on.
-    The report is written even if some labels failed.
+    Writes exactly what `select(plan, overwrite=overwrite)` returns, `WORKERS` labels at a
+    time. A failure on one label is counted and the rest go on. The report is written even
+    if some labels failed.
 
     Args:
         s3_client: A client that may write to `bucket`. Needs `WORKERS` or more connections.
@@ -121,34 +182,21 @@ def write_plan(
         report_path: Where the CSV of keys written is saved.
 
     Returns:
-        What was written, skipped and failed.
+        What was written, skipped and failed, and where old labels were saved.
 
     Raises:
         BackupError: If a replaced label could not be saved. Nothing has been written then.
     """
-    replace = sorted(plan.replacements) if overwrite else []
+    chosen = select(plan, overwrite=overwrite)
+    replace = sorted(chosen.replace)
     _backup(plan, replace, backup_dir)
 
-    jobs = [(key, plan.new[key], True) for key in sorted(plan.new)]
-    jobs += [(key, plan.replacements[key], False) for key in replace]
+    jobs = [_Job(key, chosen.new[key], True) for key in sorted(chosen.new)]
+    jobs += [_Job(key, chosen.replace[key], False) for key in replace]
 
-    def put(job: tuple[str, Sidecar, bool]) -> _Done:
-        key, sidecar, is_new = job
-        try:
-            body = to_json(sidecar).encode("utf-8")
-            extra = {"IfNoneMatch": "*"} if is_new else {}
-            s3_client.put_object(Bucket=bucket, Key=key, Body=body, ContentType="application/json", **extra)
-        except ClientError as e:
-            if is_new and e.response.get("Error", {}).get("Code") == "PreconditionFailed":
-                return _Done(key, is_new, _Status.EXISTS)
-            return _Done(key, is_new, _Status.FAILED, str(e))
-        except (SidecarError, BotoCoreError) as e:
-            return _Done(key, is_new, _Status.FAILED, str(e))
-        return _Done(key, is_new, _Status.WRITTEN)
-
-    result = WriteResult()
+    result = WriteResult(backup_dir=backup_dir if replace else None)
     with ThreadPoolExecutor(WORKERS) as pool:
-        for done in pool.map(put, jobs):
+        for done in pool.map(partial(_put_label, s3_client, bucket), jobs):
             if done.status is _Status.WRITTEN:
                 (result.written_new if done.is_new else result.written_replaced).append(done.key)
             elif done.status is _Status.EXISTS:
