@@ -345,7 +345,7 @@ steps below.
   `date` is a common key. It is written as a `YYYYMMDD` number. `parse_date` fills in
   the first month and day when only a year or month is known; there is no `year` key.
   `to_json` rejects a file over Bedrock's 10 KB limit for a metadata file.
-- [ ] 8. **GATS metadata step** (`dia pipeline metadata`). Reads the GATS export,
+- [x] 8. **GATS metadata step** (`dia pipeline metadata`). Reads the GATS export,
   maps its columns into the model, and writes a sidecar next to each document.
   - [x] 8a. The mapping from export rows to sidecars (`dia.sources.gats_sidecars`).
     Handles both export layouts, takes `date` from the first of `CO_SpendStartDate`,
@@ -365,8 +365,8 @@ steps below.
     machine first (nothing is written if that fails). It is run locally with prod
     credentials; dev refuses, because the role is read-only. A failed label is counted and
     the run goes on. This is an exception to the rule that local runs write only locally,
-    for sidecars only (section 3.5). A trial (`--export latest --limit 10 --write`) comes
-    first. The first real run is not done yet.
+    for sidecars only (section 3.5). Run in prod on 26 November 2026: a trial of 10 labels,
+    then 3,190 new and 9,960 replaced, with no failures (#87).
 - [ ] 9. **Minimal ledger**: a protocol, a DynamoDB version in a new table and a
   local-file version. Records done or failed per document, with the reason, the output
   location and the code version. The in-progress lock, stale settings, batch job state

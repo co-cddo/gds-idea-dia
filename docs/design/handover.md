@@ -62,6 +62,11 @@ State when this was written, with `dev` at #86 and the writing step (8c) in #87.
   are missing. The dashes are all or nothing: `2026-0601` is rejected. A source with
   `MMYYYY` dates, such as the DBR report filenames (`062026`), converts them to
   `YYYYMM` first. There is no `year`, `assurance_date` or `file_reference` key.
+  **Every field except `document_type` can be missing.** A missing value is left out of the
+  file, never written as `null`, so whatever reads a label (the text stage first) must treat each
+  of them as possibly absent. `date` is missing for about 3% of the older export's documents,
+  13% of the newer one's, and the basic labels; `alb` is missing for any submitter that is not
+  an ALB. A filter on a field never matches a document that lacks it.
   `sidecar_key`, `is_sidecar_key`, `to_json` and `from_json` write and read Bedrock's
   simple `{"metadataAttributes": {...}}` format, and `to_json` raises `SidecarError`
   for a file over Bedrock's 10 KB limit. `check` compares a sidecar with the keys its
@@ -122,8 +127,12 @@ State when this was written, with `dev` at #86 and the writing step (8c) in #87.
   rebuilt from their case, 818 kept, 12 fixed, 640 basic, 1,958 waiting, nothing unfixable.
   That is 3,136 new labels and 9,960 replaced.
 - **Writing the labels (8c, `dia.sources.sidecar_writer`).** `dia pipeline metadata --write
-  [--overwrite] [--yes]` writes what the dry run planned. Built and tested with moto, **never
-  run against the real bucket**. It asks first (default no; `--yes` skips). A new label is
+  [--overwrite] [--yes]` writes what the dry run planned. **Run in prod on 26 November 2026:**
+  a trial of 10 new labels (`--export latest --limit 10`), then the full run (`--write
+  --overwrite`): 3,190 new and 9,960 replaced, no failures (54 more new than the 20 November
+  dry run). The 9,960 old labels, as they were, are in `./output/metadata/20261126T130700Z/` on
+  the machine that ran it. That is the **only copy**, with each label's `file_reference`, so
+  keep it. It asks first (default no; `--yes` skips). A new label is
   written with `IfNoneMatch="*"`, so a label that appeared since the plan is skipped and never
   replaced. `--overwrite` also replaces labels that differ, after saving each old one, as it was,
   under `./output/metadata/<time>/<key>`; if a save fails nothing is written (`SidecarPlan.replaced_text`
@@ -136,7 +145,7 @@ State when this was written, with `dev` at #86 and the writing step (8c) in #87.
   `./output/metadata/<time>.csv` lists keys and `new`, `replaced`, `skipped_exists` or `failed`.
   `--write` in dev exits 1 before any S3 call, because the role is read-only; `--overwrite` or
   `--yes` without `--write` is a usage error. Spec 3.5 records this as the one exception to "local
-  runs write only locally". Whether the prod role may `PutObject` on `files/` is unchecked.
+  runs write only locally". The prod role could write to `files/`.
 
 **Agreed, not built**
 
@@ -176,12 +185,8 @@ ledger and its CLI, writers, filters, and the agent. Only the old text stage eve
 Follow section 7 of the spec. In short, the order is:
 
 1. **Metadata model and sidecar format.** Done (`dia.sources.sidecar`).
-2. **The GATS metadata step.** The first thing that reads real GATS data. The mapping, the
-   dry run and the writing (`--write`) are built. Next is the first real run, by whoever has
-   prod credentials: the dry run with the defaults (check the counts), then a trial
-   (`--export latest --limit 10 --write`) and one label opened in S3, then the full run with
-   `--write --overwrite`. Settle the `file_reference` and `department` question (below) before
-   that last one. Then tick step 8 in the spec and record what the run found here.
+2. **The GATS metadata step.** Done: the mapping, the dry run and the writing. The labels
+   are in the prod bucket (see section 1).
 3. **The minimal ledger.**
 4. **S3 reader and the text stage**, which delete `known.py`, `DataSource`,
    `extract-text` and the old metadata package.
