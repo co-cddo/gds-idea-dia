@@ -193,6 +193,7 @@ class PipelineTaskStack(cdk.Stack):
 
         # --- Task role permissions ---
         storage.ledger_table.grant_read_write_data(self.task_role)
+        storage.pipeline_ledger_table.grant_read_write_data(self.task_role)
         for bucket in (
             storage.text_extracted_bucket,
             storage.graph_raw_bucket,

@@ -11,7 +11,7 @@ facts that are not obvious from the code.
 
 ## 1. Where things stand
 
-State when this was written, with `dev` at #86 and the writing step (8c) in #87. Check `gh pr list` and
+State when this was written, with `dev` at #87 (the writing step, 8c). Check `gh pr list` and
 `git log origin/dev` before relying on it.
 
 **Built, and run for real in dev**
@@ -62,6 +62,11 @@ State when this was written, with `dev` at #86 and the writing step (8c) in #87.
   are missing. The dashes are all or nothing: `2026-0601` is rejected. A source with
   `MMYYYY` dates, such as the DBR report filenames (`062026`), converts them to
   `YYYYMM` first. There is no `year`, `assurance_date` or `file_reference` key.
+  **Every field except `document_type` can be missing.** A missing value is left out of the
+  file, never written as `null`, so whatever reads a label (the text stage first) must treat each
+  of them as possibly absent. `date` is missing for about 3% of the older export's documents,
+  13% of the newer one's, and the basic labels; `alb` is missing for any submitter that is not
+  an ALB. A filter on a field never matches a document that lacks it.
   `sidecar_key`, `is_sidecar_key`, `to_json` and `from_json` write and read Bedrock's
   simple `{"metadataAttributes": {...}}` format, and `to_json` raises `SidecarError`
   for a file over Bedrock's 10 KB limit. `check` compares a sidecar with the keys its
@@ -122,8 +127,12 @@ State when this was written, with `dev` at #86 and the writing step (8c) in #87.
   rebuilt from their case, 818 kept, 12 fixed, 640 basic, 1,958 waiting, nothing unfixable.
   That is 3,136 new labels and 9,960 replaced.
 - **Writing the labels (8c, `dia.sources.sidecar_writer`).** `dia pipeline metadata --write
-  [--overwrite] [--yes]` writes what the dry run planned. Built and tested with moto, **never
-  run against the real bucket**. It asks first (default no; `--yes` skips). A new label is
+  [--overwrite] [--yes]` writes what the dry run planned. **Run in prod on 26 November 2026:**
+  a trial of 10 new labels (`--export latest --limit 10`), then the full run (`--write
+  --overwrite`): 3,190 new and 9,960 replaced, no failures (54 more new than the 20 November
+  dry run). The 9,960 old labels, as they were, are in `./output/metadata/20261126T130700Z/` on
+  the machine that ran it. That is the **only copy**, with each label's `file_reference`, so
+  keep it. It asks first (default no; `--yes` skips). A new label is
   written with `IfNoneMatch="*"`, so a label that appeared since the plan is skipped and never
   replaced. `--overwrite` also replaces labels that differ, after saving each old one, as it was,
   under `./output/metadata/<time>/<key>`; if a save fails nothing is written (`SidecarPlan.replaced_text`
@@ -136,7 +145,42 @@ State when this was written, with `dev` at #86 and the writing step (8c) in #87.
   `./output/metadata/<time>.csv` lists keys and `new`, `replaced`, `skipped_exists` or `failed`.
   `--write` in dev exits 1 before any S3 call, because the role is read-only; `--overwrite` or
   `--yes` without `--write` is a usage error. Spec 3.5 records this as the one exception to "local
-  runs write only locally". Whether the prod role may `PutObject` on `files/` is unchecked.
+  runs write only locally". The prod role could write to `files/`.
+
+- **The pipeline ledger (`dia.pipeline_ledger`, step 9).** Records what each stage did to each
+  version of each document, so a run over a whole department only does the new and changed
+  ones. Table `dia-pipeline-ledger-{phase}` (CDK, `stacks/storage.py`; the old `dia-ledger-{phase}`
+  stays until the old code goes): partition key `source#stage`, sort key `document_key#version`.
+  Example: `gats_business_cases#text` / `files/HMRC case.pdf#2026-11-24T10:15:00Z`. The version is
+  the document's S3 `LastModified` (`document_version`), so a re-uploaded file is done again and
+  records of older versions stay. `DynamoLedger` and `LocalLedger` (JSON files) share one
+  interface, `records(source, stage)` and `record(records)`, and one set of tests. A stage calls
+  `pending(versions, records, retry_failed=...)` for what is left. **Rule: record a document as done
+  only after its output is written.** If the run stops first there is no record and it is done
+  again; a record written ahead of the work would make it skipped for good. A failed record keeps
+  its reason and is skipped until the document changes or `retry_failed` is set.
+  `open_ledger(source, stage, names=, remote=, ignore_ledger=)` gives a stage its ledger: the real
+  table for a remote run; for a local run a `LocalLedger` in `./output/ledger/` holding a copy of the
+  real records for that source and stage (replacing any earlier copy), or empty with `ignore_ledger`
+  (refused for a remote run). A local run never writes to the real table. Read-only commands
+  `dia pipeline ledger list --source S --stage T [--failed]` and `status --source S` show the real
+  table. **Not built:** the `--ignore-ledger` and `--retry-failed` options themselves, because they only
+  mean something to a stage; the text stage declares them and calls `open_ledger` and `pending`.
+  `dia.pipeline_ledger` is not in `TASK_MODULES` yet: add it when a task command imports it.
+  Preflight checks the new table. Built and tested with moto, **not
+  run against the real table until this is deployed.**
+- **Legacy ledger import (`scripts/import_legacy_ledger.py`, one-time, dev only).** The old code
+  ingested documents into the dev graph and kept `file_reference_mapping_new_v2.json`, a map of
+  `file_reference` to file name (6,072 entries; 5,888 are in the prod bucket, and the labels
+  replaced in step 8 agree with it for all 5,888; 184 are not in the bucket and are skipped).
+  The script records each found document as done for **every** stage, at its current
+  `LastModified`, with `code_version` `legacy-import`, so the new pipeline keeps the old graph
+  data and does not ingest those again. That assumes they have not changed since. About 41,000
+  records. Dry run by default; `--write` asks first; records that already exist are left alone,
+  so it can be run again. To run it, after this is merged and CI has deployed the table to dev:
+  with dev credentials, `uv run dia pipeline preflight` (the ledger table should be ok), then
+  `uv run python scripts/import_legacy_ledger.py <map file>`, check the counts, then add `--write`,
+  then run the dry run again (it should find nothing to write). Delete the script afterwards.
 
 **Agreed, not built**
 
@@ -153,18 +197,12 @@ State when this was written, with `dev` at #86 and the writing step (8c) in #87.
   bucket we only consume, such as GATS: only prod writes, because dev reads it
   through the read-only cross-account role. A dev run of the metadata step warns that
   it cannot write there. So the GATS sidecars need a prod run first.
-- **A minimal ledger from the start.** Proposed shape: a new table
-  `dia-pipeline-ledger-{phase}`, partition key `source#stage`, sort key
-  `document_key#version`, recording done or failed per document with the reason, the
-  output location and the code version. Add the in-progress lock, stale settings,
-  batch job state and graph version when a stage first needs them. The old
-  `dia-ledger-{phase}` table stays until the code using it is deleted.
 - **The trial run.** Take the **latest 10 GATS business cases** from scratch through
   every stage into the dev graph, and ask the agent about them. Each stage is a new
   `dia pipeline <stage>` command that runs locally and with `--remote`. What
   "latest" means is not decided (see section 2).
 
-**Not started:** the ledger, and every stage after text.
+**Not started:** every stage after the labels.
 
 **Old code still in the repo.** The rest of `src/dia` is the first build: `extract-text`
 and its runner, `sources/known.py`, `DataSource`, the `metadata` package, the old
@@ -176,13 +214,10 @@ ledger and its CLI, writers, filters, and the agent. Only the old text stage eve
 Follow section 7 of the spec. In short, the order is:
 
 1. **Metadata model and sidecar format.** Done (`dia.sources.sidecar`).
-2. **The GATS metadata step.** The first thing that reads real GATS data. The mapping, the
-   dry run and the writing (`--write`) are built. Next is the first real run, by whoever has
-   prod credentials: the dry run with the defaults (check the counts), then a trial
-   (`--export latest --limit 10 --write`) and one label opened in S3, then the full run with
-   `--write --overwrite`. Settle the `file_reference` and `department` question (below) before
-   that last one. Then tick step 8 in the spec and record what the run found here.
-3. **The minimal ledger.**
+2. **The GATS metadata step.** Done: the mapping, the dry run and the writing. The labels
+   are in the prod bucket (see section 1).
+3. **The minimal ledger.** Built (`dia.pipeline_ledger`), with `open_ledger` and the `dia pipeline ledger`
+   commands. Run the legacy import once it is deployed.
 4. **S3 reader and the text stage**, which delete `known.py`, `DataSource`,
    `extract-text` and the old metadata package.
 5. **Chunk, propositions, topics, validate, embed, load**, then check the result with
@@ -260,7 +295,6 @@ Then harden the ledger and CLI, and scale up to all of GATS and the other source
   bucket with prod credentials (the 8 March older export and the newest in `gas/`). Not
   verified: reading both through the cross-account role from dev. If that is denied, the
   command says it could not read from the bucket.
-- **How the ledger table is laid out**, using the proposal above.
 
 **What we know about the GATS data** (from `scripts/check_source_access.py`, October 2026)
 
@@ -502,8 +536,9 @@ what you don't need.
   change real state, except `dia pipeline metadata --write`, which a local run with prod
   credentials uses to add sidecars to the GATS bucket (spec 3.5).
 - **Commands.** Pipeline commands live under `dia pipeline`, the agent under `dia
-  agent`. `extract-text` and `ledger` are still at the top level and move under
-  `pipeline` when rewritten. `dia agent status` is effectively the agent's own
+  agent`. `extract-text` and the old `ledger` commands (`list`, `clear`, `clone`; `extract-text`
+  tells you to use `clone`) are still at the top level and go with the text stage. The new ledger's commands
+  are `dia pipeline ledger`. `dia agent status` is effectively the agent's own
   preflight.
 - **Stages:** text, chunk, propositions, topics, validate, embed, load. Purge and prune
   are separate, and prune is deferred. Stages that call Bedrock always use batch jobs,

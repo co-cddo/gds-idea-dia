@@ -126,8 +126,8 @@ def check_runtime_config(names: Names, ssm_client=None) -> tuple[CheckResult, Ru
 
 
 def check_ledger_table(names: Names, dynamodb_client) -> CheckResult:
-    """Does the ledger table exist and can it be described?"""
-    table = names("ledger")
+    """Does the pipeline ledger table exist and can it be described?"""
+    table = names("pipeline-ledger")
     try:
         status = dynamodb_client.describe_table(TableName=table)["Table"]["TableStatus"]
     except (ClientError, BotoCoreError) as e:

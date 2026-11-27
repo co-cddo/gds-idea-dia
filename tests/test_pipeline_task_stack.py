@@ -215,6 +215,13 @@ def test_task_role_can_use_the_ledger(dev):
     assert "dynamodb:PutItem" in actions
 
 
+def test_task_role_can_use_the_pipeline_ledger_table(dev):
+    """The grant names the new table, not just any table: one statement per table."""
+    table_statements = [s for s in _statements(dev.template) if any(a == "dynamodb:PutItem" for a in _actions(s))]
+    resources = json.dumps([s["Resource"] for s in table_statements])
+    assert "PipelineLedger" in resources
+
+
 def test_task_role_can_read_and_write_four_pipeline_buckets_and_only_read_agent_reports(dev):
     s3_statements = [s for s in _statements(dev.template) if any(a.startswith("s3:") for a in _actions(s))]
     writers = [s for s in s3_statements if any(a.startswith("s3:PutObject") for a in _actions(s))]

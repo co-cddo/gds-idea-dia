@@ -24,9 +24,9 @@ def test_creates_ten_buckets(synth, environment, phase):
         (DeploymentEnvironment.PRODUCTION, "prod"),
     ],
 )
-def test_creates_one_dynamodb_table(synth, environment, phase):
+def test_creates_the_old_and_the_pipeline_ledger_tables(synth, environment, phase):
     template = synth(StorageStack, environment)
-    template.resource_count_is("AWS::DynamoDB::Table", 1)
+    template.resource_count_is("AWS::DynamoDB::Table", 2)
 
 
 @pytest.mark.parametrize(
@@ -191,6 +191,42 @@ def test_ledger_table_partition_key(synth):
             "AttributeDefinitions": [{"AttributeName": "document_key", "AttributeType": "S"}],
         },
     )
+
+
+def _pipeline_ledger(template) -> dict:
+    tables = template.find_resources(
+        "AWS::DynamoDB::Table",
+        {"Properties": {"TableName": assertions.Match.string_like_regexp("^dia-pipeline-ledger-")}},
+    )
+    (table,) = tables.values()
+    return table
+
+
+@pytest.mark.parametrize(
+    "environment,phase",
+    [
+        (DeploymentEnvironment.DEVELOPMENT, "dev"),
+        (DeploymentEnvironment.PRODUCTION, "prod"),
+    ],
+)
+def test_pipeline_ledger_table_name_follows_pattern(synth, environment, phase):
+    template = synth(StorageStack, environment)
+    template.has_resource_properties("AWS::DynamoDB::Table", {"TableName": f"dia-pipeline-ledger-{phase}"})
+
+
+def test_pipeline_ledger_table_is_keyed_by_source_and_stage_then_document_and_version(synth):
+    table = _pipeline_ledger(synth(StorageStack))["Properties"]
+    assert table["KeySchema"] == [
+        {"AttributeName": "pk", "KeyType": "HASH"},
+        {"AttributeName": "sk", "KeyType": "RANGE"},
+    ]
+
+
+def test_pipeline_ledger_table_is_on_demand_with_point_in_time_recovery_and_is_kept(synth):
+    table = _pipeline_ledger(synth(StorageStack))
+    assert table["Properties"]["BillingMode"] == "PAY_PER_REQUEST"
+    assert table["Properties"]["PointInTimeRecoverySpecification"] == {"PointInTimeRecoveryEnabled": True}
+    assert table["DeletionPolicy"] == "Retain"
 
 
 # --- Batch inference role ---
