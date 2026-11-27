@@ -378,6 +378,10 @@ steps below.
   `LastModified`, so a changed document is done again and an unchanged one is skipped (`pending`).
   A stage records a document as done only after its output is written. The in-progress lock,
   stale settings, batch job state and graph version are added when a stage first needs them.
+  - `open_ledger` gives a stage its ledger: the real table for `--remote`, and for a local run a
+    copy in `./output/ledger/` (or an empty one, for `--ignore-ledger`). `dia pipeline ledger list`
+    and `status` read the real table. The `--ignore-ledger` and `--retry-failed` options are
+    declared by the text stage (step 10), which is their first user.
   - A one-time script, `scripts/import_legacy_ledger.py`, marks the documents the old code put
     in the dev graph as done for every stage, from the old JSON ledger.
 - [ ] 10. **S3 reader and text stage** (`dia pipeline text`). Reads each document's

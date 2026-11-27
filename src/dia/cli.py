@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 import typer
 
 from dia import __version__
+from dia.pipeline_ledger import Stage
 
 if TYPE_CHECKING:
     from dia.sources.sidecar_plan import SidecarPlan
@@ -18,11 +19,14 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
-ledger_app = typer.Typer(help="Inspect and manage the processing ledger.")
+ledger_app = typer.Typer(help="Inspect and manage the old processing ledger, used by `extract-text`.")
 app.add_typer(ledger_app, name="ledger")
 
 pipeline_app = typer.Typer(help="Run and check the document pipeline.")
 app.add_typer(pipeline_app, name="pipeline")
+
+pipeline_ledger_app = typer.Typer(help="Inspect what the pipeline has done to each document.")
+pipeline_app.add_typer(pipeline_ledger_app, name="ledger")
 
 agent_app = typer.Typer(help="Query the digital intelligence agent.")
 app.add_typer(agent_app, name="agent")
@@ -164,6 +168,57 @@ def ledger_clone(
 def _discover_sources(ledger) -> set[str]:
     """Find all unique source names present in the ledger."""
     return {record["source_name"] for record in ledger.list_all_records() if record.get("source_name")}
+
+
+@pipeline_ledger_app.command("list")
+def pipeline_ledger_list(
+    source: Annotated[str, typer.Option("--source", "-s", help="The source's key, such as gats_business_cases.")],
+    stage: Annotated[Stage, typer.Option("--stage", help="The stage to list.")],
+    failed: Annotated[bool, typer.Option("--failed", help="Only the documents that failed.")] = False,
+) -> None:
+    """List what a stage has recorded for a source, with the reason for each failure.
+
+    Read-only. Reads the real ledger table with your credentials.
+    """
+    from dia.cli_helpers import current_names
+    from dia.pipeline_ledger import DynamoLedger, Status
+
+    names = current_names()
+    records = DynamoLedger.from_names(names).records(source, stage)
+    if failed:
+        records = [record for record in records if record.status is Status.FAILED]
+
+    typer.echo(f"Table:  {names('pipeline-ledger')}")
+    typer.echo(f"Source: {source}")
+    typer.echo(f"Stage:  {stage.value}")
+    typer.echo(f"Count:  {len(records)}")
+    for record in sorted(records, key=lambda r: (r.document_key, r.version)):
+        detail = record.reason or record.output_location or ""
+        typer.echo(
+            f"  {record.status.value:<6} {record.document_key}  {record.version}  {record.code_version}  {detail}"
+        )
+
+
+@pipeline_ledger_app.command("status")
+def pipeline_ledger_status(
+    source: Annotated[str, typer.Option("--source", "-s", help="The source's key, such as gats_business_cases.")],
+) -> None:
+    """Count the documents done and failed at each stage for a source.
+
+    Counts records, and a document that changed has one for each version. Read-only.
+    """
+    from dia.cli_helpers import current_names
+    from dia.pipeline_ledger import DynamoLedger, Status
+
+    names = current_names()
+    ledger = DynamoLedger.from_names(names)
+    typer.echo(f"Table:  {names('pipeline-ledger')}")
+    typer.echo(f"Source: {source}")
+    typer.echo(f"  {'stage':<14}{'done':>8}{'failed':>8}")
+    for stage in Stage:
+        records = ledger.records(source, stage)
+        done = sum(record.status is Status.DONE for record in records)
+        typer.echo(f"  {stage.value:<14}{done:>8}{len(records) - done:>8}")
 
 
 @pipeline_app.command("preflight")

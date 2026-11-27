@@ -4,8 +4,10 @@ import datetime as dt
 
 import boto3
 import pytest
+from gds_idea_cdk_constructs import DeploymentEnvironment
 from moto import mock_aws
 
+from dia.naming import Names
 from dia.pipeline_ledger import (
     DynamoLedger,
     LedgerError,
@@ -14,6 +16,7 @@ from dia.pipeline_ledger import (
     Stage,
     Status,
     document_version,
+    open_ledger,
     pending,
 )
 
@@ -30,15 +33,14 @@ def _failed(key="files/a.pdf", version=V1, *, stage=Stage.TEXT):
     return LedgerRecord.failed(SOURCE, stage, key, version, code_version="1.2.3", reason="no text found")
 
 
-@pytest.fixture(params=["dynamodb", "local"])
-def ledger(request, tmp_path):
-    """The same tests run against both backends."""
-    if request.param == "local":
-        yield LocalLedger(tmp_path / "ledger")
-        return
+NAMES = Names(DeploymentEnvironment.DEVELOPMENT)
+
+
+@pytest.fixture
+def table():
+    """An empty ledger table, as the storage stack creates it."""
     with mock_aws():
-        client = boto3.client("dynamodb", region_name="eu-west-2")
-        client.create_table(
+        boto3.client("dynamodb", region_name="eu-west-2").create_table(
             TableName="dia-pipeline-ledger-dev",
             AttributeDefinitions=[
                 {"AttributeName": "pk", "AttributeType": "S"},
@@ -47,7 +49,15 @@ def ledger(request, tmp_path):
             KeySchema=[{"AttributeName": "pk", "KeyType": "HASH"}, {"AttributeName": "sk", "KeyType": "RANGE"}],
             BillingMode="PAY_PER_REQUEST",
         )
-        yield DynamoLedger(boto3.resource("dynamodb", region_name="eu-west-2").Table("dia-pipeline-ledger-dev"))
+        yield boto3.resource("dynamodb", region_name="eu-west-2").Table("dia-pipeline-ledger-dev")
+
+
+@pytest.fixture(params=["dynamodb", "local"])
+def ledger(request, tmp_path, table):
+    """The same tests run against both backends."""
+    if request.param == "local":
+        return LocalLedger(tmp_path / "ledger")
+    return DynamoLedger(table)
 
 
 # --- both ledgers ---
@@ -177,3 +187,71 @@ def test_a_document_version_is_the_utc_time_and_needs_a_timezone():
     assert document_version(dt.datetime(2026, 7, 1, 11, 0, 5, tzinfo=london)) == "2026-07-01T10:00:05Z"
     with pytest.raises(ValueError, match="timezone"):
         document_version(dt.datetime(2026, 7, 1, 11, 0, 5))
+
+
+# --- open_ledger ---
+
+
+def test_a_remote_run_uses_the_real_table(table, tmp_path):
+    ledger = open_ledger(SOURCE, Stage.TEXT, names=NAMES, remote=True, directory=tmp_path / "local")
+    ledger.record([_done()])
+
+    assert len(DynamoLedger(table).records(SOURCE, Stage.TEXT)) == 1
+    assert not (tmp_path / "local").exists()
+
+
+def test_a_local_run_starts_from_a_copy_of_the_real_ledger(table, tmp_path):
+    real = DynamoLedger(table)
+    saved = _done()
+    real.record([saved, _done(stage=Stage.CHUNK), _done(source="other_source")])
+
+    ledger = open_ledger(SOURCE, Stage.TEXT, names=NAMES, remote=False, directory=tmp_path)
+
+    assert isinstance(ledger, LocalLedger)
+    assert ledger.records(SOURCE, Stage.TEXT) == [saved]
+    assert ledger.records(SOURCE, Stage.CHUNK) == []
+    assert ledger.records("other_source", Stage.TEXT) == []
+
+
+def test_a_local_run_never_changes_the_real_ledger(table, tmp_path):
+    real = DynamoLedger(table)
+    real.record([_done("files/a.pdf")])
+
+    ledger = open_ledger(SOURCE, Stage.TEXT, names=NAMES, remote=False, directory=tmp_path)
+    ledger.record([_done("files/b.pdf"), _failed("files/a.pdf", V2)])
+
+    assert [r.document_key for r in real.records(SOURCE, Stage.TEXT)] == ["files/a.pdf"]
+
+
+def test_ignoring_the_ledger_starts_a_local_run_empty_and_leaves_the_real_one_alone(table, tmp_path):
+    real = DynamoLedger(table)
+    real.record([_done()])
+
+    ledger = open_ledger(SOURCE, Stage.TEXT, names=NAMES, remote=False, ignore_ledger=True, directory=tmp_path)
+
+    assert ledger.records(SOURCE, Stage.TEXT) == []
+    assert pending({"files/a.pdf": V1}, ledger.records(SOURCE, Stage.TEXT)) == ["files/a.pdf"]
+    assert len(real.records(SOURCE, Stage.TEXT)) == 1
+
+
+def test_a_second_local_run_replaces_the_first_ones_copy(table, tmp_path):
+    first = open_ledger(SOURCE, Stage.TEXT, names=NAMES, remote=False, directory=tmp_path)
+    first.record([_done("files/only-local.pdf")])
+
+    second = open_ledger(SOURCE, Stage.TEXT, names=NAMES, remote=False, directory=tmp_path)
+
+    assert second.records(SOURCE, Stage.TEXT) == []
+
+
+def test_a_copy_for_one_stage_leaves_the_local_copy_of_another_alone(table, tmp_path):
+    other = open_ledger(SOURCE, Stage.CHUNK, names=NAMES, remote=False, directory=tmp_path)
+    other.record([_done(stage=Stage.CHUNK)])
+
+    open_ledger(SOURCE, Stage.TEXT, names=NAMES, remote=False, directory=tmp_path)
+
+    assert len(LocalLedger(tmp_path).records(SOURCE, Stage.CHUNK)) == 1
+
+
+def test_ignoring_the_ledger_is_refused_for_a_remote_run(table, tmp_path):
+    with pytest.raises(ValueError, match="local run"):
+        open_ledger(SOURCE, Stage.TEXT, names=NAMES, remote=True, ignore_ledger=True, directory=tmp_path)

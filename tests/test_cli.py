@@ -4,6 +4,8 @@ import re
 from importlib.metadata import version
 from unittest.mock import patch
 
+import boto3
+import pytest
 from gds_idea_cdk_constructs import DeploymentEnvironment
 from typer.testing import CliRunner
 
@@ -721,6 +723,96 @@ def test_extract_text_reports_failed_keys():
     assert result.exit_code == 0
     assert "Failed:    1" in result.output
     assert "Failed keys: docs/doc1.pdf" in result.output
+
+
+# ---------------------------------------------------------------------------
+# dia pipeline ledger
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def pipeline_ledger():
+    """The pipeline ledger, in a moto table, for commands that read it as dev."""
+    from moto import mock_aws
+
+    from dia.pipeline_ledger import DynamoLedger
+
+    with mock_aws():
+        boto3.client("dynamodb", region_name="eu-west-2").create_table(
+            TableName="dia-pipeline-ledger-dev",
+            AttributeDefinitions=[
+                {"AttributeName": "pk", "AttributeType": "S"},
+                {"AttributeName": "sk", "AttributeType": "S"},
+            ],
+            KeySchema=[{"AttributeName": "pk", "KeyType": "HASH"}, {"AttributeName": "sk", "KeyType": "RANGE"}],
+            BillingMode="PAY_PER_REQUEST",
+        )
+        ledger = DynamoLedger(boto3.resource("dynamodb", region_name="eu-west-2").Table("dia-pipeline-ledger-dev"))
+        with patch("dia.cli_helpers.current_names", return_value=DEV_NAMES):
+            yield ledger
+
+
+def _ledger_records():
+    from dia.pipeline_ledger import LedgerRecord, Stage
+
+    version = "2026-11-24T10:15:00Z"
+    return [
+        LedgerRecord.done("gats", Stage.TEXT, "files/a.pdf", version, code_version="1.0", output_location="s3://o/a"),
+        LedgerRecord.failed("gats", Stage.TEXT, "files/b.pdf", version, code_version="1.0", reason="no text found"),
+        LedgerRecord.done("gats", Stage.CHUNK, "files/a.pdf", version, code_version="1.0"),
+        LedgerRecord.done("other", Stage.TEXT, "files/z.pdf", version, code_version="1.0"),
+    ]
+
+
+def test_pipeline_ledger_list_shows_a_stages_records_and_failure_reasons(pipeline_ledger):
+    pipeline_ledger.record(_ledger_records())
+
+    result = runner.invoke(app, ["pipeline", "ledger", "list", "--source", "gats", "--stage", "text"])
+
+    assert result.exit_code == 0
+    assert "Table:  dia-pipeline-ledger-dev" in result.output
+    assert "Count:  2" in result.output
+    assert "done   files/a.pdf  2026-11-24T10:15:00Z  1.0  s3://o/a" in result.output
+    assert "failed files/b.pdf  2026-11-24T10:15:00Z  1.0  no text found" in result.output
+    assert "files/z.pdf" not in result.output
+
+
+def test_pipeline_ledger_list_can_show_only_failures(pipeline_ledger):
+    pipeline_ledger.record(_ledger_records())
+
+    result = runner.invoke(app, ["pipeline", "ledger", "list", "-s", "gats", "--stage", "text", "--failed"])
+
+    assert "Count:  1" in result.output
+    assert "files/b.pdf" in result.output
+    assert "files/a.pdf" not in result.output
+
+
+def test_pipeline_ledger_list_for_an_empty_stage_says_so(pipeline_ledger):
+    result = runner.invoke(app, ["pipeline", "ledger", "list", "--source", "gats", "--stage", "load"])
+
+    assert result.exit_code == 0
+    assert "Count:  0" in result.output
+
+
+def test_pipeline_ledger_list_rejects_an_unknown_stage(pipeline_ledger):
+    result = runner.invoke(app, ["pipeline", "ledger", "list", "--source", "gats", "--stage", "nope"])
+
+    assert result.exit_code == 2
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "nope" in plain
+    assert "propositions" in plain
+
+
+def test_pipeline_ledger_status_counts_done_and_failed_per_stage(pipeline_ledger):
+    pipeline_ledger.record(_ledger_records())
+
+    result = runner.invoke(app, ["pipeline", "ledger", "status", "--source", "gats"])
+
+    assert result.exit_code == 0
+    lines = {line.split()[0]: line.split()[1:] for line in result.output.splitlines() if line.startswith("  ")}
+    assert lines["text"] == ["1", "1"]
+    assert lines["chunk"] == ["1", "0"]
+    assert lines["load"] == ["0", "0"]
 
 
 # ---------------------------------------------------------------------------

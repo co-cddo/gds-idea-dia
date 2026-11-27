@@ -23,6 +23,10 @@ that failed and is later done ends up done.
 Stored in DynamoDB (`DynamoLedger`) with partition key `source#stage` and sort key
 `document_key#version`, so one query gives a stage's records for a source. `LocalLedger`
 keeps the same records in JSON files, for runs on a laptop.
+
+`open_ledger` gives a stage the ledger for its run: the real table for a remote run, and for a
+local run a copy of it in `./output/ledger/` (or an empty one), so a local run never changes the
+real ledger.
 """
 
 from __future__ import annotations
@@ -285,3 +289,52 @@ class LocalLedger:
             temporary = path.with_suffix(".json.tmp")
             temporary.write_text(json.dumps(items, indent=1), encoding="utf-8")
             os.replace(temporary, path)
+
+    def clear(self, source: str, stage: Stage) -> None:
+        """Forget every record of this source and stage."""
+        self._path(source, stage).unlink(missing_ok=True)
+
+
+LOCAL_LEDGER_DIRECTORY = Path("output") / "ledger"
+
+
+def open_ledger(
+    source: str,
+    stage: Stage,
+    *,
+    names: Names,
+    remote: bool,
+    ignore_ledger: bool = False,
+    directory: Path = LOCAL_LEDGER_DIRECTORY,
+) -> PipelineLedger:
+    """The ledger a stage should use for one source in this run.
+
+    A remote run uses the real table. A local run never writes to it: it gets a `LocalLedger`
+    in `directory`, holding a copy of the real table's records for this source and stage, or
+    nothing if `ignore_ledger` is set (so every document is pending). Any earlier local copy of
+    this source and stage is replaced, so a stale one cannot hide work that is now pending.
+
+    Args:
+        source: The source's key.
+        stage: The stage that is running.
+        names: The names of the deployment whose table is read.
+        remote: Whether the stage is running as a task.
+        ignore_ledger: Start a local run from an empty ledger instead of a copy.
+        directory: Where a local run keeps its ledger files.
+
+    Raises:
+        ValueError: If `ignore_ledger` is set on a remote run, which would redo documents already done in
+            the real ledger.
+    """
+    if remote:
+        if ignore_ledger:
+            raise ValueError("ignore_ledger only applies to a local run")
+        return DynamoLedger.from_names(names)
+
+    local = LocalLedger(directory)
+    local.clear(source, stage)
+    if not ignore_ledger:
+        copied = DynamoLedger.from_names(names).records(source, stage)
+        if copied:
+            local.record(copied)
+    return local

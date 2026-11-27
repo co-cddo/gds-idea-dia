@@ -158,9 +158,16 @@ State when this was written, with `dev` at #87 (the writing step, 8c). Check `gh
   `pending(versions, records, retry_failed=...)` for what is left. **Rule: record a document as done
   only after its output is written.** If the run stops first there is no record and it is done
   again; a record written ahead of the work would make it skipped for good. A failed record keeps
-  its reason and is skipped until the document changes or `retry_failed` is set. Not built yet:
-  the CLI wiring (copy the real ledger for a local run, `--ignore-ledger`, `--retry-failed`), which
-  comes with the text stage. Preflight checks the new table. Built and tested with moto, **not
+  its reason and is skipped until the document changes or `retry_failed` is set.
+  `open_ledger(source, stage, names=, remote=, ignore_ledger=)` gives a stage its ledger: the real
+  table for a remote run; for a local run a `LocalLedger` in `./output/ledger/` holding a copy of the
+  real records for that source and stage (replacing any earlier copy), or empty with `ignore_ledger`
+  (refused for a remote run). A local run never writes to the real table. Read-only commands
+  `dia pipeline ledger list --source S --stage T [--failed]` and `status --source S` show the real
+  table. **Not built:** the `--ignore-ledger` and `--retry-failed` options themselves, because they only
+  mean something to a stage; the text stage declares them and calls `open_ledger` and `pending`.
+  `dia.pipeline_ledger` is not in `TASK_MODULES` yet: add it when a task command imports it.
+  Preflight checks the new table. Built and tested with moto, **not
   run against the real table until this is deployed.**
 - **Legacy ledger import (`scripts/import_legacy_ledger.py`, one-time, dev only).** The old code
   ingested documents into the dev graph and kept `file_reference_mapping_new_v2.json`, a map of
@@ -195,7 +202,7 @@ State when this was written, with `dev` at #87 (the writing step, 8c). Check `gh
   `dia pipeline <stage>` command that runs locally and with `--remote`. What
   "latest" means is not decided (see section 2).
 
-**Not started:** every stage after the labels, and the CLI wiring of the ledger.
+**Not started:** every stage after the labels.
 
 **Old code still in the repo.** The rest of `src/dia` is the first build: `extract-text`
 and its runner, `sources/known.py`, `DataSource`, the `metadata` package, the old
@@ -209,7 +216,8 @@ Follow section 7 of the spec. In short, the order is:
 1. **Metadata model and sidecar format.** Done (`dia.sources.sidecar`).
 2. **The GATS metadata step.** Done: the mapping, the dry run and the writing. The labels
    are in the prod bucket (see section 1).
-3. **The minimal ledger.** Built (`dia.pipeline_ledger`). Run the legacy import once it is deployed.
+3. **The minimal ledger.** Built (`dia.pipeline_ledger`), with `open_ledger` and the `dia pipeline ledger`
+   commands. Run the legacy import once it is deployed.
 4. **S3 reader and the text stage**, which delete `known.py`, `DataSource`,
    `extract-text` and the old metadata package.
 5. **Chunk, propositions, topics, validate, embed, load**, then check the result with
@@ -528,8 +536,9 @@ what you don't need.
   change real state, except `dia pipeline metadata --write`, which a local run with prod
   credentials uses to add sidecars to the GATS bucket (spec 3.5).
 - **Commands.** Pipeline commands live under `dia pipeline`, the agent under `dia
-  agent`. `extract-text` and `ledger` are still at the top level and move under
-  `pipeline` when rewritten. `dia agent status` is effectively the agent's own
+  agent`. `extract-text` and the old `ledger` commands (`list`, `clear`, `clone`; `extract-text`
+  tells you to use `clone`) are still at the top level and go with the text stage. The new ledger's commands
+  are `dia pipeline ledger`. `dia agent status` is effectively the agent's own
   preflight.
 - **Stages:** text, chunk, propositions, topics, validate, embed, load. Purge and prune
   are separate, and prune is deferred. Stages that call Bedrock always use batch jobs,

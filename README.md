@@ -16,6 +16,7 @@ uv run dia --version
 - [`dia extract-text`](docs/extract-text.md) — Stage 1: extract text from documents in a source
 - `dia pipeline preflight` — check that this process can do what the pipeline needs (see below)
 - `dia pipeline metadata` — label the GATS documents from the exports: a dry run, or with `--write` the real thing (see below)
+- `dia pipeline ledger list` and `status` — see what each stage has done to each document (see below)
 
 ### Metadata labels
 
@@ -104,6 +105,23 @@ laptop, the name is built from the environment: `dia-runtime-config-<phase>`.
 The parameter is written by the pipeline task stack (`stacks/pipeline_task.py`),
 so the "runtime config" check fails in an account until that stack has been
 deployed there. Your own role also needs `ssm:GetParameter` on it.
+
+### The pipeline ledger
+
+The ledger records what each stage did to each version of each document, so a run only
+does what is new or changed. These commands read it (they never change it) with your
+credentials, from the table for your account's phase:
+
+```bash
+uv run dia pipeline ledger status --source gats_business_cases                 # done and failed per stage
+uv run dia pipeline ledger list --source gats_business_cases --stage text      # every record of a stage
+uv run dia pipeline ledger list --source gats_business_cases --stage text --failed   # with the reasons
+```
+
+Stages open their ledger with `dia.pipeline_ledger.open_ledger`. A `--remote` run uses the real
+table. A local run works on a copy in `./output/ledger/`, so it never changes the real one, or
+on an empty one with `--ignore-ledger`. (The older `dia ledger` commands belong to
+`extract-text` and go with it.)
 
 ### Running in the cloud
 
