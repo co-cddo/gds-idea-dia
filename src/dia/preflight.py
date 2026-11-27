@@ -150,7 +150,9 @@ def check_buckets(names: Names, s3_client) -> CheckResult:
     return _ok("buckets", f"all {len(PREFLIGHT_BUCKETS)} reachable")
 
 
-def source_s3_client(role_arn: str | None, sts_client, session_name: str = "dia-preflight"):
+def source_s3_client(
+    role_arn: str | None, sts_client, session_name: str = "dia-preflight", config: Config | None = None
+):
     """An S3 client that can read production source data.
 
     Without a role (production) it reads directly. With one (dev) it reads
@@ -160,6 +162,7 @@ def source_s3_client(role_arn: str | None, sts_client, session_name: str = "dia-
         role_arn: The cross-account role from the runtime config, or None.
         sts_client: An STS client, used to assume the role.
         session_name: Names the role session, which shows in CloudTrail.
+        config: Client settings, for example a larger connection pool.
 
     Returns:
         A boto3 S3 client.
@@ -168,7 +171,7 @@ def source_s3_client(role_arn: str | None, sts_client, session_name: str = "dia-
         ClientError: If the role cannot be assumed.
     """
     if role_arn is None:
-        return boto3.client("s3", region_name=REGION)
+        return boto3.client("s3", region_name=REGION, config=config)
 
     credentials = sts_client.assume_role(RoleArn=role_arn, RoleSessionName=session_name)["Credentials"]
     return boto3.client(
@@ -177,6 +180,7 @@ def source_s3_client(role_arn: str | None, sts_client, session_name: str = "dia-
         aws_access_key_id=credentials["AccessKeyId"],
         aws_secret_access_key=credentials["SecretAccessKey"],
         aws_session_token=credentials["SessionToken"],
+        config=config,
     )
 
 
